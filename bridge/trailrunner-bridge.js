@@ -149,31 +149,48 @@ function parseLogLines(text) {
   let changed = false;
 
   for (const line of lines) {
-    // Speed: "Changed KPH 5.0" or "Kph changed 5.0"
-    if (line.includes('Changed KPH') || line.includes('Kph changed')) {
-      const parts = line.trim().split(/\s+/);
-      const val = parseFloat(parts[parts.length - 1]);
-      if (!isNaN(val) && val >= 0 && val <= 25) {
-        currentSpeed = val;
-        changed = true;
+    // Speed: "SDS Changed KPH from 1.6 kph to 1.93 kph"
+    if (line.includes('Changed KPH')) {
+      const m = line.match(/to\s+([\d.]+)\s*kph/i);
+      if (m) {
+        const val = parseFloat(m[1]);
+        if (!isNaN(val) && val >= 0 && val <= 25) {
+          currentSpeed = val;
+          changed = true;
+        }
       }
     }
-    // Incline: "Changed Grade 5.0" or "Grade changed 5.0"
-    else if (line.includes('Changed Grade') || line.includes('Grade changed')) {
-      const parts = line.trim().split(/\s+/);
-      const val = parseFloat(parts[parts.length - 1]);
-      if (!isNaN(val) && val >= -6 && val <= 40) {
-        currentIncline = val;
-        changed = true;
-      }
-    }
-    // "Changed INCLINE 5.0"
+    // Incline: "SDS Changed INCLINE from 0.0 % to 3.0 %"
     else if (line.includes('Changed INCLINE')) {
-      const parts = line.trim().split(/\s+/);
-      const val = parseFloat(parts[parts.length - 1]);
-      if (!isNaN(val) && val >= -6 && val <= 40) {
-        currentIncline = val;
-        changed = true;
+      const m = line.match(/to\s+(-?[\d.]+)\s*%/);
+      if (m) {
+        const val = parseFloat(m[1]);
+        if (!isNaN(val) && val >= -6 && val <= 40) {
+          currentIncline = val;
+          changed = true;
+        }
+      }
+    }
+    // FitPro sending: "FITPRO Sending [KPH: 1.6093...]" (command confirmation)
+    else if (line.includes('Sending [KPH:')) {
+      const m = line.match(/\[KPH:\s*([\d.]+)/);
+      if (m) {
+        const val = parseFloat(m[1]);
+        if (!isNaN(val) && val >= 0 && val <= 25) {
+          currentSpeed = val;
+          changed = true;
+        }
+      }
+    }
+    // FitPro sending grade: "FITPRO Sending [GRADE: 0.0]"
+    else if (line.includes('Sending [GRADE:')) {
+      const m = line.match(/\[GRADE:\s*(-?[\d.]+)/);
+      if (m) {
+        const val = parseFloat(m[1]);
+        if (!isNaN(val) && val >= -6 && val <= 40) {
+          currentIncline = val;
+          changed = true;
+        }
       }
     }
     // Heart rate: "HeartRateDataUpdate 152"
@@ -185,23 +202,39 @@ function parseLogLines(text) {
         changed = true;
       }
     }
-    // Watts: "Changed Watts 150"
+    // Watts: "Changed Watts" — look for numeric value
     else if (line.includes('Changed Watts')) {
-      const parts = line.trim().split(/\s+/);
-      const val = parseInt(parts[parts.length - 1]);
-      if (!isNaN(val) && val > 0) {
-        currentWatts = val;
-        changed = true;
+      const m = line.match(/to\s+([\d.]+)/);
+      if (m) {
+        const val = parseInt(m[1]);
+        if (!isNaN(val) && val > 0) {
+          currentWatts = val;
+          changed = true;
+        }
       }
     }
-    // RPM: "Changed RPM 80"
+    // RPM: "Changed RPM" — look for numeric value
     else if (line.includes('Changed RPM')) {
-      const parts = line.trim().split(/\s+/);
-      const val = parseInt(parts[parts.length - 1]);
-      if (!isNaN(val) && val >= 0) {
-        currentRPM = val;
-        changed = true;
+      const m = line.match(/to\s+([\d.]+)/);
+      if (m) {
+        const val = parseInt(m[1]);
+        if (!isNaN(val) && val >= 0) {
+          currentRPM = val;
+          changed = true;
+        }
       }
+    }
+    // Console state: "SDS Changed CONSOLE_STATE from IDLE to WORKOUT"
+    else if (line.includes('Changed CONSOLE_STATE')) {
+      const m = line.match(/to\s+(\w+)/);
+      if (m) {
+        const state = m[1];
+        console.log(`[Bridge] Console state: ${state}`);
+      }
+    }
+    // Physical button: "SDS Changed KEY_OBJECT ... KeyPress(code=STOP, ...)"
+    else if (line.includes('Changed KEY_OBJECT') && line.includes('code=STOP')) {
+      console.log('[Bridge] STOP button pressed on treadmill');
     }
   }
 

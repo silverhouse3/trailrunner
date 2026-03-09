@@ -1,31 +1,48 @@
 # ICON FitPro Protocol — NordicTrack X32i Motor Controller
 
-**Reverse-engineered from**: `com.ifit.glassos_service` APK (44MB, 11 DEX files)
+**Reverse-engineered from**: `com.ifit.glassos_service` APK + live Valinor log capture
 **Date**: 2026-03-09
-**Status**: Partial — packet framing confirmed, exact command bytes need USB sniffing
+**Status**: gRPC API fully mapped, log parsing confirmed, USB HID packets partially decoded
 
 ## Overview
 
-The NordicTrack X32i (and other ICON Fitness treadmills) uses a proprietary protocol
-called **FitPro** to communicate between the Android tablet and the motor controller
-board (MCU: PSOC, vendor ID: 0x213C, product ID: 0x0002).
+The NordicTrack X32i uses a proprietary protocol called **FitPro** to communicate
+between the Android tablet and the motor controller board (MCU: PSOC).
 
-Communication is via **USB CDC ACM** (serial over USB), NOT HID reports.
+Communication is via **USB HID** (class 3, interrupt endpoints), NOT CDC ACM.
+The glassos_service exposes 58 gRPC services over Android Binder IPC, used by
+iFIT (rivendell/gandalf) to control speed, incline, fan, etc.
+
+## USB Device (from live capture)
+
+```
+UsbDevice[mName=/dev/bus/usb/001/002]
+  mVendorId=8508 (0x213C, ICON Fitness)
+  mProductId=2
+  mManufacturerName=ICON Fitness
+  mProductName=ICON Generic HID
+  mVersion=2.0
+  mSerialNumber=null
+
+UsbConfiguration[mId=1, mName=Fitness Equipment]
+  UsbInterface[mId=0, mName=USB Data Interface, mClass=3 (HID)]
+    UsbEndpoint[mAddress=0x81, mAttributes=3 (interrupt), mMaxPacketSize=64, IN]
+    UsbEndpoint[mAddress=0x02, mAttributes=3 (interrupt), mMaxPacketSize=64, OUT]
+```
 
 ## Architecture
 
 ```
 Android Tablet (iFIT / glassos_service)
     |
-    | USB CDC ACM (serial)
+    | USB HID (interrupt endpoints, 64-byte packets)
     | VID: 0x213C  PID: 0x0002
-    | 64-byte packets
     |
 Motor Controller Board (PSOC MCU)
     |
-    +-- Drive Motor (belt speed)
-    +-- Incline Motor (grade)
-    +-- Fan Motor
+    +-- Drive Motor (belt speed, 0-22 km/h)
+    +-- Incline Motor (grade, -6% to +40%)
+    +-- Fan Motor (OFF/LOW/MEDIUM/HIGH/AUTO)
     +-- Safety Key Monitor
     +-- Heart Rate Receiver (ANT+)
 ```

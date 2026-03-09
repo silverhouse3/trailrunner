@@ -21,10 +21,11 @@ const { exec } = require('child_process');
 // ── FitPro Protocol Constants ────────────────────────────────────────────────
 
 const FITPRO = {
-  VID: 0x213C,        // ICON Fitness
-  PID: 0x0002,        // Generic HID (actually CDC ACM)
-  MAX_PACKET: 64,     // Max packet size
+  VID: 0x213C,        // ICON Fitness (decimal 8508)
+  PID: 0x0002,        // "ICON Generic HID" — USB HID class 3
+  MAX_PACKET: 64,     // Max packet size (interrupt endpoints, 64 bytes each)
   MIN_PACKET: 3,      // Min valid packet
+  // USB endpoints: IN 0x81 (interrupt), OUT 0x02 (interrupt)
 
   // BitField IDs (from decompiled glassos_service)
   FIELDS: {
@@ -74,8 +75,8 @@ const FITPRO = {
   SPEED_SCALE: 100,   // 0.01 km/h units (1931 = 19.31 km/h)
   GRADE_SCALE: 100,   // 0.01% units (-600 = -6%, 4000 = +40%)
 
-  // X32i limits
-  MAX_SPEED_RAW: 1931,    // 19.31 km/h = 12 mph
+  // X32i limits (confirmed from capture: KPH buttons go to 22, incline -6 to 40)
+  MAX_SPEED_RAW: 2200,    // 22.00 km/h = 13.67 mph
   MIN_GRADE_RAW: -600,    // -6%
   MAX_GRADE_RAW: 4000,    // +40%
 };
@@ -192,7 +193,7 @@ const state = {
 };
 
 function speedToRaw(kmh) {
-  return Math.round(Math.max(0, Math.min(19.31, kmh)) * FITPRO.SPEED_SCALE);
+  return Math.round(Math.max(0, Math.min(22, kmh)) * FITPRO.SPEED_SCALE);
 }
 
 function rawToSpeed(raw) {
