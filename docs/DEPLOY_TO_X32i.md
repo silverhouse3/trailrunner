@@ -262,9 +262,73 @@ Normal commands are rate-limited to prevent overwhelming the motor controller:
 
 ---
 
+## Method 5: TrailRunner Bridge (Full Hardware Control)
+
+The TrailRunner Bridge provides real hardware control — reading actual speed/incline from
+the motor controller and sending commands to change them.
+
+### How It Works
+
+```
+TrailRunner (PWA in browser)
+    | WebSocket (localhost:4510)
+TrailRunner Bridge (Node.js)
+    | Reads: glassos_service log files (speed, incline, HR)
+    | Writes: input swipe on iFIT UI sliders (via QZCompanion)
+Motor Controller (PSOC MCU via USB CDC ACM)
+```
+
+### Prerequisites
+
+1. ADB access to treadmill (Developer Mode + USB debugging)
+2. iFIT services running (glassos_service for hardware access)
+3. Termux installed on treadmill (for running Node.js)
+4. QZCompanion APK installed (for input swipe control)
+
+### Installation
+
+Run from your PC:
+```cmd
+tools\INSTALL_BRIDGE.cmd
+```
+
+Or manually:
+```cmd
+adb connect 192.168.100.54:5555
+adb install qzcompanion.apk
+adb install termux.apk
+adb push bridge/trailrunner-bridge.js /sdcard/trailrunner/bridge.js
+```
+
+### Running the Bridge
+
+On the treadmill (via Termux):
+```bash
+pkg install nodejs
+node /sdcard/trailrunner/bridge.js
+```
+
+TrailRunner will auto-connect to `ws://localhost:4510`.
+
+### Phase 2: Direct USB Control (Future)
+
+We've reverse-engineered the ICON FitPro protocol from glassos_service.
+See `docs/FITPRO_PROTOCOL.md` for full protocol details including:
+- USB CDC ACM serial communication
+- 64-byte packet format with checksum
+- BitField IDs for speed (301/302), incline (401/402), workout control (602/612/613)
+- Value encoding (0.01 km/h for speed, 0.01% for incline)
+
+A future version will communicate directly with the motor controller,
+eliminating the need for iFIT, QZCompanion, or input swipe.
+
+---
+
 ## Sources & Community
 
 - [NordicUnchained (XDA Forums)](https://xdaforums.com/t/nordicunchained-get-back-privileged-mode-on-nordictrack-treadmill.4390801/)
 - [iFitController WebSocket Protocol](https://github.com/belden/iFitController)
 - [QZ Companion for NordicTrack](https://github.com/cagnulein/QZCompanionNordictrackTreadmill)
+- [qdomyos-zwift (Treadmill Bridge)](https://github.com/cagnulein/qdomyos-zwift)
+- [fl3xbl0w (Bowflex Protocol RE)](https://github.com/barrenechea/fl3xbl0w)
 - [r/nordictrackandroid](https://www.reddit.com/r/nordictrackandroid/)
