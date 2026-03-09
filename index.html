@@ -1,8 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=1280">
-<title>TrailRunner v14</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#090b10">
+<title>TrailRunner</title>
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;700&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
@@ -14,9 +18,13 @@
   --text:#dde4f0;--dim:#49536b;--mid:#7a889e;
   --z1:#4fc3f7;--z2:#69f0ae;--z3:#ffe066;--z4:#ffb74d;--z5:#ff5f5f;
 }
-*{margin:0;padding:0;box-sizing:border-box}
-body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;
-  width:1280px;height:720px;overflow:hidden;user-select:none}
+*{margin:0;padding:0;box-sizing:border-box;
+  -webkit-tap-highlight-color:transparent;
+  -webkit-touch-callout:none;
+  touch-action:manipulation}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);overscroll-behavior:none;}
+body{color:var(--text);font-family:'Rajdhani',sans-serif;user-select:none}
+#rootApp{position:fixed;top:0;left:0;width:1280px;height:720px;transform-origin:0 0;background:var(--bg);overflow:hidden;}
 
 /* ══ TOPBAR ═══════════════════════════════════════════════════════════════ */
 .topbar{display:flex;align-items:center;justify-content:space-between;
@@ -26,15 +34,26 @@ body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;
 .pills{display:flex;gap:6px;align-items:center}
 .pill{display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:20px;
   border:1px solid;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.05em;
-  cursor:pointer;transition:.2s;white-space:nowrap}
+  cursor:pointer;transition:.2s;white-space:nowrap;min-height:30px}
 .pill.on{color:var(--green);border-color:#264030;background:#0c1a12}
 .pill.off{color:var(--dim);border-color:#1a2030}
 .pill.ghost-pill{color:var(--ghost2);border-color:#3a4060;background:#131828;animation:ghostGlow 3s infinite}
 .pill.together-pill{color:#ff9f43;border-color:#3a2a10;background:#1a1408}
 .pill.insights-pill{color:var(--purple);border-color:#2a1a40;background:#120e1e}
 @keyframes ghostGlow{0%,100%{box-shadow:0 0 0 transparent}50%{box-shadow:0 0 14px rgba(184,196,216,.25)}}
-.dot{width:5px;height:5px;border-radius:50%;background:currentColor}
-.dot.blink{animation:blink 1.4s infinite}
+/* Bluetooth pills */
+.bt-pill{display:flex;align-items:center;padding:4px 10px;border-radius:20px;border:1px solid;
+  font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.05em;cursor:pointer;
+  transition:.2s;white-space:nowrap;min-height:30px;
+  color:var(--dim);border-color:#1a2030;background:transparent}
+.bt-pill.connecting{color:var(--yellow);border-color:#3a3010;animation:btPulse 1s infinite}
+.bt-pill.connected{color:var(--green);border-color:#264030;background:#0c1a12}
+@keyframes btPulse{0%,100%{opacity:1}50%{opacity:.5}}
+/* LIVE badge shown on metric cards when real sensor data is flowing */
+.live-badge{display:inline-block;padding:1px 5px;border-radius:3px;font-size:8px;
+  font-family:'JetBrains Mono',monospace;font-weight:700;letter-spacing:.08em;
+  background:var(--green);color:#000;margin-left:4px;vertical-align:middle;animation:livePulse 2s infinite}
+@keyframes livePulse{0%,100%{opacity:1}50%{opacity:.6}}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
 .timer{font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700;letter-spacing:.08em}
 .rname{font-size:10px;color:var(--mid);letter-spacing:.1em;text-transform:uppercase}
@@ -676,6 +695,7 @@ body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;
 </style>
 </head>
 <body>
+<div id="rootApp">
 
 <!-- TOPBAR -->
 <div class="topbar">
@@ -691,6 +711,9 @@ body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;
       <div class="pill" style="color:var(--purple);border-color:#2a1a40;background:#120e1e;cursor:pointer" onclick="openProgModal()">📋 PROGRAMMES</div>
       <div class="pill" style="color:var(--cyan);border-color:#1a3040;background:#0a1420;cursor:pointer" onclick="toggleSplits()">📊 SPLITS</div>
       <div class="pill" style="color:var(--cyan);border-color:#1a3040;background:#0a1420;cursor:pointer" onclick="openRouteSelector()">🗺 SELECT ROUTE</div>
+      <!-- BT HR + FTMS pills — tap to connect -->
+      <div class="topbtn bt-pill" id="btHRPill" onclick="connectBTHR()" title="Connect Bluetooth Heart Rate Monitor">❤ HR</div>
+      <div class="topbtn bt-pill" id="btFTMSPill" onclick="connectTreadmill()" title="Connect to treadmill (uthttpd ws://localhost:80)">🏃 TREADMILL</div>
     </div>
   </div>
     <div style="display:flex;align-items:center;gap:10px">
@@ -701,6 +724,58 @@ body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;
       <div class="timer" id="timerEl">00:24:17</div>
     </div>
   </div>
+
+<!-- X32i SETUP OVERLAY — shown on first load, explains BT connection steps -->
+<div id="setupOverlay" style="
+  position:absolute;inset:0;background:rgba(9,11,16,.97);
+  display:flex;align-items:center;justify-content:center;z-index:9000">
+  <div style="max-width:640px;padding:40px;text-align:center">
+    <div style="font-family:'Orbitron',sans-serif;font-size:22px;font-weight:900;
+      color:var(--cyan);letter-spacing:.2em;margin-bottom:8px">TRAILRUNNER</div>
+    <div style="font-size:11px;color:var(--mid);font-family:'JetBrains Mono',monospace;
+      letter-spacing:.15em;margin-bottom:32px">NORDICTRACK X32i · SETUP</div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:24px;text-align:left">
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px">
+        <div style="font-size:10px;font-weight:700;color:var(--cyan);
+          font-family:'JetBrains Mono',monospace;margin-bottom:8px">① NORDICUNCHAINED</div>
+        <div style="font-size:10px;color:var(--mid);line-height:1.7">
+          Install NordicUnchained on this X32i. This restores privileged Android access and keeps it across iFIT updates.<br><br>
+          Gives TrailRunner full access to the local treadmill WebSocket.
+        </div>
+      </div>
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px">
+        <div style="font-size:10px;font-weight:700;color:var(--orange);
+          font-family:'JetBrains Mono',monospace;margin-bottom:8px">② CONNECT TREADMILL</div>
+        <div style="font-size:10px;color:var(--mid);line-height:1.7">
+          Tap <strong style="color:var(--text)">🏃 TREADMILL</strong> — TrailRunner connects directly to the X32i's built-in WebSocket server (uthttpd).<br><br>
+          Real speed, incline &amp; HR sync instantly. App can <strong style="color:var(--green)">control the belt &amp; ramp</strong>.
+        </div>
+      </div>
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px">
+        <div style="font-size:10px;font-weight:700;color:var(--green);
+          font-family:'JetBrains Mono',monospace;margin-bottom:8px">③ HEART RATE (OPT)</div>
+        <div style="font-size:10px;color:var(--mid);line-height:1.7">
+          Tap <strong style="color:var(--text)">❤ HR</strong> to pair a chest strap (Polar, Garmin, Wahoo).<br><br>
+          Enables HR Zone auto-control — the app adjusts incline or speed to keep you in your target zone.
+        </div>
+      </div>
+    </div>
+    <div style="background:#0c1018;border:1px solid #2a1a3a;border-radius:8px;padding:12px;
+      margin-bottom:24px;font-size:10px;color:var(--mid);font-family:'JetBrains Mono',monospace;
+      line-height:1.8;text-align:left">
+      🏔️ <strong style="color:var(--cyan)">ROUTE MODE (default):</strong> TrailRunner automatically sets treadmill incline to match the real Cotswold Way gradient as you progress. Your map position advances with your real speed. The trail comes to life.<br>
+      💡 <strong style="color:var(--dim)">No treadmill connection?</strong> Full simulator mode — speed &amp; HR modelled, all features work. Great for planning routes before you run them.
+    </div>
+
+    <button onclick="document.getElementById('setupOverlay').style.display='none';requestWakeLock();"
+      style="padding:14px 48px;background:var(--cyan);color:#000;border:none;border-radius:6px;
+      font-family:'Orbitron',sans-serif;font-size:14px;font-weight:700;letter-spacing:.1em;
+      cursor:pointer;min-height:50px">
+      START RUNNING
+    </button>
+  </div>
+</div>
 
 <!-- PAUSE OVERLAY -->
 <div class="pause-overlay" id="pauseOverlay">
@@ -868,19 +943,19 @@ body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;
   <div class="metrics">
     <div class="mcard wide" style="--ac:var(--red)">
       <div style="display:flex;justify-content:space-between">
-        <div class="ml">Heart Rate</div>
+        <div class="ml">Heart Rate <span id="hrLiveBadge" style="display:none" class="live-badge">LIVE</span></div>
         <div class="ms2" id="hrZoneLbl" style="color:var(--z4)">ZONE 4 · THRESHOLD</div>
       </div>
       <div><span class="mv" id="hrVal" style="font-size:30px">142</span><span class="mu">bpm</span></div>
       <div class="zone-bar"><div class="zone-cur" id="zCur" style="left:68%"></div></div>
     </div>
     <div class="mcard clickable" style="--ac:var(--cyan)" onclick="cycleSpeedUnit()">
-      <div class="ml">Speed <span class="unit-hint" id="speedUnitHint">↻ km/h</span></div>
+      <div class="ml">Speed <span class="unit-hint" id="speedUnitHint">↻ km/h</span> <span id="speedLiveBadge" style="display:none" class="live-badge">LIVE</span></div>
       <div><span class="mv" id="spVal">9.6</span><span class="mu" id="spUnit">km/h</span></div>
       <div class="ms" id="paceVal">6:15 /km</div>
     </div>
     <div class="mcard" style="--ac:var(--orange)">
-      <div class="ml">Incline</div>
+      <div class="ml" id="incLbl">Incline</div>
       <div><span class="mv" id="incVal">+6.5</span><span class="mu">%</span></div>
       <div class="ibar"><div class="ifill" id="iFill" style="width:55%;background:var(--orange)"></div></div>
     </div>
@@ -1076,6 +1151,8 @@ const S={
   garminSaved:false,
   totalHrSamples:0,
   hrSum:0,   // accumulates HR for running avg
+  hrFromBT:false,   // true when real BT HR monitor connected
+  speedFromBT:false, // true when FTMS treadmill data connected
 };
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1135,7 +1212,7 @@ function elevUnit(){return UNITS.elev;}
 // AUTO HR CONTROL  (incline or speed adjusts to hold HR in target zone)
 // ════════════════════════════════════════════════════════════════════════════
 const CTRL={
-  mode:'manual',      // manual | hr-incline | hr-speed
+  mode:'route',       // manual | route | hr-incline | hr-speed
   targetZone:3,
   maxHR:185,
   targetSpeed:9.0,    // km/h (fixed when mode=hr-incline)
@@ -1153,19 +1230,62 @@ function zoneHR(z,which){
   const def=HR_ZONES[z-1];
   return Math.round(CTRL.maxHR*(which==='min'?def.min:def.max));
 }
+// ════════════════════════════════════════════════════════════════════════════
+// ROUTE GRADE CALCULATION
+// Calculates real terrain gradient from EL[] array at current position.
+// Used by route-auto-incline mode to actually tilt the treadmill.
+// ════════════════════════════════════════════════════════════════════════════
+function getRouteGrade(idx){
+  // Look ahead 4 points to smooth micro-noise in elevation data
+  const i1=Math.max(0,idx-1);
+  const i2=Math.min(EL.length-1,idx+4);
+  if(i2<=i1)return 0;
+  const elevChange=EL[i2]-EL[i1]; // metres
+  const distChange=(i2-i1)*(TOTAL_KM*1000/TOTAL_PTS); // metres
+  const grade=(elevChange/distChange)*100*S.elevMult;
+  return Math.max(-6,Math.min(40,grade)); // clamp to X32i range (-6%→40%)
+}
+
+function getCurrentZone(){
+  const hr=S.hr,mx=CTRL.maxHR;
+  if(hr<mx*0.60)return 1;
+  if(hr<mx*0.70)return 2;
+  if(hr<mx*0.80)return 3;
+  if(hr<mx*0.90)return 4;
+  return 5;
+}
+
 function applyAutoCtrl(){
   if(CTRL.mode==='manual')return;
   const zMin=zoneHR(CTRL.targetZone,'min'),zMax=zoneHR(CTRL.targetZone,'max');
-  if(CTRL.mode==='hr-incline'){
+
+  if(CTRL.mode==='route'){
+    // The star feature: auto-match treadmill incline to real trail gradient
+    const grade=getRouteGrade(S.idx);
+    CTRL.currentIncline=grade;
+    treadmillSetIncline(grade);
+    // Fan scales with effort (speed × incline proxy)
+    autoFan();
+
+  }else if(CTRL.mode==='hr-incline'){
     if(S.hr>zMax+3) CTRL.currentIncline=Math.max(-3,CTRL.currentIncline-0.3);
     else if(S.hr<zMin-3) CTRL.currentIncline=Math.min(15,CTRL.currentIncline+0.3);
     S.speed=CTRL.targetSpeed;
-  } else if(CTRL.mode==='hr-speed'){
-    if(S.hr>zMax+3) S.speed=Math.max(4,S.speed-0.15);
-    else if(S.hr<zMin-3) S.speed=Math.min(18,S.speed+0.15);
+    treadmillSetIncline(CTRL.currentIncline);
+    treadmillSetSpeed(CTRL.targetSpeed);
+    autoFan();
+
+  }else if(CTRL.mode==='hr-speed'){
+    if(S.hr>zMax+3) CTRL.targetSpeed=Math.max(3,CTRL.targetSpeed-0.2);
+    else if(S.hr<zMin-3) CTRL.targetSpeed=Math.min(18,CTRL.targetSpeed+0.2);
+    S.speed=CTRL.targetSpeed;
     CTRL.currentIncline=CTRL.targetIncline;
+    treadmillSetSpeed(CTRL.targetSpeed);
+    treadmillSetIncline(CTRL.targetIncline);
+    autoFan();
   }
 }
+
 
 // ════════════════════════════════════════════════════════════════════════════
 // STRAVA DATA + PANEL
@@ -1369,14 +1489,16 @@ function renderWorkoutPanel(){
       <div class="wp-label">Control Mode</div>
       <div class="ctrl-mode-row">
         <div class="ctrl-btn${CTRL.mode==='manual'?' act':''}" onclick="setCtrlMode('manual')">Manual</div>
+        <div class="ctrl-btn${CTRL.mode==='route'?' act':''}" onclick="setCtrlMode('route')">🏔 Route</div>
         <div class="ctrl-btn${CTRL.mode==='hr-incline'?' act':''}" onclick="setCtrlMode('hr-incline')">HR→Incline</div>
         <div class="ctrl-btn${CTRL.mode==='hr-speed'?' act':''}" onclick="setCtrlMode('hr-speed')">HR→Speed</div>
       </div>
     </div>
     <div style="font-size:9px;color:var(--mid);font-family:'JetBrains Mono',monospace;line-height:1.7;margin-top:4px" id="wpCtrlDesc">
-      ${CTRL.mode==='manual'?'Manual mode: you control speed &amp; incline freely.':
-        CTRL.mode==='hr-incline'?'HR→Incline: speed is fixed, incline auto-adjusts to keep HR in your target zone. Ideal for Z2 base &amp; ultra training.':
-        'HR→Speed: incline is fixed, speed auto-adjusts. Good for tempo &amp; threshold work on flat.'}
+      ${CTRL.mode==='manual'?'Manual: you control speed &amp; incline physically. App reads real values and maps your position.':
+        CTRL.mode==='route'?'🏔 Route: treadmill incline auto-matches real Cotswold Way terrain as you progress. Gradients applied live — uphills slow you, descents ease off. The trail, for real.':
+        CTRL.mode==='hr-incline'?'HR→Incline: speed fixed, incline auto-adjusts to hold HR in target zone. Belt angle sends HR up/down. Ideal for Z2 aerobic base.':
+        'HR→Speed: incline fixed, speed auto-adjusts to hold HR in zone. Good for tempo &amp; threshold sessions on flat.'}
     </div>
   </div>
 
@@ -1461,12 +1583,14 @@ function adjustLiveSpeed(delta){
   const eu=document.getElementById('wpLiveSpeedUnit');
   if(el) el.textContent=convSpeed(S.speed);
   if(eu) eu.textContent=speedUnitFull();
+  treadmillSetSpeed(S.speed); // command the real belt
 }
 function adjustLiveIncline(delta){
-  CTRL.currentIncline=Math.max(-5,Math.min(15,CTRL.currentIncline+delta));
+  CTRL.currentIncline=Math.max(-6,Math.min(40,CTRL.currentIncline+delta));
   CTRL.targetIncline=CTRL.currentIncline;
   const el=document.getElementById('wpLiveIncline');
   if(el) el.textContent=CTRL.currentIncline.toFixed(1);
+  treadmillSetIncline(CTRL.currentIncline); // command the real ramp
 }
 function applyWorkoutSettings(){
   CTRL.maxHR=parseInt(document.getElementById('wpMaxHR').value)||185;
@@ -1870,7 +1994,10 @@ function applyStageTargets(){
   CTRL.targetIncline=s.incline||0;
   CTRL.currentIncline=s.incline||0;
   CTRL.targetZone=s.zone||2;
-  if(CTRL.mode==='manual'){S.speed=s.speed||9;}
+  if(CTRL.mode==='manual'||CTRL.mode==='route'){S.speed=s.speed||9;}
+  // Actually command the treadmill belt and ramp
+  treadmillSetSpeed(s.speed||9);
+  treadmillSetIncline(s.incline||0);
   updateWorkoutHUD();
 }
 
@@ -2879,14 +3006,21 @@ function updateMetrics(){
   const g=(EL[S.idx+1]-EL[S.idx])/(TOTAL_KM*1000/TOTAL_PTS)*100;
   const ag=g*S.elevMult;
 
-  // Speed physics: in manual mode drift toward 10kph baseline;
-  // in HR modes the speed is set by applyAutoCtrl above
-  if(CTRL.mode==='manual'){
+  // Speed physics:
+  // - If treadmill WebSocket or FTMS connected: real speed comes from hardware
+  // - If HR mode: applyAutoCtrl sets speed
+  // - Manual/route/sim: drift toward 10kph baseline
+  if(!S.speedFromBT && (CTRL.mode==='manual'||CTRL.mode==='route')){
     S.speed+=((10-g*.35+(Math.random()-.5)*.15)-S.speed)*.06;
     S.speed=Math.max(4,Math.min(14,S.speed));
   }
-  S.hr+=(((100+S.speed*5+Math.max(0,ag)*1.8+(Math.random()*3-1.5))-S.hr)*.04);
-  S.hr=Math.round(Math.max(80,Math.min(200,S.hr)));
+
+  // HR physics:
+  // - If BT HR monitor connected: real HR comes from onBTHRData, don't simulate
+  if(!S.hrFromBT){
+    S.hr+=(((100+S.speed*5+Math.max(0,ag)*1.8+(Math.random()*3-1.5))-S.hr)*.04);
+    S.hr=Math.round(Math.max(80,Math.min(200,S.hr)));
+  }
   S.hrSum=(S.hrSum||0)+S.hr;
   // Cadence varies with speed (higher speed = higher cadence)
   S.cadence=Math.round(Math.max(158,Math.min(188,
@@ -2925,6 +3059,9 @@ function updateMetrics(){
 
   // HR
   set('hrVal', S.hr);
+  // Show LIVE badge if real BT HR is flowing
+  const hrBadge=document.getElementById('hrLiveBadge');
+  if(hrBadge) hrBadge.style.display=S.hrFromBT?'inline-block':'none';
   css('zCur','left',((S.hr-80)/120*100).toFixed(1)+'%');
   const zi=([115,130,150,165,200]).findIndex(m=>S.hr<=m);
   const zones=[{l:'ZONE 1·RECOVERY',c:'var(--z1)'},{l:'ZONE 2·AEROBIC',c:'var(--z2)'},
@@ -2933,7 +3070,9 @@ function updateMetrics(){
   const hrz=document.getElementById('hrZoneLbl');
   if(hrz){hrz.textContent=z.l;hrz.style.color=z.c;}
 
-  // Speed — unit-aware
+  // Speed — unit-aware; if FTMS connected, speed comes from real treadmill
+  const spBadge=document.getElementById('speedLiveBadge');
+  if(spBadge) spBadge.style.display=S.speedFromBT?'inline-block':'none';
   const kph=S.speed;
   set('spVal', convSpeed(kph));
   set('spUnit', speedUnit());
@@ -2950,9 +3089,13 @@ function updateMetrics(){
   }
 
   // Incline (use CTRL.currentIncline if auto mode, else terrain grade)
-  const displayIncline=CTRL.mode!=='manual'?CTRL.currentIncline:ag;
+  const displayIncline=CTRL.mode==='manual'?ag:CTRL.currentIncline;
   const sg=displayIncline>=0?'+':'',sf=displayIncline.toFixed(1);
+  // Show route indicator when in route mode
+  const incSuffix=CTRL.mode==='route'?' ROUTE':CTRL.mode==='hr-incline'?' AUTO':CTRL.mode==='hr-speed'?' FIX':'';
   set('incVal', sg+sf);
+  const incLbl=document.getElementById('incLbl');
+  if(incLbl)incLbl.textContent='INCLINE'+incSuffix;
   const pf=document.getElementById('iFill');
   if(pf){pf.style.width=Math.max(0,(displayIncline+6)/46*100)+'%';
     pf.style.background=displayIncline>8?'var(--red)':displayIncline>3?'var(--orange)':'var(--cyan)';}
@@ -3027,6 +3170,328 @@ resizeMap();
 updateGhostCard();
 initLeafletMap();
 requestAnimationFrame(loop);
+
+// ════════════════════════════════════════════════════════════════════════════
+// ANDROID / TREADMILL — Scale to fill screen
+// ════════════════════════════════════════════════════════════════════════════
+function scaleApp(){
+  const app=document.getElementById('rootApp');
+  const scaleX=window.innerWidth/1280;
+  const scaleY=window.innerHeight/720;
+  const scale=Math.min(scaleX,scaleY);
+  const ox=Math.round((window.innerWidth-1280*scale)/2);
+  const oy=Math.round((window.innerHeight-720*scale)/2);
+  app.style.transform=`scale(${scale})`;
+  app.style.left=ox+'px';
+  app.style.top=oy+'px';
+}
+scaleApp();
+window.addEventListener('resize',scaleApp);
+window.addEventListener('orientationchange',()=>setTimeout(scaleApp,200));
+
+// ════════════════════════════════════════════════════════════════════════════
+// WAKE LOCK — prevent screen sleep during runs
+// ════════════════════════════════════════════════════════════════════════════
+let wakeLock=null;
+async function requestWakeLock(){
+  if(!('wakeLock' in navigator))return;
+  try{
+    wakeLock=await navigator.wakeLock.request('screen');
+    console.log('Wake lock active');
+    wakeLock.addEventListener('release',()=>{wakeLock=null;});
+  }catch(e){console.warn('Wake lock failed:',e);}
+}
+// Re-acquire on visibility change (Android pauses wake lock when app backgrounded)
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='visible'&&wakeLock===null) requestWakeLock();
+});
+requestWakeLock();
+
+// ════════════════════════════════════════════════════════════════════════════
+// WEB BLUETOOTH — HR Monitor (standard GATT heart_rate service)
+// ════════════════════════════════════════════════════════════════════════════
+let btHRDevice=null,btHRConnected=false;
+
+async function connectBTHR(){
+  if(!navigator.bluetooth){
+    alert('Web Bluetooth not available. Make sure you are using Chromium and have enabled bluetooth.');
+    return;
+  }
+  try{
+    updateBTStatus('hr','connecting');
+    btHRDevice=await navigator.bluetooth.requestDevice({
+      filters:[{services:['heart_rate']}],
+      optionalServices:['battery_service','device_information']
+    });
+    btHRDevice.addEventListener('gattserverdisconnected',onBTHRDisconnected);
+    const server=await btHRDevice.gatt.connect();
+    const service=await server.getPrimaryService('heart_rate');
+    const char=await service.getCharacteristic('heart_rate_measurement');
+    char.addEventListener('characteristicvaluechanged',onBTHRData);
+    await char.startNotifications();
+    btHRConnected=true;
+    S.hrFromBT=true;
+    updateBTStatus('hr','connected',btHRDevice.name||'HR Monitor');
+  }catch(e){
+    console.warn('BT HR error:',e);
+    updateBTStatus('hr','idle');
+  }
+}
+
+function onBTHRData(event){
+  const v=event.target.value;
+  const flags=v.getUint8(0);
+  // Bit 0: HR format. 0 = UINT8, 1 = UINT16
+  S.hr=(flags&0x01)?v.getUint16(1,true):v.getUint8(1);
+  S.hrFromBT=true;
+  // Flash HR card to show live data
+  const el=document.getElementById('hrVal');
+  if(el){el.style.color='var(--green)';setTimeout(()=>{el.style.color='';},300);}
+}
+
+function onBTHRDisconnected(){
+  btHRConnected=false;
+  S.hrFromBT=false;
+  updateBTStatus('hr','idle');
+  // Auto-reconnect
+  setTimeout(async()=>{
+    if(btHRDevice&&!btHRConnected){
+      try{await btHRDevice.gatt.connect();}catch(e){}
+    }
+  },3000);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// TREADMILL DIRECT CONTROL — uthttpd WebSocket (ws://localhost:80)
+// ════════════════════════════════════════════════════════════════════════════
+// The NordicTrack X32i runs iFIT on Android. NordicUnchained restores full
+// Android access. The iFIT firmware runs a local WebSocket server (uthttpd)
+// on port 80. When TrailRunner runs in Chromium ON the treadmill, we connect
+// to this WebSocket and can both READ sensor data AND WRITE control commands.
+//
+// READ (treadmill → app):
+//   {"values":{"MPH":"6.2","Incline":"4.5","Heart Rate":"152"},"type":"stats"}
+//
+// WRITE (app → treadmill):
+//   {"values":{"MPH":"6.2"},"type":"set"}        → set belt speed
+//   {"values":{"Incline":"8.0"},"type":"set"}     → set ramp angle
+//   {"values":{"Fan Speed":"70"},"type":"set"}    → set fan speed
+//
+// Fallback: if localhost WebSocket unavailable (running on phone/PC),
+// falls back to QZ Companion FTMS BLE for read-only data.
+// ════════════════════════════════════════════════════════════════════════════
+let treadmillWS=null,treadmillConnected=false;
+let _lastSpeedCmd=-1,_lastInclineCmd=-9999,_lastFanCmd=-1;
+let _lastSpeedSent=0,_lastInclineSent=0,_lastFanSent=0;
+let _wsRetrying=false;
+const WS_PORTS=[80,8080]; // uthttpd usually port 80, try 8080 as fallback
+let _wsPortIdx=0;
+
+function connectTreadmill(){
+  if(treadmillConnected||(treadmillWS&&treadmillWS.readyState===0)){
+    // Already connected or connecting — disconnect
+    if(treadmillWS)treadmillWS.close();
+    treadmillConnected=false;S.speedFromBT=false;
+    updateBTStatus('ftms','idle');
+    return;
+  }
+  _wsPortIdx=0;_wsRetrying=false;
+  _tryConnectWS();
+}
+
+function _tryConnectWS(){
+  if(_wsRetrying)return;
+  updateBTStatus('ftms','connecting');
+  const port=WS_PORTS[_wsPortIdx];
+  try{
+    treadmillWS=new WebSocket('ws://localhost:'+port);
+    treadmillWS.onopen=()=>{
+      treadmillConnected=true;S.speedFromBT=true;
+      updateBTStatus('ftms','connected','X32i');
+      // Request current state
+      _tmSend({"values":{},"type":"get"});
+      console.log('[TrailRunner] Treadmill WebSocket connected on port '+port);
+    };
+    treadmillWS.onmessage=(e)=>{
+      try{onTreadmillData(JSON.parse(e.data));}catch(_){}
+    };
+    treadmillWS.onerror=()=>{
+      if(!treadmillConnected){
+        _wsPortIdx++;
+        if(_wsPortIdx<WS_PORTS.length){
+          setTimeout(_tryConnectWS,400);
+        } else {
+          // WebSocket unavailable — fall back to QZ Companion FTMS BLE
+          console.log('[TrailRunner] localhost WS unavailable, trying QZ FTMS BLE…');
+          updateBTStatus('ftms','idle');
+          connectFTMSBLE();
+        }
+      }
+    };
+    treadmillWS.onclose=()=>{
+      if(treadmillConnected){
+        treadmillConnected=false;S.speedFromBT=false;
+        updateBTStatus('ftms','idle');
+        // Auto-reconnect every 4s
+        setTimeout(()=>{ if(!treadmillConnected){_wsPortIdx=0;_tryConnectWS();} },4000);
+      }
+    };
+  }catch(e){updateBTStatus('ftms','idle');}
+}
+
+function onTreadmillData(msg){
+  if(!msg||!msg.values)return;
+  const v=msg.values;
+  // Speed (may arrive as MPH or KPH)
+  if(v.MPH!==undefined){
+    const mph=parseFloat(v.MPH);
+    if(mph>=0&&mph<25){S.speed=mph*1.60934;S.speedFromBT=true;}
+  } else if(v.KPH!==undefined||v['km/h']!==undefined){
+    const kph=parseFloat(v.KPH||v['km/h']);
+    if(kph>=0&&kph<40){S.speed=kph;S.speedFromBT=true;}
+  }
+  // Incline
+  if(v.Incline!==undefined){
+    CTRL.currentIncline=parseFloat(v.Incline)||0;
+  } else if(v.Grade!==undefined){
+    CTRL.currentIncline=parseFloat(v.Grade)||0;
+  }
+  // Heart Rate (built-in handle or chest contacts)
+  if(v['Heart Rate']!==undefined&&!btHRConnected){
+    const hr=parseInt(v['Heart Rate']);
+    if(hr>30&&hr<220)S.hr=hr;
+  }
+  // Calories
+  if(v.Calories!==undefined){
+    const c=parseInt(v.Calories);
+    if(c>0)S.cal=c;
+  }
+}
+
+function _tmSend(obj){
+  if(treadmillWS&&treadmillWS.readyState===1){
+    treadmillWS.send(JSON.stringify(obj));
+  }
+}
+
+// Rate-limited control commands — debounced and throttled to avoid
+// overwhelming the uthttpd server or causing jerky ramp movements
+function treadmillSetSpeed(kmh){
+  if(!treadmillConnected)return;
+  const mph=+(kmh/1.60934).toFixed(1);
+  if(Math.abs(mph-_lastSpeedCmd)<0.15)return; // ignore tiny changes
+  const now=Date.now();
+  if(now-_lastSpeedSent<1200)return; // max 1 command per 1.2s
+  _lastSpeedCmd=mph;_lastSpeedSent=now;
+  _tmSend({"values":{"MPH":mph.toString()},"type":"set"});
+}
+
+function treadmillSetIncline(pct){
+  if(!treadmillConnected)return;
+  const clamped=Math.max(-6,Math.min(40,pct)); // X32i range
+  const rounded=Math.round(clamped*2)/2; // quantise to 0.5% steps
+  if(Math.abs(rounded-_lastInclineCmd)<0.4)return;
+  const now=Date.now();
+  if(now-_lastInclineSent<2500)return; // ramp motor needs time to respond
+  _lastInclineCmd=rounded;_lastInclineSent=now;
+  _tmSend({"values":{"Incline":rounded.toFixed(1)},"type":"set"});
+}
+
+function treadmillSetFan(pct){
+  if(!treadmillConnected)return;
+  const r=Math.round(Math.max(0,Math.min(100,pct))/10)*10;
+  if(r===_lastFanCmd)return;
+  _lastFanCmd=r;
+  _tmSend({"values":{"Fan Speed":r.toString()},"type":"set"});
+}
+
+// Auto-scale fan to current effort level — updated every 30s
+let _lastFanUpdate=0;
+function autoFan(){
+  const now=Date.now();
+  if(now-_lastFanUpdate<30000)return;
+  _lastFanUpdate=now;
+  const zoneFan=[0,20,30,50,70,100];
+  treadmillSetFan(zoneFan[getCurrentZone()]||30);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// QZ COMPANION BLE FALLBACK (read-only, for use on phone/PC)
+// ════════════════════════════════════════════════════════════════════════════
+const FTMS_SVC='00001826-0000-1000-8000-00805f9b34fb';
+const TREADMILL_DATA='00002acd-0000-1000-8000-00805f9b34fb';
+let btFTMSDevice=null,btFTMSConnected=false;
+
+async function connectFTMSBLE(){
+  if(!navigator.bluetooth)return;
+  try{
+    updateBTStatus('ftms','connecting');
+    btFTMSDevice=await navigator.bluetooth.requestDevice({
+      filters:[{services:[FTMS_SVC]}],optionalServices:[FTMS_SVC]
+    });
+    btFTMSDevice.addEventListener('gattserverdisconnected',()=>{
+      btFTMSConnected=false;S.speedFromBT=false;updateBTStatus('ftms','idle');
+    });
+    const server=await btFTMSDevice.gatt.connect();
+    const svc=await server.getPrimaryService(FTMS_SVC);
+    const char=await svc.getCharacteristic(TREADMILL_DATA);
+    char.addEventListener('characteristicvaluechanged',(e)=>{
+      const d=e.target.value,flags=d.getUint16(0,true);let offset=2;
+      if(!(flags&0x0001)){S.speed=d.getUint16(offset,true)/100;S.speedFromBT=true;offset+=2;}
+      if(flags&0x0002)offset+=2;
+      if(flags&0x0004)offset+=3;
+      if(flags&0x0008){CTRL.currentIncline=d.getInt16(offset,true)/10;offset+=4;}
+      if(flags&0x0010)offset+=4;
+      if((flags&0x0100)&&!btHRConnected){const hr=d.getUint8(offset);if(hr>30&&hr<220)S.hr=hr;}
+    });
+    await char.startNotifications();
+    btFTMSConnected=true;S.speedFromBT=true;
+    updateBTStatus('ftms','connected',btFTMSDevice.name||'QZ');
+  }catch(e){
+    console.warn('QZ BLE fallback error:',e);
+    updateBTStatus('ftms','idle');
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// BT STATUS UI
+// ════════════════════════════════════════════════════════════════════════════
+function updateBTStatus(type,state,name){
+  const pill=document.getElementById(type==='hr'?'btHRPill':'btFTMSPill');
+  if(!pill)return;
+  const icons={hr:'❤',ftms:'🏃'};
+  const labels={hr:'HR',ftms:'TREADMILL'};
+  if(state==='idle'){
+    pill.textContent=icons[type]+' '+labels[type];
+    pill.className='topbtn bt-pill';
+  } else if(state==='connecting'){
+    pill.textContent=icons[type]+' CONNECTING…';
+    pill.className='topbtn bt-pill connecting';
+  } else if(state==='connected'){
+    pill.textContent=icons[type]+' '+(name||'LIVE');
+    pill.className='topbtn bt-pill connected';
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// ANDROID BACK BUTTON — close top panel/modal instead of navigating away
+// ════════════════════════════════════════════════════════════════════════════
+window.addEventListener('popstate',()=>{
+  // Close whatever is open
+  const prog=document.getElementById('progModal');
+  const pause=document.getElementById('pauseOverlay');
+  const finish=document.getElementById('finishOverlay');
+  if(prog&&prog.classList.contains('show')){closeProgModal();return;}
+  if(pause&&pause.classList.contains('show')){S.paused=false;pause.classList.remove('show');return;}
+  if(finish&&finish.classList.contains('show')){discardRun();return;}
+  closeAll();
+  // Push a new state so back button is always available
+  history.pushState(null,'','');
+});
+// Push initial state
+history.pushState(null,'','');
+
 </script>
+</div><!-- #rootApp -->
 </body>
 </html>
