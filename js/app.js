@@ -38,6 +38,28 @@ const App = {
         MapView.updateRunner(Engine.getCurrentLatLon());
         MapView.updateGhost(Engine.getGhostLatLon(), Engine.ghostEnabled);
       }
+      // Feed track view with current run data
+      if (TrackView.active && Engine.run) {
+        TrackView.update({
+          distKm: (Engine.run.distanceM || 0) / 1000,
+          speedKmh: Engine.run.speed || 0,
+          incline: Engine.run.incline || 0,
+          hr: Engine.run.hr || 0,
+          elevProfile: Engine.resampled,
+        });
+        // Sync ghost position
+        if (Engine.ghostEnabled && Engine.ghost) {
+          TrackView.setGhosts([{
+            name: Engine.ghost.routeName || 'GHOST',
+            distKm: (Engine.ghost.distanceM || 0) / 1000,
+            color: '#a78bfa',
+            pace: '',
+            source: 'ghost',
+          }]);
+        } else {
+          TrackView.setGhosts([]);
+        }
+      }
     };
 
     Engine.onSplit = (km, timeSec, pace, hr) => {
@@ -51,6 +73,9 @@ const App = {
 
     // ── Init map ─────────────────────────────────────────────────────────
     MapView.init('mapDiv');
+
+    // ── Init track view ────────────────────────────────────────────────
+    TrackView.init('trackCanvas');
 
     // ── Load last active route ───────────────────────────────────────────
     const activeId = Store.getActiveRouteId();
@@ -333,7 +358,15 @@ const App = {
   // ════════════════════════════════════════════════════════════════════════════
 
   setMapStyle(style) {
-    MapView.setStyle(style);
+    // Toggle between map views and 3D track view
+    if (style === 'track') {
+      document.getElementById('mapDiv').style.display = 'none';
+      TrackView.show();
+    } else {
+      TrackView.hide();
+      document.getElementById('mapDiv').style.display = '';
+      MapView.setStyle(style);
+    }
     document.querySelectorAll('.map-mode-btn').forEach(btn => {
       btn.classList.toggle('act', btn.dataset.style === style);
     });
