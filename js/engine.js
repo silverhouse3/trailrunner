@@ -137,6 +137,9 @@ const Engine = {
     if (!this.run || this.run.status !== 'running') return;
     this.run.status = 'paused';
     this._stopTicker();
+
+    // SAFETY: stop the belt immediately, but keep incline where it is
+    TM.setSpeed(0, true);
   },
 
   resumeRun() {
@@ -152,8 +155,12 @@ const Engine = {
     this.run.finishedAt = new Date().toISOString();
     this._stopTicker();
 
-    // Stop the treadmill belt
-    TM.setSpeed(0);
+    // SAFETY: stop the belt AND return to 0% grade
+    TM.setSpeed(0, true);
+    // Brief delay so the motor controller processes the speed-stop first,
+    // then bring the ramp down — avoids the user stepping off a moving,
+    // tilted belt
+    setTimeout(() => TM.setIncline(0, true), 2000);
 
     // Finalize workout if active
     if (this.workout) this.workout = null;
@@ -161,6 +168,11 @@ const Engine = {
 
   discardRun() {
     this._stopTicker();
+
+    // SAFETY: always return to zero on discard too
+    TM.setSpeed(0, true);
+    setTimeout(() => TM.setIncline(0, true), 2000);
+
     this.run = null;
     this.ghost = null;
     this.workout = null;

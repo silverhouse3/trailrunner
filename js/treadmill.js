@@ -126,26 +126,30 @@ const TM = {
 
   // ── Rate-limited control commands ─────────────────────────────────────────
 
-  /** Set belt speed (km/h). Rate-limited: max 1 cmd per 1.2s, ignores <0.15 mph changes. */
-  setSpeed(kmh) {
+  /** Set belt speed (km/h). Rate-limited unless force=true (safety stops). */
+  setSpeed(kmh, force) {
     if (!this.connected) return;
     const mph = +(kmh / 1.60934).toFixed(1);
-    if (Math.abs(mph - this._lastSpeed) < 0.15) return;
-    const now = Date.now();
-    if (now - this._lastSpeedT < 1200) return;
+    if (!force) {
+      if (Math.abs(mph - this._lastSpeed) < 0.15) return;
+      const now = Date.now();
+      if (now - this._lastSpeedT < 1200) return;
+    }
     this._lastSpeed = mph;
-    this._lastSpeedT = now;
+    this._lastSpeedT = Date.now();
     this._send({ values: { MPH: mph.toString() }, type: 'set' });
   },
 
-  /** Set ramp incline (%). Rate-limited: max 1 cmd per 2.5s, quantised to 0.5% steps. */
-  setIncline(pct) {
+  /** Set ramp incline (%). Rate-limited unless force=true (safety returns). */
+  setIncline(pct, force) {
     if (!this.connected) return;
     const clamped = Math.max(-6, Math.min(40, pct));
     const rounded = Math.round(clamped * 2) / 2;
-    if (Math.abs(rounded - this._lastIncline) < 0.4) return;
-    const now = Date.now();
-    if (now - this._lastInclineT < 2500) return;
+    if (!force) {
+      if (Math.abs(rounded - this._lastIncline) < 0.4) return;
+      const now = Date.now();
+      if (now - this._lastInclineT < 2500) return;
+    }
     this._lastIncline = rounded;
     this._lastInclineT = now;
     this._send({ values: { Incline: rounded.toFixed(1) }, type: 'set' });

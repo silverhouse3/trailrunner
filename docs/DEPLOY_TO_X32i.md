@@ -182,6 +182,73 @@ The X32i's iFIT firmware runs **uthttpd** — a local WebSocket server on port 8
 
 ---
 
+## Auto-Launch on Boot
+
+If you know the treadmill's IP address, you can set TrailRunner to launch automatically whenever the treadmill starts up — no manual browser navigation needed.
+
+### Quick Launch (one-time)
+
+**Windows:**
+```cmd
+tools\setup_autolaunch.bat 192.168.1.42
+```
+
+**macOS / Linux:**
+```bash
+tools/launch.sh 192.168.1.42
+```
+
+These scripts connect via ADB and open TrailRunner in Chromium using an Android VIEW intent.
+
+### Auto-Launch on Every Boot
+
+The `setup_autolaunch.bat` script does four things:
+
+1. Opens TrailRunner in Chromium immediately
+2. Creates `/sdcard/trailrunner/launch.sh` on the device
+3. If **Termux** is installed (bundled with NordicUnchained), installs a boot script at `~/.termux/boot/trailrunner.sh` that launches TrailRunner 20 seconds after boot
+4. If Termux is not available, you can install **Termux:Boot** from F-Droid for auto-start support
+
+### Local Hosting + Auto-Launch
+
+If the treadmill has no internet, serve from your PC and point the treadmill at it:
+
+```bash
+# On your PC:
+tools/serve_local.sh 8080
+
+# Then launch on the treadmill (from another terminal):
+adb connect 192.168.1.42:5555
+adb shell am start -a android.intent.action.VIEW -d "http://YOUR_PC_IP:8080"
+```
+
+---
+
+## Safety Behaviour
+
+TrailRunner implements safety-first treadmill control based on community recommendations from [r/nordictrackandroid](https://www.reddit.com/r/nordictrackandroid/):
+
+### On Pause
+- **Belt stops immediately** (speed → 0 with rate-limiter bypass)
+- **Incline stays where it is** — so you can resume at the same grade without waiting for the ramp to re-adjust
+
+### On Finish / Discard
+- **Belt stops immediately** (speed → 0 with rate-limiter bypass)
+- **Incline returns to 0%** after a 2-second delay — the delay ensures the motor controller processes the speed stop before moving the ramp
+
+### Emergency Stop
+- Bypasses all rate limiting
+- Sends speed → 0 **and** incline → 0 simultaneously
+- Triggered by the emergency stop button in the UI
+
+### Rate Limiting
+Normal commands are rate-limited to prevent overwhelming the motor controller:
+- **Speed changes**: minimum 1.2 seconds apart, minimum 0.15 MPH delta
+- **Incline changes**: minimum 2.5 seconds apart, minimum 0.4% delta
+- Safety commands (pause, finish, emergency) **bypass** all rate limits using the `force` flag
+
+---
+
 ## Troubleshooting
 
 | Issue | Solution |
