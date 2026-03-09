@@ -28,6 +28,7 @@
       <div class="pill" style="color:var(--cyan);border-color:#1a3040" onclick="App.openRoutes()">🗺 ROUTES</div>
       <div class="pill" style="color:var(--cyan);border-color:#1a3040" onclick="App.toggleSplits()">📊 SPLITS</div>
       <div class="pill" style="color:var(--ghost);border-color:#2a3050" onclick="App.openHistory()">👻 GHOST</div>
+      <div class="pill" id="pillSync" style="color:var(--dim);border-color:#1a2030;font-size:9px" title="Strava sync status"></div>
       <div class="pill" style="color:var(--dim);border-color:#1a2030" onclick="App.openSettings()">⚙ SETTINGS</div>
     </div>
   </div>
@@ -372,6 +373,42 @@
         </div>
         <input class="settings-input" id="setMaxIncline" type="number" min="0" max="40" value="15">
       </div>
+
+      <!-- Strava Sync -->
+      <div style="border-top:1px solid #1e2a3a;margin:12px 0 8px;padding-top:12px">
+        <div style="font-family:'Orbitron',sans-serif;font-size:11px;font-weight:700;color:#fc4c02;letter-spacing:.1em;margin-bottom:8px">STRAVA AUTO-SYNC</div>
+      </div>
+
+      <div class="settings-row" id="stravaStatusRow">
+        <div>
+          <div class="settings-label" id="stravaStatusLabel">Not Connected</div>
+          <div class="settings-sub" id="stravaStatusSub">Runs will sync automatically after connecting</div>
+        </div>
+        <button class="modal-btn primary" id="stravaConnectBtn" onclick="App.connectStrava()" style="width:auto;padding:4px 14px;font-size:11px">CONNECT</button>
+      </div>
+
+      <div class="settings-row" id="stravaAppRow">
+        <div>
+          <div class="settings-label">Strava Client ID</div>
+          <div class="settings-sub">From strava.com/settings/api</div>
+        </div>
+        <input class="settings-input" id="setStravaClientId" type="text" placeholder="12345" style="width:100px">
+      </div>
+      <div class="settings-row">
+        <div>
+          <div class="settings-label">Strava Client Secret</div>
+          <div class="settings-sub">Keep this private</div>
+        </div>
+        <input class="settings-input" id="setStravaSecret" type="password" placeholder="abc123..." style="width:160px">
+      </div>
+
+      <div style="border-top:1px solid #1e2a3a;margin:12px 0 8px;padding-top:12px">
+        <div style="font-family:'Orbitron',sans-serif;font-size:11px;font-weight:700;color:#22c55e;letter-spacing:.1em;margin-bottom:4px">GARMIN CONNECT</div>
+        <div style="font-size:11px;color:#8094ab;line-height:1.5">
+          Enable in Garmin Connect: Settings > Third-Party Apps > Strava.<br>
+          All Strava uploads will auto-appear in Garmin.
+        </div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="modal-btn primary" onclick="App.saveSettings()">SAVE</button>
@@ -391,6 +428,7 @@
 <script src="js/engine.js"></script>
 <script src="js/map.js"></script>
 <script src="js/ui.js"></script>
+<script src="js/sync.js"></script>
 <script src="js/trackview.js"></script>
 <script src="js/app.js"></script>
 

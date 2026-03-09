@@ -1,8 +1,9 @@
 // Service Worker — caches all static assets for offline use on the treadmill
-const CACHE = 'trailrunner-v4';
+const CACHE = 'trailrunner-v5';
 const ASSETS = [
   './',
   'index.html',
+  'strava-callback.html',
   'css/app.css',
   'js/gpx.js',
   'js/storage.js',
@@ -10,6 +11,7 @@ const ASSETS = [
   'js/engine.js',
   'js/map.js',
   'js/ui.js',
+  'js/sync.js',
   'js/trackview.js',
   'js/app.js',
   'manifest.json',

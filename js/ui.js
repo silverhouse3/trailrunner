@@ -425,6 +425,14 @@ const UI = {
     s.safetyMaxSpeed = Math.max(5, Math.min(25, v('setMaxSpeed')));
     s.safetyMaxIncline = Math.max(0, Math.min(40, v('setMaxIncline')));
     Store.saveSettings(s);
+
+    // Save Strava app credentials
+    const clientId = (document.getElementById('setStravaClientId')?.value || '').trim();
+    const secret = (document.getElementById('setStravaSecret')?.value || '').trim();
+    if (clientId && secret) {
+      Sync.stravaApp = { clientId, clientSecret: secret };
+    }
+
     this.closeSettings();
   },
 

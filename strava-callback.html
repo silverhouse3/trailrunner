@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TrailRunner — Strava Connected</title>
+<style>
+  body { background: #090b10; color: #e0e6f0; font-family: 'Segoe UI', sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+  .card { background: #12151e; border: 1px solid #1e2a3a; border-radius: 12px; padding: 40px; text-align: center; max-width: 400px; }
+  h1 { color: #fc4c02; font-size: 24px; margin: 0 0 8px; }
+  p { color: #8094ab; font-size: 14px; line-height: 1.6; }
+  .spinner { display: inline-block; width: 24px; height: 24px; border: 3px solid #1e2a3a; border-top-color: #fc4c02; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 16px 0; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .success { color: #22c55e; font-size: 18px; font-weight: 600; }
+  .error { color: #ef4444; font-size: 14px; }
+  .done { display: none; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>TRAILRUNNER</h1>
+
+  <div id="loading">
+    <div class="spinner"></div>
+    <p>Connecting to Strava...</p>
+  </div>
+
+  <div id="success" class="done">
+    <p class="success">Connected!</p>
+    <p>Your runs will now auto-sync to Strava.<br>You can close this page.</p>
+    <p style="font-size:12px;color:#4a5568">Redirecting back to TrailRunner...</p>
+  </div>
+
+  <div id="error" class="done">
+    <p class="error" id="errorMsg">Something went wrong.</p>
+    <p>Try connecting again from TrailRunner Settings.</p>
+  </div>
+</div>
+
+<script>
+(async function() {
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('code');
+  const err = params.get('error');
+
+  if (err || !code) {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('error').style.display = 'block';
+    document.getElementById('errorMsg').textContent = err || 'No authorization code received.';
+    return;
+  }
+
+  // Get stored app credentials
+  let app;
+  try {
+    app = JSON.parse(localStorage.getItem('tr_strava_app'));
+  } catch {}
+
+  if (!app || !app.clientId || !app.clientSecret) {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('error').style.display = 'block';
+    document.getElementById('errorMsg').textContent = 'Strava credentials not found. Open TrailRunner Settings first.';
+    return;
+  }
+
+  // Exchange code for tokens
+  try {
+    const resp = await fetch('https://www.strava.com/oauth/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: app.clientId,
+        client_secret: app.clientSecret,
+        code: code,
+        grant_type: 'authorization_code',
+      }),
+    });
+
+    if (!resp.ok) {
+      throw new Error('Token exchange failed: ' + resp.status);
+    }
+
+    const data = await resp.json();
+
+    // Store tokens
+    localStorage.setItem('tr_strava', JSON.stringify({
+      access_token: data.access_token,
+      refresh_token: data.refresh_token,
+      expires_at: data.expires_at,
+      athlete: data.athlete ? {
+        id: data.athlete.id,
+        firstname: data.athlete.firstname,
+        lastname: data.athlete.lastname,
+      } : null,
+    }));
+
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('success').style.display = 'block';
+
+    // Redirect back to TrailRunner after 2 seconds
+    setTimeout(() => {
+      window.location.href = './index.html';
+    }, 2000);
+
+  } catch (e) {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('error').style.display = 'block';
+    document.getElementById('errorMsg').textContent = e.message;
+  }
+})();
+</script>
+</body>
+</html>

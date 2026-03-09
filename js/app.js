@@ -118,7 +118,27 @@ const App = {
       }
     });
 
+    // ── Update sync status indicator ─────────────────────────────────────
+    this._updateSyncPill();
+
     console.log('[TrailRunner] Initialised');
+  },
+
+  _updateSyncPill() {
+    const pill = document.getElementById('pillSync');
+    if (!pill) return;
+    if (Sync.isStravaConnected()) {
+      const s = Sync.getStatus();
+      const name = s.strava.athlete ? s.strava.athlete.firstname : 'Strava';
+      pill.textContent = name;
+      pill.style.color = '#fc4c02';
+      pill.style.borderColor = '#4a2010';
+      pill.title = 'Connected to Strava — runs auto-sync';
+      if (s.queuedRuns) pill.textContent += ' (' + s.queuedRuns + ')';
+    } else {
+      pill.textContent = '';
+      pill.style.display = 'none';
+    }
   },
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -156,7 +176,14 @@ const App = {
     Engine.newRun();
     UI.update();
     this._updateRunButton();
-    if (saved) console.log('[App] Run saved:', saved.id);
+    if (saved) {
+      console.log('[App] Run saved:', saved.id);
+      // Auto-sync to Strava (fire and forget)
+      Sync.autoSync(saved).then(ok => {
+        if (ok) console.log('[App] Run synced to Strava');
+        this._updateSyncPill();
+      }).catch(() => {});
+    }
   },
 
   discardRun() {
@@ -388,9 +415,64 @@ const App = {
   // SETTINGS
   // ════════════════════════════════════════════════════════════════════════════
 
-  openSettings() { UI.openSettings(); },
+  openSettings() {
+    UI.openSettings();
+    this._updateStravaStatus();
+  },
   closeSettings() { UI.closeSettings(); },
   saveSettings() { UI.saveSettings(); },
+
+  connectStrava() {
+    // Save app credentials first
+    const clientId = document.getElementById('setStravaClientId')?.value?.trim();
+    const secret = document.getElementById('setStravaSecret')?.value?.trim();
+    if (clientId && secret) {
+      Sync.stravaApp = { clientId, clientSecret: secret };
+    }
+    if (Sync.isStravaConnected()) {
+      if (confirm('Disconnect from Strava?')) {
+        Sync.disconnectStrava();
+        this._updateStravaStatus();
+      }
+    } else {
+      Sync.connectStrava();
+    }
+  },
+
+  _updateStravaStatus() {
+    const label = document.getElementById('stravaStatusLabel');
+    const sub = document.getElementById('stravaStatusSub');
+    const btn = document.getElementById('stravaConnectBtn');
+    const clientInput = document.getElementById('setStravaClientId');
+    const secretInput = document.getElementById('setStravaSecret');
+    if (!label) return;
+
+    const status = Sync.getStatus();
+    const app = Sync.stravaApp;
+
+    if (status.strava.connected) {
+      const name = status.strava.athlete
+        ? status.strava.athlete.firstname + ' ' + status.strava.athlete.lastname
+        : 'Connected';
+      label.textContent = name;
+      label.style.color = '#22c55e';
+      sub.textContent = 'Runs auto-sync after save' +
+        (status.queuedRuns ? ' · ' + status.queuedRuns + ' queued' : '');
+      btn.textContent = 'DISCONNECT';
+      btn.style.borderColor = '#ef4444';
+      btn.style.color = '#ef4444';
+    } else {
+      label.textContent = 'Not Connected';
+      label.style.color = '';
+      sub.textContent = 'Enter Client ID + Secret, then click Connect';
+      btn.textContent = 'CONNECT';
+      btn.style.borderColor = '';
+      btn.style.color = '';
+    }
+
+    if (clientInput && app) clientInput.value = app.clientId || '';
+    if (secretInput && app) secretInput.value = app.clientSecret || '';
+  },
 
   // ════════════════════════════════════════════════════════════════════════════
   // SPLITS
