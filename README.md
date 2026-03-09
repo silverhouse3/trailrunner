@@ -1,8 +1,6 @@
 # TrailRunner
 
-**NordicTrack X32i trail running companion** — runs in Chromium on the treadmill itself via NordicUnchained. Brings real outdoor routes to the belt: map, elevation, ghost racing, HR zone training, auto-incline, and full treadmill control.
-
-🏔️ **v16: Direct treadmill control.** Connects to the X32i's built-in WebSocket server (uthttpd) and both reads real data *and* commands the belt speed and ramp angle — no QZ Companion needed.
+**NordicTrack X32i trail running companion** — runs in Chromium on the treadmill itself via NordicUnchained. Brings real outdoor routes to the belt with auto-incline, HR zone training, and full treadmill control.
 
 ---
 
@@ -22,24 +20,59 @@ TrailRunner (open in Chromium on the treadmill)
 
 ---
 
+## Features
+
+| Feature | How it works |
+|---------|-------------|
+| **Route auto-incline** | Import a GPX file → elevation profile drives real treadmill ramp angle |
+| **HR zone control** | BLE HR strap → incline or speed auto-adjusts to hold target zone |
+| **Live map** | Leaflet map shows your real position advancing along the route |
+| **Km splits** | Real splits from real distance (speed × time) |
+| **Ghost racing** | Race against your own saved runs |
+| **GPX/TCX export** | Export runs for upload to Strava or Garmin Connect |
+| **Emergency stop** | One-tap belt + ramp stop |
+| **Offline PWA** | Service worker caches everything — works without internet |
+| **Workout programmes** | Build structured workouts with per-stage speed/incline targets |
+
+---
+
 ## Control Modes
 
 | Mode | What it does |
 |------|-------------|
-| **🏔 Route** *(default)* | Calculates real trail gradient from elevation data. Automatically commands ramp to match terrain as you progress. Uphill on the Cotswold Way = ramp tilts in real time. |
-| **HR→Incline** | Speed fixed. Incline auto-adjusts to hold HR in target zone. Ideal for Z2 aerobic base. |
-| **HR→Speed** | Incline fixed. Speed auto-adjusts to hold HR in zone. Good for tempo. |
-| **Manual** | Reads real data and maps position. You control speed/incline physically. |
+| **Route** *(default)* | Auto-sets treadmill incline to match real trail gradient from GPX elevation data |
+| **HR→Incline** | Speed fixed. Incline auto-adjusts to hold HR in target zone |
+| **HR→Speed** | Incline fixed. Speed auto-adjusts to hold HR in zone |
+| **Manual** | You control speed and incline. App tracks distance and position |
 
 ---
 
-## Setup (3 steps)
+## Setup
 
 1. **NordicUnchained** installed on X32i
-2. Open `https://silverhouse3.github.io/trailrunner` in Chromium on the treadmill  
-3. Tap **🏃 TREADMILL** → connects to `ws://localhost:80`, belt + ramp are now under app control
+2. Open Chromium → navigate to `https://silverhouse3.github.io/trailrunner`
+3. Import a GPX route (export from Garmin Connect, Strava, or any GPS app)
+4. Tap **🏃 TREADMILL** to connect to the X32i WebSocket
+5. Optionally tap **❤ HR** to pair a Bluetooth HR strap
+6. Tap **START RUNNING**
 
-Optionally tap **❤ HR** to pair a Bluetooth HR monitor.
+---
+
+## File structure
+
+```
+index.html          HTML shell
+css/app.css         Styles
+js/gpx.js           GPX parsing + export (GPX/TCX)
+js/storage.js       localStorage persistence (routes, runs, settings)
+js/treadmill.js     WebSocket + BLE HR + BLE FTMS
+js/engine.js        Run engine (state, distance, splits, HR zones, auto-control)
+js/map.js           Leaflet map rendering
+js/ui.js            DOM updates, panels, modals
+js/app.js           Init, event binding, glue
+manifest.json       PWA manifest
+sw.js               Service worker (offline caching)
+```
 
 ---
 
@@ -55,30 +88,30 @@ Optionally tap **❤ HR** to pair a Bluetooth HR monitor.
 {"values":{"MPH":"6.2","Incline":"4.5","Heart Rate":"152"},"type":"stats"}
 ```
 
-If `ws://localhost:80` is unavailable (running on phone/PC), falls back to QZ Companion FTMS BLE for read-only data.
-
 ---
 
-## Features
+## Data flow
 
-- Real GPS map with live runner, ghost, and friend markers
-- Auto-incline: trail gradient commands treadmill ramp in real time
-- HR zone auto-control: incline or speed adjusts to hold target zone
-- 14 built-in programmes + custom builder, with real treadmill commands per stage
-- Ghost racing against past Strava activities
-- Garmin Insights panel (training load, V̇O₂, aerobic efficiency)
-- Km splits with toast notifications
-- Fan auto-control based on HR zone
-- Wake Lock — screen stays on during runs
-- Full unit cycling: km/h, mph, min/km, min/mi
+```
+Treadmill WebSocket ──→ TM.onData ──→ Engine.onTreadmillData()
+BLE HR Strap ──────────→ BLEHR.onHR ──→ Engine.onBLEHR()
+
+Engine.tick() every 250ms:
+  ├── distance += speed × dt
+  ├── routeProgress = distance / totalDistance
+  ├── grade = calcGrade(routeProgress)
+  ├── TM.setIncline(grade)          ← auto-incline
+  ├── checkSplits()
+  ├── recordTrackPoint()            ← for GPX export
+  └── UI.update() + MapView.updateRunner()
+```
 
 ---
 
 ## Version History
 
-| Version | Key changes |
-|---------|-------------|
-| v16 | Direct uthttpd WebSocket control — belt + ramp commanded from app. Route auto-incline. Fan auto-control. QZ BLE fallback. |
-| v15 | NordicUnchained/Android build: scaling, wake lock, Web BT HR + FTMS |
-| v14 | Speed unit fixes (4 modes), Strava upload fixes, avg HR bug fix |
-| v13 | Leaflet map, ghost racing, programmes, splits, Garmin panel |
+| Version | Changes |
+|---------|---------|
+| v17 | Complete rewrite — real distance tracking, GPX import/export, localStorage persistence, emergency stop, ghost racing from saved runs, no fake data |
+| v16 | Direct uthttpd WebSocket control (demo) |
+| v15 | NordicUnchained/Android build (demo) |

@@ -7,3491 +7,396 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#090b10">
 <title>TrailRunner</title>
+<link rel="manifest" href="manifest.json">
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;700&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<style>
-:root{
-  --bg:#090b10;--surf:#111420;--card:#181c28;--border:#20263a;
-  --cyan:#3ecfff;--green:#3ddc84;--orange:#ff9f43;--red:#ff5f5f;
-  --yellow:#ffe066;--purple:#c084fc;--ghost:#b8c4d8;--ghost2:#e8eeff;
-  --text:#dde4f0;--dim:#49536b;--mid:#7a889e;
-  --z1:#4fc3f7;--z2:#69f0ae;--z3:#ffe066;--z4:#ffb74d;--z5:#ff5f5f;
-}
-*{margin:0;padding:0;box-sizing:border-box;
-  -webkit-tap-highlight-color:transparent;
-  -webkit-touch-callout:none;
-  touch-action:manipulation}
-html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);overscroll-behavior:none;}
-body{color:var(--text);font-family:'Rajdhani',sans-serif;user-select:none}
-#rootApp{position:fixed;top:0;left:0;width:1280px;height:720px;transform-origin:0 0;background:var(--bg);overflow:hidden;}
-
-/* ══ TOPBAR ═══════════════════════════════════════════════════════════════ */
-.topbar{display:flex;align-items:center;justify-content:space-between;
-  height:46px;padding:0 16px;background:#0b0d14;border-bottom:1px solid var(--border);z-index:50;position:relative}
-.logo{font-family:'Orbitron',sans-serif;font-size:15px;font-weight:900;
-  letter-spacing:.25em;color:var(--cyan);text-shadow:0 0 24px rgba(62,207,255,.5)}
-.pills{display:flex;gap:6px;align-items:center}
-.pill{display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:20px;
-  border:1px solid;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.05em;
-  cursor:pointer;transition:.2s;white-space:nowrap;min-height:30px}
-.pill.on{color:var(--green);border-color:#264030;background:#0c1a12}
-.pill.off{color:var(--dim);border-color:#1a2030}
-.pill.ghost-pill{color:var(--ghost2);border-color:#3a4060;background:#131828;animation:ghostGlow 3s infinite}
-.pill.together-pill{color:#ff9f43;border-color:#3a2a10;background:#1a1408}
-.pill.insights-pill{color:var(--purple);border-color:#2a1a40;background:#120e1e}
-@keyframes ghostGlow{0%,100%{box-shadow:0 0 0 transparent}50%{box-shadow:0 0 14px rgba(184,196,216,.25)}}
-/* Bluetooth pills */
-.bt-pill{display:flex;align-items:center;padding:4px 10px;border-radius:20px;border:1px solid;
-  font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.05em;cursor:pointer;
-  transition:.2s;white-space:nowrap;min-height:30px;
-  color:var(--dim);border-color:#1a2030;background:transparent}
-.bt-pill.connecting{color:var(--yellow);border-color:#3a3010;animation:btPulse 1s infinite}
-.bt-pill.connected{color:var(--green);border-color:#264030;background:#0c1a12}
-@keyframes btPulse{0%,100%{opacity:1}50%{opacity:.5}}
-/* LIVE badge shown on metric cards when real sensor data is flowing */
-.live-badge{display:inline-block;padding:1px 5px;border-radius:3px;font-size:8px;
-  font-family:'JetBrains Mono',monospace;font-weight:700;letter-spacing:.08em;
-  background:var(--green);color:#000;margin-left:4px;vertical-align:middle;animation:livePulse 2s infinite}
-@keyframes livePulse{0%,100%{opacity:1}50%{opacity:.6}}
-@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
-.timer{font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700;letter-spacing:.08em}
-.rname{font-size:10px;color:var(--mid);letter-spacing:.1em;text-transform:uppercase}
-
-/* ══ LAYOUT ═══════════════════════════════════════════════════════════════ */
-.layout{display:grid;grid-template-columns:1fr 306px;grid-template-rows:1fr 140px;height:674px;position:relative}
-
-/* ══ MAP ══════════════════════════════════════════════════════════════════ */
-.map-zone{grid-row:1;grid-column:1;position:relative;overflow:hidden;background:#080a0f}
-#mapDiv{position:absolute;top:0;left:0;right:0;bottom:0;z-index:0}
-/* Suppress Leaflet default focus outline */
-.leaflet-container{outline:none;font-family:'Rajdhani',sans-serif}
-/* Keep overlays above Leaflet tiles */
-.map-chip,.ghost-delta,.runner-badge-wrap,.zoom-btns,.km-toast,
-.insights-panel,.together-panel,.splits-panel,.dim{position:absolute}
-.map-chip{position:absolute;backdrop-filter:blur(6px);border:1px solid var(--border);
-  border-radius:5px;background:rgba(9,11,16,.88);padding:5px 11px;
-  font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.05em}
-.map-tl{top:10px;left:10px;display:flex;gap:5px}
-.map-tr{top:10px;right:10px}
-.map-bl{bottom:10px;left:10px;display:flex;gap:12px;align-items:center}
-.map-mode-btn{padding:4px 9px;background:transparent;border:1px solid var(--border);
-  border-radius:4px;color:var(--dim);font-size:9px;font-family:'JetBrains Mono',monospace;
-  cursor:pointer;transition:.15s;letter-spacing:.05em}
-.map-mode-btn.act{border-color:var(--cyan);color:var(--cyan);background:rgba(62,207,255,.08)}
-.map-mode-btn:hover{border-color:var(--mid);color:var(--mid)}
-
-/* ── Zoom controls ───────────────────────────────────────────────────────── */
-.zoom-btns{position:absolute;bottom:44px;right:10px;display:flex;flex-direction:column;gap:4px;z-index:20}
-.zoom-btn{width:30px;height:30px;background:rgba(9,11,16,.88);border:1px solid var(--border);
-  border-radius:5px;color:var(--mid);font-size:16px;cursor:pointer;display:flex;
-  align-items:center;justify-content:center;backdrop-filter:blur(6px);
-  transition:.15s;line-height:1;font-family:'JetBrains Mono',monospace;font-weight:700}
-.zoom-btn:hover{border-color:var(--cyan);color:var(--cyan)}
-.zoom-level{width:30px;height:20px;background:rgba(9,11,16,.7);border:1px solid var(--border);
-  border-radius:4px;display:flex;align-items:center;justify-content:center;
-  font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--dim)}
-
-/* ── Pause overlay ───────────────────────────────────────────────────────── */
-.pause-overlay{position:fixed;inset:0;z-index:300;display:none;
-  align-items:center;justify-content:center;flex-direction:column;gap:20px;
-  background:rgba(6,8,14,.92);backdrop-filter:blur(16px)}
-.pause-overlay.show{display:flex}
-.pause-emoji{font-size:96px;animation:wobble 2s ease-in-out infinite}
-@keyframes wobble{0%,100%{transform:rotate(-4deg) scale(1)}50%{transform:rotate(4deg) scale(1.05)}}
-.pause-title{font-family:'Orbitron',sans-serif;font-size:36px;font-weight:900;
-  letter-spacing:.2em;color:var(--text);text-shadow:0 0 40px rgba(255,255,255,.15)}
-.pause-sub{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--dim);
-  letter-spacing:.15em;text-transform:uppercase}
-.pause-timer{font-family:'Orbitron',sans-serif;font-size:18px;color:var(--mid);
-  letter-spacing:.1em;margin-top:4px}
-.resume-btn{margin-top:16px;padding:14px 40px;background:transparent;
-  border:2px solid var(--cyan);border-radius:8px;color:var(--cyan);
-  font-family:'Orbitron',sans-serif;font-size:13px;font-weight:700;letter-spacing:.15em;
-  cursor:pointer;transition:.2s}
-.resume-btn:hover{background:rgba(62,207,255,.12);box-shadow:0 0 24px rgba(62,207,255,.3)}
-/* Pause button in topbar */
-.pause-pill{display:flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;
-  border:1px solid #2a3040;background:#0e1018;color:var(--mid);
-  font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.05em;
-  cursor:pointer;transition:.2s;white-space:nowrap}
-.pause-pill:hover{border-color:var(--cyan);color:var(--cyan)}
-.tv{color:var(--orange);font-size:13px;font-weight:700}
-.av{color:var(--cyan)}
-.cv{color:var(--dim)}
-
-/* ── Ghost Delta Banner ─────────────────────────────────────────────────── */
-.ghost-delta{position:absolute;top:10px;left:50%;transform:translateX(-50%);
-  background:rgba(9,11,16,.92);border:1px solid #3a4060;border-radius:6px;
-  padding:6px 18px;display:flex;align-items:center;gap:12px;z-index:30;
-  backdrop-filter:blur(8px);display:none}
-.ghost-delta.show{display:flex}
-.gd-icon{font-size:16px}
-.gd-label{font-size:10px;color:var(--mid);font-family:'JetBrains Mono',monospace;letter-spacing:.08em}
-.gd-time{font-family:'Orbitron',sans-serif;font-size:20px;font-weight:700}
-.gd-time.ahead{color:#3ddc84}
-.gd-time.behind{color:#ff5f5f}
-.gd-pace{font-size:10px;color:var(--dim);font-family:'JetBrains Mono',monospace}
-
-/* ── Run Together badges ────────────────────────────────────────────────── */
-.runner-badge-wrap{position:absolute;bottom:10px;right:10px;display:flex;flex-direction:column;gap:6px;display:none}
-.runner-badge-wrap.show{display:flex}
-.rb{display:flex;align-items:center;gap:8px;background:rgba(9,11,16,.9);
-  border:1px solid;border-radius:5px;padding:6px 10px;backdrop-filter:blur(6px);cursor:pointer}
-.rb-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
-.rb-name{font-size:11px;font-weight:600}
-.rb-dist{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mid)}
-.rb-status{font-size:9px;font-family:'JetBrains Mono',monospace}
-.rb-delta{font-family:'Orbitron',sans-serif;font-size:13px;font-weight:700;margin-left:auto}
-
-/* ══ METRICS PANEL ════════════════════════════════════════════════════════ */
-.metrics{grid-row:1;grid-column:2;background:var(--surf);border-left:1px solid var(--border);
-  padding:9px 11px;display:grid;grid-template-columns:1fr 1fr;
-  grid-template-rows:repeat(5,1fr) auto;gap:5px}
-.mcard{background:var(--card);border:1px solid var(--border);border-radius:6px;
-  padding:6px 9px;display:flex;flex-direction:column;justify-content:space-between;
-  position:relative;overflow:hidden;transition:border-color .4s}
-.mcard::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;
-  background:var(--ac,var(--border));border-radius:6px 0 0 6px}
-.mcard.wide{grid-column:1/-1}
-.ml{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);
-  font-family:'JetBrains Mono',monospace}
-.mv{font-family:'Orbitron',sans-serif;font-size:24px;font-weight:700;line-height:1;
-  color:var(--ac,var(--text));transition:color .5s;
-  text-shadow:0 0 14px color-mix(in srgb,var(--ac,transparent) 20%,transparent)}
-.mu{font-size:10px;color:var(--dim);font-family:'JetBrains Mono',monospace;margin-left:3px}
-.ms{font-size:10px;color:var(--mid)}
-.ms2{font-size:9px;color:var(--dim);font-family:'JetBrains Mono',monospace}
-.mrow{display:flex;justify-content:space-between;align-items:flex-end}
-.zone-bar{height:4px;border-radius:2px;margin-top:4px;position:relative;
-  background:linear-gradient(to right,var(--z1),var(--z2),var(--z3),var(--z4),var(--z5))}
-.zone-cur{position:absolute;top:-4px;width:3px;height:12px;background:white;border-radius:2px;
-  transform:translateX(-50%);transition:left .9s cubic-bezier(.4,0,.2,1);box-shadow:0 0 8px white}
-.ibar{flex:1;height:5px;background:var(--border);border-radius:3px;overflow:hidden;margin-top:3px}
-.ifill{height:100%;border-radius:3px;transition:width .8s,background .5s}
-
-/* ══ GARMIN INSIGHTS PANEL (slides in from LEFT over map) ════════════════ */
-.insights-panel{position:absolute;top:0;left:0;bottom:0;width:320px;
-  background:rgba(10,12,18,.97);border-right:1px solid #2a1a50;z-index:80;
-  transform:translateX(-100%);transition:transform .3s cubic-bezier(.4,0,.2,1);
-  display:flex;flex-direction:column;backdrop-filter:blur(12px)}
-.insights-panel.open{transform:translateX(0)}
-.ip-header{padding:14px 16px;border-bottom:1px solid #2a1a50;
-  display:flex;align-items:center;justify-content:space-between}
-.ip-title{font-family:'Orbitron',sans-serif;font-size:12px;letter-spacing:.15em;color:var(--purple)}
-.ip-sub{font-size:9px;color:var(--dim);font-family:'JetBrains Mono',monospace;margin-top:2px}
-.ip-close{width:26px;height:26px;border-radius:4px;background:var(--card);
-  border:1px solid var(--border);cursor:pointer;display:flex;align-items:center;
-  justify-content:center;font-size:12px;color:var(--mid);transition:.15s}
-.ip-close:hover{color:var(--red);border-color:var(--red)}
-.ip-scroll{flex:1;overflow-y:auto;padding:12px 14px}
-.ip-section-title{font-size:9px;letter-spacing:.14em;text-transform:uppercase;
-  color:var(--dim);font-family:'JetBrains Mono',monospace;margin:12px 0 8px;padding-bottom:4px;
-  border-bottom:1px solid var(--border)}
-.ig-card{background:var(--card);border:1px solid var(--border);border-radius:6px;
-  padding:9px 12px;margin-bottom:6px;display:flex;align-items:center;gap:10px;
-  position:relative;overflow:hidden;cursor:default}
-.ig-icon{font-size:20px;flex-shrink:0;width:28px;text-align:center}
-.ig-body{flex:1}
-.ig-label{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);
-  font-family:'JetBrains Mono',monospace}
-.ig-val{font-family:'Orbitron',sans-serif;font-size:18px;font-weight:700;line-height:1.1}
-.ig-sub{font-size:10px;margin-top:1px}
-.ig-bar{position:absolute;right:0;top:0;bottom:0;width:3px}
-/* Battery indicator */
-.bb-bar{width:100%;height:6px;background:var(--border);border-radius:3px;margin-top:5px;overflow:hidden}
-.bb-fill{height:100%;border-radius:3px;transition:width 1s}
-/* Compact 2-col grid */
-.ig-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:6px}
-.ig-mini{background:var(--card);border:1px solid var(--border);border-radius:5px;padding:7px 9px}
-.ig-mini-label{font-size:8px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);
-  font-family:'JetBrains Mono',monospace}
-.ig-mini-val{font-family:'Orbitron',sans-serif;font-size:16px;font-weight:700;line-height:1.2}
-/* Trend arrow */
-.trend-up{color:var(--green);font-size:10px}
-.trend-dn{color:var(--red);font-size:10px}
-.trend-flat{color:var(--dim);font-size:10px}
-
-/* ══ GHOST CARD (persistent in metrics panel) ════════════════════════════ */
-.ghost-card{background:var(--card);border:1px solid #2a3050;border-radius:6px;
-  padding:7px 9px;display:flex;flex-direction:column;justify-content:space-between;
-  position:relative;overflow:hidden;grid-column:1/-1;cursor:default;
-  transition:border-color .4s}
-.ghost-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;
-  border-radius:6px 0 0 6px;transition:background .4s}
-.ghost-card.best-ever::before{background:var(--yellow)}
-.ghost-card.best-year::before{background:var(--green)}
-.ghost-card.worst-ever::before{background:var(--red)}
-.ghost-card.worst-year::before{background:var(--orange)}
-.gc-top{display:flex;align-items:center;justify-content:space-between}
-.gc-tag{font-size:9px;letter-spacing:.12em;text-transform:uppercase;
-  font-family:'JetBrains Mono',monospace;font-weight:700}
-.gc-tag.best-ever{color:var(--yellow)}.gc-tag.best-year{color:var(--green)}
-.gc-tag.worst-ever{color:var(--red)}.gc-tag.worst-year{color:var(--orange)}
-.gc-nav{display:flex;gap:4px}
-.gc-btn{width:22px;height:22px;border-radius:4px;background:rgba(255,255,255,.05);
-  border:1px solid var(--border);cursor:pointer;display:flex;align-items:center;
-  justify-content:center;font-size:11px;color:var(--mid);transition:.15s;line-height:1}
-.gc-btn:hover{border-color:var(--ghost2);color:var(--ghost2)}
-.gc-mid{display:flex;align-items:center;gap:10px;margin:4px 0 2px}
-.gc-delta{font-family:'Orbitron',sans-serif;font-size:22px;font-weight:700;line-height:1;transition:color .4s}
-.gc-delta.ahead{color:var(--green);text-shadow:0 0 12px rgba(61,220,132,.35)}
-.gc-delta.behind{color:var(--red);text-shadow:0 0 12px rgba(255,95,95,.3)}
-.gc-direction{font-size:10px;font-family:'JetBrains Mono',monospace;
-  padding:2px 6px;border-radius:3px;letter-spacing:.06em}
-.gc-direction.ahead{color:var(--green);background:rgba(61,220,132,.1);border:1px solid rgba(61,220,132,.25)}
-.gc-direction.behind{color:var(--red);background:rgba(255,95,95,.1);border:1px solid rgba(255,95,95,.2)}
-.gc-bot{display:flex;justify-content:space-between;align-items:flex-end}
-.gc-detail{font-size:9px;color:var(--dim);font-family:'JetBrains Mono',monospace;line-height:1.5}
-.gc-dots{display:flex;gap:4px;align-items:center}
-.gc-dot{width:6px;height:6px;border-radius:50%;background:var(--border);transition:.2s;cursor:pointer}
-.gc-dot.active{background:var(--ghost2);box-shadow:0 0 6px rgba(232,238,255,.5)}
-
-/* ══ RUN TOGETHER PANEL ══════════════════════════════════════════════════ */
-.together-panel{position:absolute;top:0;right:306px;width:280px;
-  background:rgba(10,12,18,.96);border-left:1px solid #3a2a10;
-  border-bottom:1px solid #3a2a10;border-radius:0 0 0 8px;z-index:70;
-  transform:translateY(-100%);transition:transform .3s cubic-bezier(.4,0,.2,1);
-  backdrop-filter:blur(10px);display:none}
-.together-panel.open{transform:translateY(0);display:block}
-.tp-header{padding:10px 14px;border-bottom:1px solid #3a2a10;
-  display:flex;align-items:center;justify-content:space-between}
-.tp-title{font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:.12em;color:var(--orange)}
-.tp-close{width:22px;height:22px;background:var(--card);border:1px solid var(--border);
-  border-radius:3px;cursor:pointer;display:flex;align-items:center;justify-content:center;
-  font-size:11px;color:var(--mid);transition:.15s}
-.tp-close:hover{color:var(--red)}
-.tp-runner{display:flex;align-items:flex-start;gap:10px;padding:10px 14px;
-  border-bottom:1px solid rgba(58,42,16,.5)}
-.tp-avatar{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;
-  justify-content:center;font-size:14px;font-weight:700;flex-shrink:0;border:2px solid}
-.tp-info{flex:1}
-.tp-name{font-size:13px;font-weight:600}
-.tp-location{font-size:10px;font-family:'JetBrains Mono',monospace;margin-top:1px}
-.tp-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-top:6px}
-.tp-stat{background:rgba(255,255,255,.04);border-radius:4px;padding:4px 6px;text-align:center}
-.tp-stat-val{font-family:'Orbitron',sans-serif;font-size:12px;font-weight:700}
-.tp-stat-lbl{font-size:8px;color:var(--dim);font-family:'JetBrains Mono',monospace;letter-spacing:.06em}
-.tp-delta{padding:8px 14px;display:flex;align-items:center;justify-content:space-between}
-.tp-delta-label{font-size:10px;color:var(--mid);font-family:'JetBrains Mono',monospace}
-.tp-delta-val{font-family:'Orbitron',sans-serif;font-size:18px;font-weight:700}
-
-/* ══ ELEVATION STRIP ══════════════════════════════════════════════════════ */
-.elev-strip{grid-row:2;grid-column:1/-1;background:#0b0d14;border-top:1px solid var(--border);
-  padding:6px 14px 4px;display:flex;flex-direction:column;gap:2px}
-.es-row{display:flex;justify-content:space-between;align-items:center}
-.es-title{font-size:9px;letter-spacing:.14em;color:var(--dim);font-family:'JetBrains Mono',monospace;text-transform:uppercase}
-.es-stats{display:flex;gap:16px}
-.es-stat{display:flex;flex-direction:column;align-items:flex-end}
-.es-val{font-family:'Orbitron',monospace;font-size:13px;font-weight:700}
-.es-lbl{font-size:8px;color:var(--dim);font-family:'JetBrains Mono',monospace;letter-spacing:.08em}
-.mult-badge{display:flex;align-items:center;gap:5px;background:var(--card);border:1px solid var(--border);
-  border-radius:4px;padding:3px 9px;font-family:'JetBrains Mono',monospace;font-size:9px;cursor:pointer}
-.mult-v{color:var(--orange);font-weight:700;font-size:12px}
-.ec-wrap{flex:1;position:relative}
-#elevC{width:100%;height:100%}
-.pt{position:absolute;bottom:0;left:0;right:0;height:2px;background:rgba(255,255,255,.04)}
-.pf{height:100%;background:var(--cyan);transition:width 1s;box-shadow:0 0 5px var(--cyan)}
-
-/* ══ KM SPLIT TOAST ══════════════════════════════════════════════════════ */
-.km-toast{position:absolute;top:54px;left:50%;transform:translateX(-50%) translateY(-14px);
-  background:rgba(9,11,16,.96);border:1px solid var(--cyan);border-radius:8px;
-  padding:8px 20px;display:flex;align-items:center;gap:14px;z-index:40;
-  backdrop-filter:blur(8px);opacity:0;pointer-events:none;
-  transition:opacity .35s,transform .35s}
-.km-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-.km-toast-km{font-family:'Orbitron',sans-serif;font-size:22px;font-weight:900;color:var(--cyan);
-  border-right:1px solid var(--border);padding-right:14px;min-width:48px;text-align:center}
-.km-toast-km span{font-size:9px;display:block;color:var(--dim);font-family:'JetBrains Mono',monospace;letter-spacing:.1em}
-.km-toast-stats{display:flex;gap:16px}
-.km-toast-stat{text-align:center}
-.km-toast-v{font-family:'Orbitron',sans-serif;font-size:15px;font-weight:700;color:var(--text)}
-.km-toast-l{font-size:8px;color:var(--dim);font-family:'JetBrains Mono',monospace;letter-spacing:.08em;text-transform:uppercase}
-
-/* ══ SPLITS PANEL ════════════════════════════════════════════════════════ */
-.splits-panel{position:absolute;top:0;right:0;bottom:0;width:300px;
-  background:rgba(10,12,18,.97);border-left:1px solid #1a3040;z-index:80;
-  transform:translateX(100%);transition:transform .3s cubic-bezier(.4,0,.2,1);
-  display:flex;flex-direction:column;backdrop-filter:blur(12px)}
-.splits-panel.open{transform:translateX(0)}
-.sp-header{padding:14px 16px;border-bottom:1px solid #1a3040;
-  display:flex;align-items:center;justify-content:space-between}
-.sp-title{font-family:'Orbitron',sans-serif;font-size:12px;letter-spacing:.15em;color:var(--cyan)}
-.sp-close{width:26px;height:26px;border-radius:4px;background:var(--card);
-  border:1px solid var(--border);cursor:pointer;display:flex;align-items:center;
-  justify-content:center;font-size:12px;color:var(--mid);transition:.15s}
-.sp-close:hover{color:var(--red);border-color:var(--red)}
-.sp-body{flex:1;overflow-y:auto;padding:10px 12px}
-.sp-table-head{display:grid;grid-template-columns:36px 60px 58px 48px 40px;
-  padding:4px 8px;font-size:8px;color:var(--dim);font-family:'JetBrains Mono',monospace;
-  letter-spacing:.1em;text-transform:uppercase;border-bottom:1px solid var(--border);margin-bottom:4px}
-.sp-row{display:grid;grid-template-columns:36px 60px 58px 48px 40px;
-  padding:7px 8px;border-radius:5px;transition:.15s;align-items:center}
-.sp-row:nth-child(odd){background:rgba(255,255,255,.03)}
-.sp-row:hover{background:rgba(62,207,255,.06)}
-.sp-km{font-family:'Orbitron',sans-serif;font-size:15px;font-weight:700;color:var(--cyan)}
-.sp-time{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text)}
-.sp-pace{font-family:'JetBrains Mono',monospace;font-size:11px}
-.sp-hr{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--mid)}
-.sp-trend{font-size:12px;text-align:center}
-.sp-avg{display:flex;gap:8px;margin-top:10px;padding:8px 10px;
-  background:var(--card);border:1px solid var(--border);border-radius:6px}
-.sp-avg-item{flex:1;text-align:center}
-.sp-avg-v{font-family:'Orbitron',sans-serif;font-size:13px;font-weight:700;color:var(--cyan)}
-.sp-avg-l{font-size:8px;color:var(--dim);font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.08em}
-.sp-empty{text-align:center;padding:32px 16px;color:var(--dim);
-  font-family:'JetBrains Mono',monospace;font-size:10px;line-height:1.8}
-
-/* ══ RUN COMPLETE OVERLAY ════════════════════════════════════════════════ */
-.finish-overlay{position:fixed;inset:0;z-index:400;display:none;
-  align-items:center;justify-content:center;flex-direction:column;
-  background:rgba(6,8,14,.97);backdrop-filter:blur(20px)}
-.finish-overlay.show{display:flex}
-.finish-badge{font-size:72px;margin-bottom:8px;animation:popIn .5s cubic-bezier(.34,1.56,.64,1)}
-@keyframes popIn{0%{transform:scale(0)}100%{transform:scale(1)}}
-.finish-title{font-family:'Orbitron',sans-serif;font-size:32px;font-weight:900;
-  letter-spacing:.2em;color:var(--text);text-shadow:0 0 40px rgba(255,255,255,.15);margin-bottom:2px}
-.finish-route{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mid);
-  letter-spacing:.15em;text-transform:uppercase;margin-bottom:20px}
-.finish-stats{display:flex;gap:2px;margin-bottom:22px}
-.finish-stat{text-align:center;padding:16px 22px;background:var(--card);border:1px solid var(--border)}
-.finish-stat:first-child{border-radius:8px 0 0 8px}
-.finish-stat:last-child{border-radius:0 8px 8px 0}
-.finish-stat-v{font-family:'Orbitron',sans-serif;font-size:24px;font-weight:700;color:var(--text)}
-.finish-stat-l{font-size:9px;color:var(--dim);font-family:'JetBrains Mono',monospace;
-  letter-spacing:.1em;text-transform:uppercase;margin-top:3px}
-.finish-stat.highlight .finish-stat-v{color:var(--cyan);text-shadow:0 0 16px rgba(62,207,255,.35)}
-.finish-actions{display:flex;gap:10px;margin-bottom:14px}
-.finish-btn{padding:11px 26px;border-radius:7px;border:2px solid;
-  font-family:'Orbitron',sans-serif;font-size:10px;font-weight:700;letter-spacing:.12em;
-  cursor:pointer;transition:.2s;background:transparent}
-.finish-btn.strava{color:#fc4c02;border-color:#fc4c02}
-.finish-btn.strava:hover{background:rgba(252,76,2,.12);box-shadow:0 0 20px rgba(252,76,2,.3)}
-.finish-btn.strava.uploaded{color:#4caf50;border-color:#4caf50;cursor:default}
-.finish-btn.garmin{color:var(--cyan);border-color:var(--cyan)}
-.finish-btn.garmin:hover{background:rgba(62,207,255,.1);box-shadow:0 0 20px rgba(62,207,255,.25)}
-.finish-btn.garmin.saved{color:#4caf50;border-color:#4caf50;cursor:default}
-.finish-btn.discard{color:var(--dim);border-color:var(--border)}
-.finish-btn.discard:hover{color:var(--red);border-color:var(--red)}
-.finish-pr{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--yellow);
-  letter-spacing:.08em;margin-bottom:6px;animation:pulseGold 1.5s infinite}
-@keyframes pulseGold{0%,100%{opacity:1}50%{opacity:.7}}
-
-/* ══ STRAVA PILL ════════════════════════════════════════════════════════ */
-.pill.strava-pill{color:#fc4c02;border-color:#3a1a08;background:#1a0c04}
-.pill.strava-pill.linked{border-color:#5a2a18}
-
-/* ══ DIM ══════════════════════════════════════════════════════════════════ */
-.dim{position:absolute;inset:0;background:rgba(0,0,0,.45);z-index:60;display:none;backdrop-filter:blur(1px)}
-.dim.show{display:block}
-
-/* ══ ROUTE SELECTOR MODAL ════════════════════════════════════════════════ */
-.rmodal-back{position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:200;
-  display:none;align-items:center;justify-content:center;backdrop-filter:blur(5px)}
-.rmodal-back.show{display:flex}
-.rmodal{background:var(--surf);border:1px solid var(--border);border-radius:12px;
-  width:860px;max-height:580px;display:flex;flex-direction:column;overflow:hidden}
-.rmodal-header{display:flex;align-items:center;justify-content:space-between;
-  padding:16px 20px;border-bottom:1px solid var(--border);flex-shrink:0}
-.rmodal-title{font-family:'Orbitron',sans-serif;font-size:13px;letter-spacing:.15em;color:var(--cyan)}
-.rmodal-sub{font-size:10px;color:var(--mid);font-family:'JetBrains Mono',monospace;margin-top:2px}
-.rmodal-close{width:28px;height:28px;border-radius:5px;background:var(--card);
-  border:1px solid var(--border);cursor:pointer;display:flex;align-items:center;
-  justify-content:center;font-size:13px;color:var(--mid);transition:.15s}
-.rmodal-close:hover{color:var(--red);border-color:var(--red)}
-/* OAuth step */
-.oauth-screen{padding:32px;text-align:center;display:flex;flex-direction:column;
-  align-items:center;gap:16px}
-.oauth-logo{font-size:48px}
-.oauth-title{font-family:'Orbitron',sans-serif;font-size:16px;letter-spacing:.1em;color:var(--text)}
-.oauth-desc{font-size:11px;color:var(--mid);max-width:420px;line-height:1.7;
-  font-family:'JetBrains Mono',monospace}
-.oauth-perms{background:var(--card);border:1px solid var(--border);border-radius:8px;
-  padding:14px 20px;text-align:left;width:380px}
-.oauth-perm{display:flex;align-items:center;gap:10px;padding:5px 0;
-  font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--mid)}
-.oauth-perm-icon{font-size:14px;width:20px;text-align:center}
-.oauth-btn{padding:12px 36px;background:var(--cyan);border:none;border-radius:7px;
-  color:#09090b;font-family:'Orbitron',sans-serif;font-size:11px;font-weight:700;
-  letter-spacing:.12em;cursor:pointer;transition:.2s;margin-top:4px}
-.oauth-btn:hover{box-shadow:0 0 20px rgba(62,207,255,.4)}
-.oauth-note{font-size:9px;color:var(--dim);font-family:'JetBrains Mono',monospace}
-/* Syncing step */
-.sync-screen{padding:32px;text-align:center;display:flex;flex-direction:column;
-  align-items:center;gap:14px;display:none}
-.sync-spinner{width:48px;height:48px;border:3px solid var(--border);
-  border-top-color:var(--cyan);border-radius:50%;animation:spin .8s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
-.sync-status{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--mid)}
-.sync-count{font-family:'Orbitron',sans-serif;font-size:22px;color:var(--cyan)}
-/* Route browser step */
-.route-browser{display:none;flex-direction:column;flex:1;overflow:hidden}
-.rb-toolbar{display:flex;gap:8px;align-items:center;padding:10px 16px;
-  border-bottom:1px solid var(--border);flex-shrink:0}
-.rb-search{flex:1;background:var(--card);border:1px solid var(--border);border-radius:5px;
-  color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11px;
-  padding:7px 11px;outline:none}
-.rb-search:focus{border-color:var(--cyan)}
-.rb-filter{padding:6px 12px;border-radius:4px;background:var(--card);
-  border:1px solid var(--border);color:var(--dim);font-family:'JetBrains Mono',monospace;
-  font-size:9px;cursor:pointer;transition:.15s;letter-spacing:.06em}
-.rb-filter.on{border-color:var(--cyan);color:var(--cyan);background:rgba(62,207,255,.08)}
-.rb-filter:hover{border-color:var(--mid);color:var(--mid)}
-.rb-list{overflow-y:auto;flex:1;padding:8px 12px;display:grid;
-  grid-template-columns:1fr 1fr;gap:8px}
-.rc{background:var(--card);border:2px solid var(--border);border-radius:8px;
-  padding:12px 14px;cursor:pointer;transition:.2s;position:relative;overflow:hidden}
-.rc:hover{border-color:var(--mid)}
-.rc.selected{border-color:var(--cyan);background:#0d1520;
-  box-shadow:0 0 16px rgba(62,207,255,.15)}
-.rc::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;
-  border-radius:8px 0 0 8px;background:var(--rc-ac,var(--border))}
-.rc-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px}
-.rc-name{font-size:12px;font-weight:700;color:var(--text);line-height:1.3;flex:1;margin-right:8px}
-.rc-badge{font-size:8px;padding:2px 7px;border-radius:10px;
-  font-family:'JetBrains Mono',monospace;letter-spacing:.06em;white-space:nowrap}
-.rc-badge.fav{background:rgba(255,224,102,.12);color:var(--yellow);border:1px solid rgba(255,224,102,.25)}
-.rc-badge.new{background:rgba(61,220,132,.12);color:var(--green);border:1px solid rgba(61,220,132,.25)}
-.rc-stats{display:flex;gap:10px;flex-wrap:wrap}
-.rc-stat{display:flex;flex-direction:column}
-.rc-stat-v{font-family:'Orbitron',sans-serif;font-size:13px;font-weight:700}
-.rc-stat-l{font-size:8px;color:var(--dim);font-family:'JetBrains Mono',monospace;letter-spacing:.06em}
-.rc-meta{display:flex;justify-content:space-between;align-items:center;
-  margin-top:7px;padding-top:7px;border-top:1px solid var(--border)}
-.rc-date{font-size:9px;color:var(--dim);font-family:'JetBrains Mono',monospace}
-.rc-runs{font-size:9px;color:var(--mid);font-family:'JetBrains Mono',monospace}
-.rc-elev-bar{height:24px;margin:8px 0 0;position:relative;overflow:hidden;border-radius:3px;
-  background:rgba(255,255,255,.04)}
-.rc-elev-path{position:absolute;inset:0}
-/* Confirm button bar */
-.rb-confirm{display:flex;align-items:center;justify-content:space-between;
-  padding:10px 16px;border-top:1px solid var(--border);flex-shrink:0;display:none}
-.rb-confirm.show{display:flex}
-.rb-sel-info{font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--mid)}
-.rb-sel-name{color:var(--cyan);font-weight:700}
-.rb-go{padding:10px 28px;background:var(--cyan);border:none;border-radius:6px;
-  color:#09090b;font-family:'Orbitron',sans-serif;font-size:11px;font-weight:700;
-  letter-spacing:.12em;cursor:pointer;transition:.2s}
-.rb-go:hover{box-shadow:0 0 16px rgba(62,207,255,.4)}
-
-/* ══ UNIT CYCLING on metric cards ════════════════════════════════════════ */
-.mcard.clickable{cursor:pointer}
-.mcard.clickable:hover{border-color:var(--cyan)!important}
-.unit-hint{font-size:7px;color:var(--dim);font-family:'JetBrains Mono',monospace;
-  letter-spacing:.06em;margin-left:4px;opacity:.7;vertical-align:middle}
-
-/* ══ STRAVA PANEL (slides from left like Insights) ══════════════════════ */
-.strava-panel{position:absolute;top:0;left:0;bottom:0;width:340px;
-  background:rgba(10,12,18,.97);border-right:1px solid #3a1a08;z-index:80;
-  transform:translateX(-100%);transition:transform .3s cubic-bezier(.4,0,.2,1);
-  display:flex;flex-direction:column;backdrop-filter:blur(12px)}
-.strava-panel.open{transform:translateX(0)}
-.stp-header{padding:14px 16px;border-bottom:1px solid #3a1a08;
-  display:flex;align-items:center;justify-content:space-between}
-.stp-title{font-family:'Orbitron',sans-serif;font-size:12px;letter-spacing:.15em;color:#fc4c02}
-.stp-close{width:26px;height:26px;border-radius:4px;background:var(--card);
-  border:1px solid var(--border);cursor:pointer;display:flex;align-items:center;
-  justify-content:center;font-size:12px;color:var(--mid);transition:.15s}
-.stp-close:hover{color:var(--red);border-color:var(--red)}
-.stp-tabs{display:flex;gap:0;border-bottom:1px solid #3a1a08;flex-shrink:0}
-.stp-tab{flex:1;padding:8px;text-align:center;font-family:'JetBrains Mono',monospace;
-  font-size:9px;letter-spacing:.08em;color:var(--dim);cursor:pointer;transition:.15s;
-  border-bottom:2px solid transparent}
-.stp-tab.on{color:#fc4c02;border-color:#fc4c02}
-.stp-tab:hover{color:var(--mid)}
-.stp-body{flex:1;overflow-y:auto;padding:10px 12px}
-.str-act{background:var(--card);border:1px solid var(--border);border-radius:6px;
-  padding:10px 12px;margin-bottom:6px;cursor:pointer;transition:.2s;position:relative;overflow:hidden}
-.str-act::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:#fc4c02;border-radius:6px 0 0 6px}
-.str-act:hover{border-color:#fc4c02;background:#150904}
-.str-act.as-ghost{border-color:#fc4c02;background:#1a0c04;box-shadow:0 0 12px rgba(252,76,2,.15)}
-.str-act-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:5px}
-.str-act-name{font-size:11px;font-weight:700;color:var(--text);flex:1;margin-right:8px;line-height:1.3}
-.str-act-date{font-size:9px;color:var(--dim);font-family:'JetBrains Mono',monospace;white-space:nowrap}
-.str-stats{display:flex;gap:10px;flex-wrap:wrap}
-.str-s{display:flex;flex-direction:column}
-.str-sv{font-family:'Orbitron',sans-serif;font-size:12px;font-weight:700;color:var(--text)}
-.str-sl{font-size:8px;color:var(--dim);font-family:'JetBrains Mono',monospace;letter-spacing:.06em;text-transform:uppercase}
-.str-badge{font-size:8px;padding:1px 6px;border-radius:3px;background:rgba(252,76,2,.12);
-  color:#fc4c02;border:1px solid rgba(252,76,2,.25);font-family:'JetBrains Mono',monospace;
-  letter-spacing:.06em;margin-top:4px;display:inline-block}
-.str-ghost-btn{position:absolute;right:8px;bottom:8px;padding:3px 9px;border-radius:3px;
-  background:transparent;border:1px solid var(--dim);color:var(--dim);
-  font-family:'JetBrains Mono',monospace;font-size:8px;cursor:pointer;
-  letter-spacing:.06em;transition:.15s}
-.str-ghost-btn:hover,.str-act.as-ghost .str-ghost-btn{background:rgba(252,76,2,.15);border-color:#fc4c02;color:#fc4c02}
-.str-connect-box{text-align:center;padding:32px 20px;display:flex;flex-direction:column;
-  align-items:center;gap:14px}
-.str-connect-logo{font-size:40px}
-.str-connect-title{font-family:'Orbitron',sans-serif;font-size:13px;letter-spacing:.1em;color:var(--text)}
-.str-connect-btn{padding:11px 28px;background:#fc4c02;border:none;border-radius:6px;
-  color:white;font-family:'Orbitron',sans-serif;font-size:10px;font-weight:700;
-  letter-spacing:.12em;cursor:pointer;transition:.2s}
-.str-connect-btn:hover{box-shadow:0 0 20px rgba(252,76,2,.5)}
-
-/* ══ WORKOUT SETUP PANEL (right side, above metrics) ════════════════════ */
-.workout-panel{position:absolute;top:0;left:0;right:306px;bottom:0;z-index:85;
-  background:rgba(8,9,14,.97);backdrop-filter:blur(14px);
-  transform:translateY(-100%);transition:transform .35s cubic-bezier(.4,0,.2,1);
-  display:flex;flex-direction:column;overflow:hidden}
-.workout-panel.open{transform:translateY(0)}
-.wp-header{padding:12px 18px;border-bottom:1px solid var(--border);
-  display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
-.wp-title{font-family:'Orbitron',sans-serif;font-size:12px;letter-spacing:.15em;color:var(--green)}
-.wp-close{width:26px;height:26px;border-radius:4px;background:var(--card);
-  border:1px solid var(--border);cursor:pointer;display:flex;align-items:center;
-  justify-content:center;font-size:12px;color:var(--mid);transition:.15s}
-.wp-close:hover{color:var(--red);border-color:var(--red)}
-.wp-body{flex:1;overflow-y:auto;padding:14px 18px;display:grid;
-  grid-template-columns:1fr 1fr 1fr;gap:12px}
-.wp-section{background:var(--card);border:1px solid var(--border);border-radius:7px;padding:12px 14px}
-.wp-section-title{font-size:9px;letter-spacing:.12em;text-transform:uppercase;
-  color:var(--dim);font-family:'JetBrains Mono',monospace;margin-bottom:10px;
-  padding-bottom:6px;border-bottom:1px solid var(--border)}
-.wp-field{margin-bottom:10px}
-.wp-label{font-size:9px;color:var(--mid);font-family:'JetBrains Mono',monospace;
-  letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px}
-.wp-input{width:100%;background:#0a0c12;border:1px solid var(--border);border-radius:4px;
-  color:var(--text);font-family:'JetBrains Mono',monospace;font-size:13px;
-  padding:6px 9px;outline:none;transition:.15s}
-.wp-input:focus{border-color:var(--cyan)}
-.wp-row{display:flex;gap:6px}
-.wp-select{flex:1;background:#0a0c12;border:1px solid var(--border);border-radius:4px;
-  color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11px;
-  padding:6px 8px;outline:none;cursor:pointer}
-.wp-select:focus{border-color:var(--cyan)}
-.ctrl-mode-row{display:flex;gap:5px;flex-wrap:wrap}
-.ctrl-btn{padding:5px 10px;border-radius:4px;background:var(--card);
-  border:1px solid var(--border);color:var(--dim);
-  font-family:'JetBrains Mono',monospace;font-size:8px;
-  cursor:pointer;transition:.15s;letter-spacing:.05em;text-align:center}
-.ctrl-btn.act{border-color:var(--green);color:var(--green);background:rgba(61,220,132,.08)}
-.ctrl-btn:hover{border-color:var(--mid);color:var(--mid)}
-.zone-btn-row{display:flex;gap:4px}
-.zone-btn{flex:1;padding:6px 2px;text-align:center;border-radius:4px;
-  background:var(--card);border:1px solid var(--border);
-  font-family:'JetBrains Mono',monospace;font-size:9px;cursor:pointer;transition:.15s}
-.zone-btn.z1.act{border-color:var(--z1);background:rgba(79,195,247,.1);color:var(--z1)}
-.zone-btn.z2.act{border-color:var(--z2);background:rgba(105,240,174,.1);color:var(--z2)}
-.zone-btn.z3.act{border-color:var(--z3);background:rgba(255,224,102,.1);color:var(--z3)}
-.zone-btn.z4.act{border-color:var(--z4);background:rgba(255,183,77,.1);color:var(--z4)}
-.zone-btn.z5.act{border-color:var(--z5);background:rgba(255,95,95,.1);color:var(--z5)}
-.zone-btn:not(.act){color:var(--dim)}
-
-/* ══ PROGRAMME MODAL ════════════════════════════════════════════════════ */
-.prog-back{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:250;
-  display:none;align-items:center;justify-content:center;backdrop-filter:blur(6px)}
-.prog-back.show{display:flex}
-.prog-modal{background:var(--surf);border:1px solid var(--border);border-radius:12px;
-  width:1100px;height:620px;display:flex;overflow:hidden}
-/* Left: library list */
-.prog-list-pane{width:260px;border-right:1px solid var(--border);
-  display:flex;flex-direction:column;background:var(--bg);flex-shrink:0}
-.prog-list-header{padding:14px 14px 10px;border-bottom:1px solid var(--border);flex-shrink:0}
-.prog-list-title{font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:.12em;color:var(--cyan)}
-.prog-list-sub{font-size:9px;color:var(--dim);font-family:'JetBrains Mono',monospace;margin-top:2px}
-.prog-list-body{flex:1;overflow-y:auto;padding:8px}
-.prog-item{padding:9px 10px;border-radius:5px;border:1px solid var(--border);
-  margin-bottom:4px;cursor:pointer;transition:.15s;position:relative;overflow:hidden}
-.prog-item::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;
-  background:var(--pi-ac,var(--border));border-radius:5px 0 0 5px}
-.prog-item:hover{background:var(--card);border-color:var(--mid)}
-.prog-item.selected{background:var(--card);border-color:var(--cyan)}
-.prog-item-name{font-size:11px;font-weight:600;color:var(--text)}
-.prog-item-meta{font-size:9px;color:var(--dim);font-family:'JetBrains Mono',monospace;margin-top:2px}
-.prog-item-tag{display:inline-block;font-size:8px;padding:1px 5px;border-radius:3px;
-  font-family:'JetBrains Mono',monospace;letter-spacing:.05em;margin-top:3px}
-.prog-new-btn{margin:8px;padding:8px;border-radius:5px;background:transparent;
-  border:1px dashed var(--border);color:var(--dim);font-family:'JetBrains Mono',monospace;
-  font-size:10px;cursor:pointer;text-align:center;transition:.15s}
-.prog-new-btn:hover{border-color:var(--cyan);color:var(--cyan)}
-/* Right: programme detail / builder */
-.prog-detail-pane{flex:1;display:flex;flex-direction:column;overflow:hidden}
-.prog-detail-header{padding:14px 18px;border-bottom:1px solid var(--border);
-  display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
-.prog-detail-title-input{background:transparent;border:none;
-  font-family:'Orbitron',sans-serif;font-size:14px;font-weight:700;letter-spacing:.1em;
-  color:var(--text);outline:none;flex:1;margin-right:12px}
-.prog-detail-title-input::placeholder{color:var(--dim)}
-.prog-close{width:28px;height:28px;border-radius:5px;background:var(--card);
-  border:1px solid var(--border);cursor:pointer;display:flex;align-items:center;
-  justify-content:center;font-size:13px;color:var(--mid);transition:.15s}
-.prog-close:hover{color:var(--red);border-color:var(--red)}
-.prog-stats-bar{display:flex;gap:16px;padding:10px 18px;background:var(--bg);
-  border-bottom:1px solid var(--border);flex-shrink:0}
-.prog-stat{display:flex;flex-direction:column;align-items:center}
-.prog-stat-v{font-family:'Orbitron',sans-serif;font-size:14px;font-weight:700;color:var(--cyan)}
-.prog-stat-l{font-size:8px;color:var(--dim);font-family:'JetBrains Mono',monospace;letter-spacing:.07em;text-transform:uppercase}
-/* Stage list */
-.prog-stages{flex:1;overflow-y:auto;padding:10px 14px}
-.stage-row{display:flex;align-items:center;gap:8px;padding:8px 10px;
-  border-radius:6px;border:1px solid var(--border);margin-bottom:5px;
-  background:var(--card);transition:.15s;position:relative}
-.stage-row:hover{border-color:var(--mid)}
-.stage-handle{font-size:12px;color:var(--dim);cursor:grab;padding:0 4px;flex-shrink:0}
-.stage-num{font-family:'Orbitron',sans-serif;font-size:12px;font-weight:700;
-  color:var(--dim);width:20px;text-align:center;flex-shrink:0}
-.stage-type-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
-.stage-name{font-size:11px;font-weight:600;color:var(--text);min-width:90px;flex-shrink:0}
-.stage-fields{display:flex;gap:6px;flex:1}
-.stage-field{display:flex;flex-direction:column;align-items:center;min-width:54px}
-.stage-field-v{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text)}
-.stage-field-l{font-size:7px;color:var(--dim);letter-spacing:.07em;text-transform:uppercase}
-.stage-edit-input{width:52px;background:#0a0c12;border:1px solid var(--border);
-  border-radius:3px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:10px;
-  padding:2px 5px;outline:none;text-align:center}
-.stage-edit-input:focus{border-color:var(--cyan)}
-.stage-actions{display:flex;gap:4px;flex-shrink:0}
-.stage-btn{width:22px;height:22px;border-radius:3px;background:rgba(255,255,255,.04);
-  border:1px solid var(--border);cursor:pointer;display:flex;align-items:center;
-  justify-content:center;font-size:11px;color:var(--dim);transition:.15s;flex-shrink:0}
-.stage-btn:hover{border-color:var(--mid);color:var(--text)}
-.stage-btn.del:hover{border-color:var(--red);color:var(--red)}
-/* Stage add row */
-.stage-add-row{display:flex;gap:6px;padding:10px 14px;border-top:1px solid var(--border);flex-shrink:0;flex-wrap:wrap}
-.add-stage-type-btn{padding:5px 10px;border-radius:4px;background:var(--card);
-  border:1px solid var(--border);color:var(--dim);font-family:'JetBrains Mono',monospace;
-  font-size:9px;cursor:pointer;transition:.15s;letter-spacing:.05em}
-.add-stage-type-btn:hover{border-color:var(--cyan);color:var(--cyan)}
-/* Prog footer */
-.prog-footer{padding:10px 18px;border-top:1px solid var(--border);
-  display:flex;justify-content:space-between;align-items:center;flex-shrink:0;gap:8px}
-.prog-load-btn{padding:10px 24px;background:var(--green);border:none;border-radius:6px;
-  color:#090b10;font-family:'Orbitron',sans-serif;font-size:11px;font-weight:700;
-  letter-spacing:.12em;cursor:pointer;transition:.2s}
-.prog-load-btn:hover{box-shadow:0 0 16px rgba(61,220,132,.4)}
-.prog-save-btn{padding:9px 20px;background:transparent;border:1px solid var(--cyan);
-  border-radius:6px;color:var(--cyan);font-family:'JetBrains Mono',monospace;font-size:10px;
-  cursor:pointer;transition:.2s;letter-spacing:.06em}
-.prog-save-btn:hover{background:rgba(62,207,255,.08)}
-.prog-del-btn{padding:9px 14px;background:transparent;border:1px solid var(--border);
-  border-radius:6px;color:var(--dim);font-family:'JetBrains Mono',monospace;font-size:10px;
-  cursor:pointer;transition:.2s}
-.prog-del-btn:hover{border-color:var(--red);color:var(--red)}
-
-/* ══ ACTIVE WORKOUT HUD (over map, bottom-left) ══════════════════════════ */
-.workout-hud{position:absolute;bottom:50px;left:10px;z-index:30;
-  background:rgba(9,11,16,.92);border:1px solid var(--green);border-radius:7px;
-  padding:8px 12px;backdrop-filter:blur(6px);display:none;min-width:210px}
-.workout-hud.show{display:block}
-.wh-prog-name{font-family:'Orbitron',sans-serif;font-size:10px;font-weight:700;
-  color:var(--green);letter-spacing:.1em;margin-bottom:4px}
-.wh-stage{display:flex;align-items:center;gap:8px;margin-bottom:3px}
-.wh-stage-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
-.wh-stage-name{font-size:11px;font-weight:600;color:var(--text)}
-.wh-stage-timer{font-family:'Orbitron',sans-serif;font-size:14px;font-weight:700;
-  color:var(--cyan);margin-left:auto}
-.wh-progress{height:3px;background:var(--border);border-radius:2px;margin-top:4px;overflow:hidden}
-.wh-prog-fill{height:100%;background:var(--green);border-radius:2px;transition:width .5s}
-.wh-targets{display:flex;gap:10px;margin-top:5px;padding-top:5px;border-top:1px solid var(--border)}
-.wh-target{text-align:center}
-.wh-tv{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text)}
-.wh-tl{font-size:7px;color:var(--dim);text-transform:uppercase;letter-spacing:.07em}
-
-/* ══ WORKOUT PILL ════════════════════════════════════════════════════════ */
-.pill.workout-pill{color:var(--green);border-color:#1a3020;background:#0a1810}
-.pill.workout-pill.active{border-color:var(--green);animation:workoutPulse 2s infinite}
-@keyframes workoutPulse{0%,100%{box-shadow:0 0 0 transparent}50%{box-shadow:0 0 12px rgba(61,220,132,.3)}}
-</style>
+<link rel="stylesheet" href="css/app.css">
 </head>
 <body>
 <div id="rootApp">
 
-<!-- TOPBAR -->
+<!-- ══════════════════════════════════════════════════════════════════════════
+     TOPBAR
+     ══════════════════════════════════════════════════════════════════════════ -->
 <div class="topbar">
   <div style="display:flex;align-items:center;gap:14px">
     <div class="logo">TRAILRUNNER</div>
     <div class="pills">
-      <div class="pill on" id="garminPill"><div class="dot blink"></div>FENIX 7X</div>
-      <div class="pill insights-pill" onclick="toggleInsights()"><div class="dot" style="background:var(--purple)"></div>GARMIN INSIGHTS</div>
-      <div class="pill together-pill" id="togetherPill" onclick="toggleTogether()"><div class="dot blink" style="background:var(--orange)"></div>🏃 SOPH · OUTSIDE</div>
-      <div class="pill on"><div class="dot"></div>TREADMILL</div>
-      <div class="pill strava-pill" id="stravaPill" onclick="toggleStravaPanel()"><div class="dot" style="background:#fc4c02"></div>STRAVA</div>
-      <div class="pill workout-pill" id="workoutPill" onclick="toggleWorkoutPanel()">🏋️ WORKOUT</div>
-      <div class="pill" style="color:var(--purple);border-color:#2a1a40;background:#120e1e;cursor:pointer" onclick="openProgModal()">📋 PROGRAMMES</div>
-      <div class="pill" style="color:var(--cyan);border-color:#1a3040;background:#0a1420;cursor:pointer" onclick="toggleSplits()">📊 SPLITS</div>
-      <div class="pill" style="color:var(--cyan);border-color:#1a3040;background:#0a1420;cursor:pointer" onclick="openRouteSelector()">🗺 SELECT ROUTE</div>
-      <!-- BT HR + FTMS pills — tap to connect -->
-      <div class="topbtn bt-pill" id="btHRPill" onclick="connectBTHR()" title="Connect Bluetooth Heart Rate Monitor">❤ HR</div>
-      <div class="topbtn bt-pill" id="btFTMSPill" onclick="connectTreadmill()" title="Connect to treadmill (uthttpd ws://localhost:80)">🏃 TREADMILL</div>
+      <div class="bt-pill" id="pillTM" onclick="App.connectTreadmill()" title="Connect to treadmill WebSocket">🏃 TREADMILL</div>
+      <div class="bt-pill" id="pillHR" onclick="App.connectHR()" title="Connect Bluetooth HR Monitor">❤ HR</div>
+      <div class="pill" style="color:var(--cyan);border-color:#1a3040" onclick="App.openRoutes()">🗺 ROUTES</div>
+      <div class="pill" style="color:var(--cyan);border-color:#1a3040" onclick="App.toggleSplits()">📊 SPLITS</div>
+      <div class="pill" style="color:var(--ghost);border-color:#2a3050" onclick="App.openHistory()">👻 GHOST</div>
+      <div class="pill" style="color:var(--dim);border-color:#1a2030" onclick="App.openSettings()">⚙ SETTINGS</div>
     </div>
   </div>
-    <div style="display:flex;align-items:center;gap:10px">
-      <div class="pause-pill" onclick="togglePause()">⏸ PAUSE</div>
-      <div style="text-align:right">
-        <div class="rname">COTSWOLD WAY · BROADWAY TO CHIPPING CAMPDEN</div>
-      </div>
-      <div class="timer" id="timerEl">00:24:17</div>
+  <div style="display:flex;align-items:center;gap:10px">
+    <button class="estop" onclick="App.emergencyStop()" title="EMERGENCY STOP">■</button>
+    <div style="text-align:right">
+      <div class="rname" id="routeName">NO ROUTE LOADED</div>
     </div>
+    <div class="timer" id="timerEl">00:00</div>
   </div>
+</div>
 
-<!-- X32i SETUP OVERLAY — shown on first load, explains BT connection steps -->
-<div id="setupOverlay" style="
-  position:absolute;inset:0;background:rgba(9,11,16,.97);
-  display:flex;align-items:center;justify-content:center;z-index:9000">
-  <div style="max-width:640px;padding:40px;text-align:center">
-    <div style="font-family:'Orbitron',sans-serif;font-size:22px;font-weight:900;
-      color:var(--cyan);letter-spacing:.2em;margin-bottom:8px">TRAILRUNNER</div>
-    <div style="font-size:11px;color:var(--mid);font-family:'JetBrains Mono',monospace;
-      letter-spacing:.15em;margin-bottom:32px">NORDICTRACK X32i · SETUP</div>
+<!-- ══════════════════════════════════════════════════════════════════════════
+     SETUP OVERLAY
+     ══════════════════════════════════════════════════════════════════════════ -->
+<div class="setup-overlay" id="setupOverlay">
+  <div class="setup-card">
+    <div class="setup-title">TRAILRUNNER</div>
+    <div class="setup-sub">NORDICTRACK X32i · SETUP</div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:24px;text-align:left">
-      <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px">
-        <div style="font-size:10px;font-weight:700;color:var(--cyan);
-          font-family:'JetBrains Mono',monospace;margin-bottom:8px">① NORDICUNCHAINED</div>
-        <div style="font-size:10px;color:var(--mid);line-height:1.7">
-          Install NordicUnchained on this X32i. This restores privileged Android access and keeps it across iFIT updates.<br><br>
-          Gives TrailRunner full access to the local treadmill WebSocket.
+    <div class="setup-steps">
+      <div class="setup-step">
+        <div class="setup-step-title" style="color:var(--cyan)">① IMPORT A ROUTE</div>
+        <div class="setup-step-body">
+          Tap <strong style="color:var(--text)">🗺 ROUTES</strong> and import a GPX file from Garmin Connect, Strava, or any GPS app.<br><br>
+          TrailRunner will use the real elevation profile to control your treadmill incline.
         </div>
       </div>
-      <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px">
-        <div style="font-size:10px;font-weight:700;color:var(--orange);
-          font-family:'JetBrains Mono',monospace;margin-bottom:8px">② CONNECT TREADMILL</div>
-        <div style="font-size:10px;color:var(--mid);line-height:1.7">
-          Tap <strong style="color:var(--text)">🏃 TREADMILL</strong> — TrailRunner connects directly to the X32i's built-in WebSocket server (uthttpd).<br><br>
-          Real speed, incline &amp; HR sync instantly. App can <strong style="color:var(--green)">control the belt &amp; ramp</strong>.
+      <div class="setup-step">
+        <div class="setup-step-title" style="color:var(--orange)">② CONNECT TREADMILL</div>
+        <div class="setup-step-body">
+          Tap <strong style="color:var(--text)">🏃 TREADMILL</strong> — connects to the X32i's WebSocket server (uthttpd).<br><br>
+          Real speed, incline &amp; HR sync instantly. App <strong style="color:var(--green)">controls the belt &amp; ramp</strong>.
         </div>
       </div>
-      <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px">
-        <div style="font-size:10px;font-weight:700;color:var(--green);
-          font-family:'JetBrains Mono',monospace;margin-bottom:8px">③ HEART RATE (OPT)</div>
-        <div style="font-size:10px;color:var(--mid);line-height:1.7">
+      <div class="setup-step">
+        <div class="setup-step-title" style="color:var(--green)">③ HEART RATE (OPT)</div>
+        <div class="setup-step-body">
           Tap <strong style="color:var(--text)">❤ HR</strong> to pair a chest strap (Polar, Garmin, Wahoo).<br><br>
-          Enables HR Zone auto-control — the app adjusts incline or speed to keep you in your target zone.
+          Enables HR Zone auto-control — incline or speed adjusts to hold your target zone.
         </div>
       </div>
     </div>
-    <div style="background:#0c1018;border:1px solid #2a1a3a;border-radius:8px;padding:12px;
-      margin-bottom:24px;font-size:10px;color:var(--mid);font-family:'JetBrains Mono',monospace;
-      line-height:1.8;text-align:left">
-      🏔️ <strong style="color:var(--cyan)">ROUTE MODE (default):</strong> TrailRunner automatically sets treadmill incline to match the real Cotswold Way gradient as you progress. Your map position advances with your real speed. The trail comes to life.<br>
-      💡 <strong style="color:var(--dim)">No treadmill connection?</strong> Full simulator mode — speed &amp; HR modelled, all features work. Great for planning routes before you run them.
+
+    <div class="setup-note">
+      🏔️ <strong style="color:var(--cyan)">ROUTE MODE (default):</strong> Automatically sets treadmill incline to match real trail gradient as you progress. Your map position advances with your real speed.<br>
+      💡 <strong style="color:var(--dim)">No treadmill?</strong> Use as a route planner — import GPX files and explore elevation profiles.
     </div>
 
-    <button onclick="document.getElementById('setupOverlay').style.display='none';requestWakeLock();"
-      style="padding:14px 48px;background:var(--cyan);color:#000;border:none;border-radius:6px;
-      font-family:'Orbitron',sans-serif;font-size:14px;font-weight:700;letter-spacing:.1em;
-      cursor:pointer;min-height:50px">
-      START RUNNING
-    </button>
+    <button class="setup-start-btn" onclick="App.startRun()">START RUNNING</button>
   </div>
 </div>
 
-<!-- PAUSE OVERLAY -->
+<!-- ══════════════════════════════════════════════════════════════════════════
+     PAUSE OVERLAY
+     ══════════════════════════════════════════════════════════════════════════ -->
 <div class="pause-overlay" id="pauseOverlay">
-  <div class="pause-emoji">🚽</div>
-  <div class="pause-title">GONE FOR A POOH</div>
+  <div class="pause-emoji">⏸️</div>
+  <div class="pause-title">PAUSED</div>
   <div class="pause-sub">Timer paused · Route holding position</div>
-  <div class="pause-timer" id="pauseTimerEl">Paused for 0:00</div>
-  <button class="resume-btn" onclick="togglePause()">▶ RESUME RUN</button>
+  <button class="resume-btn" onclick="App.togglePause()">▶ RESUME RUN</button>
 </div>
 
-<!-- RUN COMPLETE OVERLAY -->
+<!-- ══════════════════════════════════════════════════════════════════════════
+     RUN COMPLETE OVERLAY
+     ══════════════════════════════════════════════════════════════════════════ -->
 <div class="finish-overlay" id="finishOverlay">
   <div class="finish-badge">🏁</div>
   <div class="finish-title">RUN COMPLETE</div>
-  <div class="finish-route" id="finishRoute">COTSWOLD WAY · BROADWAY TO CHIPPING CAMPDEN</div>
-  <div class="finish-stats" id="finishStats">
-    <div class="finish-stat highlight"><div class="finish-stat-v" id="fTime">1:04:32</div><div class="finish-stat-l">TIME</div></div>
-    <div class="finish-stat"><div class="finish-stat-v" id="fDist">8.4km</div><div class="finish-stat-l">DISTANCE</div></div>
-    <div class="finish-stat"><div class="finish-stat-v" id="fPace">7:41/km</div><div class="finish-stat-l">AVG PACE</div></div>
-    <div class="finish-stat"><div class="finish-stat-v" id="fHR">158</div><div class="finish-stat-l">AVG HR</div></div>
-    <div class="finish-stat"><div class="finish-stat-v" id="fCal">612</div><div class="finish-stat-l">KCAL</div></div>
-    <div class="finish-stat"><div class="finish-stat-v" id="fElev">+186m</div><div class="finish-stat-l">ASCENT</div></div>
+  <div class="finish-route" id="fRoute">—</div>
+  <div class="finish-stats">
+    <div class="finish-stat highlight"><div class="finish-stat-v" id="fTime">—</div><div class="finish-stat-l">TIME</div></div>
+    <div class="finish-stat"><div class="finish-stat-v" id="fDist">—</div><div class="finish-stat-l">DISTANCE</div></div>
+    <div class="finish-stat"><div class="finish-stat-v" id="fPace">—</div><div class="finish-stat-l">AVG PACE</div></div>
+    <div class="finish-stat"><div class="finish-stat-v" id="fHR">—</div><div class="finish-stat-l">AVG HR</div></div>
+    <div class="finish-stat"><div class="finish-stat-v" id="fCal">—</div><div class="finish-stat-l">KCAL</div></div>
+    <div class="finish-stat"><div class="finish-stat-v" id="fElev">—</div><div class="finish-stat-l">ELEVATION</div></div>
   </div>
-  <div class="finish-pr" id="finishPR" style="display:none">⭐ NEW PERSONAL BEST!</div>
-  <div class="finish-actions">
-    <button class="finish-btn strava" id="stravaUploadBtn" onclick="uploadToStrava()">
-      <span id="stravaUploadTxt">UPLOAD TO STRAVA</span>
-    </button>
-    <button class="finish-btn garmin" id="garminSaveBtn" onclick="saveToGarmin()">
-      <span id="garminSaveTxt">SAVE TO GARMIN</span>
-    </button>
-    <button class="finish-btn discard" onclick="discardRun()">DISCARD</button>
+  <div class="finish-btns">
+    <button class="finish-btn primary" onclick="App.saveAndNewRun()">SAVE RUN</button>
+    <button class="finish-btn secondary" onclick="App.exportGPX()">EXPORT GPX</button>
+    <button class="finish-btn secondary" onclick="App.exportTCX()">EXPORT TCX</button>
+    <button class="finish-btn ghost" onclick="App.discardRun()">DISCARD</button>
   </div>
 </div>
 
+<!-- ══════════════════════════════════════════════════════════════════════════
+     MAIN LAYOUT
+     ══════════════════════════════════════════════════════════════════════════ -->
 <div class="layout">
 
-  <!-- MAP -->
-  <div class="map-zone" id="mapZone">
+  <!-- MAP ZONE -->
+  <div class="map-zone">
     <div id="mapDiv"></div>
 
-    <!-- km Split Toast -->
-    <div class="km-toast" id="kmToast">
-      <div class="km-toast-km"><span>KM</span><span id="kmToastNum">4</span></div>
-      <div class="km-toast-stats">
-        <div class="km-toast-stat"><div class="km-toast-v" id="kmToastSplit">6:12</div><div class="km-toast-l">SPLIT</div></div>
-        <div class="km-toast-stat"><div class="km-toast-v" id="kmToastPace">6:12</div><div class="km-toast-l">PACE /km</div></div>
-        <div class="km-toast-stat"><div class="km-toast-v" id="kmToastHR">158</div><div class="km-toast-l">BPM</div></div>
-      </div>
+    <!-- No route message -->
+    <div class="no-route" id="noRouteMsg">
+      <div class="no-route-icon">🗺</div>
+      <div class="no-route-text">NO ROUTE LOADED</div>
+      <button class="no-route-btn" onclick="App.openRoutes()">IMPORT GPX ROUTE</button>
+    </div>
+
+    <!-- Map controls -->
+    <div class="map-tl" style="position:absolute;z-index:20">
+      <button class="map-mode-btn act" data-style="terrain" onclick="App.setMapStyle('terrain')">TERRAIN</button>
+      <button class="map-mode-btn" data-style="sat" onclick="App.setMapStyle('sat')">SAT</button>
+      <button class="map-mode-btn" data-style="dark" onclick="App.setMapStyle('dark')">DARK</button>
     </div>
 
     <!-- Ghost delta banner -->
-    <div class="ghost-delta show" id="ghostDelta">
-      <div class="gd-icon">👻</div>
-      <div>
-        <div class="gd-label">VS YOUR BEST · 12 OCT 2024</div>
-        <div class="gd-pace" id="ghostPaceLabel">Ghost pace: 6:02 /km</div>
-      </div>
-      <div>
-        <div class="gd-time ahead" id="ghostTimeEl">+01:24 AHEAD</div>
-      </div>
-    </div>
-
-    <div class="map-chip map-tl">
-      <div class="map-mode-btn act" id="btnTerrain" onclick="setMapStyle('terrain')">TERRAIN</div>
-      <div class="map-mode-btn" id="btnSat"     onclick="setMapStyle('sat')">SAT</div>
-      <div class="map-mode-btn" id="btn3d"      onclick="setMapStyle('3d')">3D</div>
-    </div>
-
-    <div class="map-chip map-tr" id="terrainChip">▲ ASCENDING · <span class="tv">+6.2%</span></div>
-
-    <div class="map-chip map-bl">
-      <span class="cv">ALT <span class="av" id="altEl">218m</span></span>
-      <span class="cv" id="coordsEl">52.041°N · 1.857°W</span>
-    </div>
-
-    <!-- Run Together badges (map) -->
-    <div class="runner-badge-wrap show" id="rtBadges">
-      <!-- populated by JS -->
-    </div>
-
-    <!-- Insights panel (slides in left) -->
-    <div class="insights-panel" id="insightsPanel">
-      <div class="ip-header">
-        <div>
-          <div class="ip-title">GARMIN INSIGHTS</div>
-          <div class="ip-sub" id="ipSyncTime">Live · Updated 2 mins ago</div>
-        </div>
-        <div class="ip-close" onclick="toggleInsights()">✕</div>
-      </div>
-      <div class="ip-scroll" id="ipScroll"></div>
-    </div>
-
-    <!-- Run Together panel -->
-    <div class="together-panel" id="togetherPanel">
-      <div class="tp-header">
-        <div class="tp-title">🏃 RUN TOGETHER</div>
-        <div class="tp-close" onclick="toggleTogether()">✕</div>
-      </div>
-      <div id="tpRunners"></div>
+    <div class="ghost-panel" id="ghostPanel">
+      <span style="font-size:16px">👻</span>
+      <span style="font-size:10px;color:var(--mid);font-family:'JetBrains Mono',monospace">GHOST</span>
+      <span class="gc-delta" id="ghostDelta">+0:00</span>
+      <span style="font-size:10px;cursor:pointer;color:var(--dim)" onclick="App.clearGhost()">✕</span>
     </div>
 
     <!-- Zoom controls -->
-    <div class="zoom-btns">
-      <div class="zoom-btn" onclick="adjustZoom(1)">+</div>
-      <div class="zoom-level" id="zoomLbl">1×</div>
-      <div class="zoom-btn" onclick="adjustZoom(-1)">−</div>
+    <div class="zoom-btns" style="position:absolute;z-index:20">
+      <button class="zoom-btn" onclick="App.zoomIn()">+</button>
+      <div class="zoom-level" id="zoomLbl">14×</div>
+      <button class="zoom-btn" onclick="App.zoomOut()">−</button>
     </div>
 
-    <div class="dim" id="dimEl" onclick="closeAll()"></div>
+    <!-- KM toast target (toasts appended here dynamically) -->
 
-    <!-- Strava Panel (slides in from left) -->
-    <div class="strava-panel" id="stravaPanel">
-      <div class="stp-header">
-        <div><div class="stp-title">🟠 STRAVA CONNECT</div></div>
-        <div class="stp-close" onclick="toggleStravaPanel()">✕</div>
+    <!-- Workout HUD -->
+    <div id="workoutHud">
+      <div id="whProgName" style="font-family:'Orbitron',sans-serif;font-size:10px;font-weight:700;color:var(--green);letter-spacing:.1em"></div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+        <div id="whStageName" style="font-size:11px;font-weight:600"></div>
+        <div id="whStageTimer" style="font-family:'Orbitron',sans-serif;font-size:14px;font-weight:700;color:var(--cyan);margin-left:auto"></div>
       </div>
-      <div class="stp-tabs">
-        <div class="stp-tab on" id="stpTabActivities" onclick="showStravaTab('activities')">ACTIVITIES</div>
-        <div class="stp-tab" id="stpTabGhosts" onclick="showStravaTab('ghosts')">GHOST RUNS</div>
-        <div class="stp-tab" id="stpTabStats" onclick="showStravaTab('stats')">MY STATS</div>
-      </div>
-      <div class="stp-body" id="stpBody"></div>
-    </div>
-
-    <!-- Workout Setup Panel (drops down from top over map) -->
-    <div class="workout-panel" id="workoutPanel">
-      <div class="wp-header">
-        <div><div class="wp-title">🏋️ WORKOUT SETUP</div></div>
-        <div class="wp-close" onclick="toggleWorkoutPanel()">✕</div>
-      </div>
-      <div class="wp-body" id="wpBody"></div>
-    </div>
-
-    <!-- Active Workout HUD (bottom-left of map) -->
-    <div class="workout-hud" id="workoutHud">
-      <div class="wh-prog-name" id="whProgName">ZONE 2 EASY BASE</div>
-      <div class="wh-stage">
-        <div class="wh-stage-dot" id="whdot" style="background:var(--z2)"></div>
-        <div class="wh-stage-name" id="whStageName">Steady Aerobic</div>
-        <div class="wh-stage-timer" id="whTimer">08:20</div>
-      </div>
-      <div class="wh-progress"><div class="wh-prog-fill" id="whFill" style="width:45%"></div></div>
-      <div class="wh-targets">
-        <div class="wh-target"><div class="wh-tv" id="whtSpeed">8.5</div><div class="wh-tl">km/h</div></div>
-        <div class="wh-target"><div class="wh-tv" id="whtIncline">1.0%</div><div class="wh-tl">incline</div></div>
-        <div class="wh-target"><div class="wh-tv" id="whtHR">Z2 120-135</div><div class="wh-tl">HR target</div></div>
+      <div style="height:3px;background:var(--border);border-radius:2px;margin-top:4px;overflow:hidden">
+        <div id="whProgFill" style="height:100%;background:var(--green);border-radius:2px;transition:width .5s;width:0"></div>
       </div>
     </div>
-
-    <!-- Splits panel (slides in from right) -->
-    <div class="splits-panel" id="splitsPanel">
-      <div class="sp-header">
-        <div>
-          <div class="sp-title">KM SPLITS</div>
-        </div>
-        <div class="sp-close" onclick="toggleSplits()">✕</div>
-      </div>
-      <div class="sp-body" id="spBody"></div>
-    </div>
-
-  </div><!-- /map-zone -->
+  </div>
 
   <!-- METRICS PANEL -->
   <div class="metrics">
-    <div class="mcard wide" style="--ac:var(--red)">
-      <div style="display:flex;justify-content:space-between">
-        <div class="ml">Heart Rate <span id="hrLiveBadge" style="display:none" class="live-badge">LIVE</span></div>
-        <div class="ms2" id="hrZoneLbl" style="color:var(--z4)">ZONE 4 · THRESHOLD</div>
+    <!-- Heart Rate -->
+    <div class="mcard" style="--ac:var(--red)">
+      <div class="ml">HEART RATE <span class="live-badge" id="hrLive">LIVE</span></div>
+      <div class="mrow">
+        <div><span class="mv" id="hrVal">—</span><span class="mu">bpm</span></div>
       </div>
-      <div><span class="mv" id="hrVal" style="font-size:30px">142</span><span class="mu">bpm</span></div>
-      <div class="zone-bar"><div class="zone-cur" id="zCur" style="left:68%"></div></div>
+      <div class="ms" id="hrZone" style="font-size:9px">—</div>
+      <div class="zone-bar"><div class="zone-cur" id="zCur" style="left:0"></div></div>
     </div>
-    <div class="mcard clickable" style="--ac:var(--cyan)" onclick="cycleSpeedUnit()">
-      <div class="ml">Speed <span class="unit-hint" id="speedUnitHint">↻ km/h</span> <span id="speedLiveBadge" style="display:none" class="live-badge">LIVE</span></div>
-      <div><span class="mv" id="spVal">9.6</span><span class="mu" id="spUnit">km/h</span></div>
-      <div class="ms" id="paceVal">6:15 /km</div>
+
+    <!-- Speed -->
+    <div class="mcard" style="--ac:var(--cyan)" onclick="UI.cycleSpeed()">
+      <div class="ml">SPEED <span class="live-badge" id="speedLive">LIVE</span></div>
+      <div class="mrow">
+        <div><span class="mv" id="spVal">0.0</span><span class="mu" id="spUnit">km/h</span></div>
+      </div>
+      <div class="ms2" id="paceVal">—</div>
     </div>
+
+    <!-- Incline -->
     <div class="mcard" style="--ac:var(--orange)">
-      <div class="ml" id="incLbl">Incline</div>
-      <div><span class="mv" id="incVal">+6.5</span><span class="mu">%</span></div>
-      <div class="ibar"><div class="ifill" id="iFill" style="width:55%;background:var(--orange)"></div></div>
+      <div class="ml" id="incLabel">INCLINE</div>
+      <div class="mrow">
+        <div><span class="mv" id="incVal">+0.0</span><span class="mu">%</span></div>
+      </div>
+      <div class="ibar"><div class="ifill" id="iFill" style="width:13%;background:var(--cyan)"></div></div>
     </div>
-    <div class="mcard clickable" style="--ac:var(--green)" onclick="cycleDistUnit()">
-      <div class="ml">Distance <span class="unit-hint" id="distUnitHint">↻ km</span></div>
-      <div><span class="mv" id="distVal">3.82</span><span class="mu" id="distUnit">km</span></div>
-      <div class="mrow"><div class="ms"><span id="distRemEl">4.58</span><span id="distRemUnit">km</span> left</div><div class="ms2" id="distPctEl">45%</div></div>
+
+    <!-- Distance -->
+    <div class="mcard" style="--ac:var(--green)" onclick="UI.cycleDist()">
+      <div class="ml">DISTANCE</div>
+      <div class="mrow">
+        <div><span class="mv" id="distVal">0.00</span><span class="mu" id="distUnit">km</span></div>
+      </div>
+      <div class="ms2" id="distRem"></div>
     </div>
-    <div class="mcard clickable" style="--ac:var(--yellow)" onclick="cycleElevUnit()">
-      <div class="ml">Elevation ↑ <span class="unit-hint" id="elevUnitHint">↻ m</span></div>
-      <div><span class="mv" id="elevClEl">94</span><span class="mu" id="elevUnit">m</span></div>
-      <div class="mrow"><div class="ms"><span id="elevRemEl">92</span><span id="elevRemUnit">m</span> remain</div></div>
+
+    <!-- Elevation -->
+    <div class="mcard" onclick="UI.cycleElev()">
+      <div class="ml">ELEVATION</div>
+      <div class="mrow">
+        <div><span class="mv" id="eleVal" style="font-size:18px">—</span><span class="mu" id="eleUnit">m</span></div>
+      </div>
+      <div class="ms2" id="eleGain">+0m</div>
     </div>
-    <div class="mcard" style="--ac:var(--orange)">
-      <div class="ml">Calories</div>
-      <div><span class="mv" id="calVal">387</span><span class="mu">kcal</span></div>
-      <div class="ms" id="calRate">~9 kcal/min</div>
+
+    <!-- Cadence -->
+    <div class="mcard">
+      <div class="ml">CADENCE</div>
+      <div class="mrow">
+        <div><span class="mv" id="cadVal" style="font-size:18px">—</span><span class="mu">spm</span></div>
+      </div>
     </div>
-    <div class="mcard" style="--ac:var(--green)">
-      <div class="ml">Cadence</div>
-      <div><span class="mv" id="cadVal">172</span><span class="mu">spm</span></div>
-      <div class="ms" id="cadSub">Optimal stride</div>
+
+    <!-- Calories -->
+    <div class="mcard" style="--ac:var(--yellow)">
+      <div class="ml">CALORIES</div>
+      <div class="mrow">
+        <div><span class="mv" id="calVal" style="font-size:18px">0</span><span class="mu">kcal</span></div>
+      </div>
     </div>
-    <div class="ghost-card best-ever" id="ghostCard">
-      <div class="gc-top">
-        <div class="gc-tag best-ever" id="gcTag">⭐ BEST EVER</div>
-        <div class="gc-nav">
-          <div class="gc-btn" onclick="cycleGhost(-1)">‹</div>
-          <div class="gc-btn" onclick="cycleGhost(1)">›</div>
+
+    <!-- Avg Pace -->
+    <div class="mcard">
+      <div class="ml">AVG PACE</div>
+      <div class="mrow">
+        <div><span class="mv" id="avgPace" style="font-size:18px">—</span><span class="mu">/km</span></div>
+      </div>
+      <div class="ms2" id="avgHR"></div>
+    </div>
+
+    <!-- Run Button + Controls -->
+    <div class="mcard wide" style="display:flex;flex-direction:row;align-items:center;gap:8px;padding:6px 8px">
+      <button class="run-btn ready" id="runBtn" onclick="Engine.run&&Engine.run.status==='ready'?App.startRun():App.togglePause()">▶ START RUN</button>
+
+      <!-- Speed nudge -->
+      <div class="nudge-group">
+        <div class="nudge-label">SPEED</div>
+        <div class="nudge-btns">
+          <button class="nudge" onclick="App.adjustSpeed(-0.5)">−</button>
+          <button class="nudge" onclick="App.adjustSpeed(+0.5)">+</button>
         </div>
       </div>
-      <div class="gc-mid">
-        <div class="gc-delta ahead" id="gcDelta">+01:24</div>
-        <div class="gc-direction ahead" id="gcDir">AHEAD</div>
+
+      <!-- Incline nudge -->
+      <div class="nudge-group">
+        <div class="nudge-label">INCLINE</div>
+        <div class="nudge-btns">
+          <button class="nudge" onclick="App.adjustIncline(-0.5)">−</button>
+          <button class="nudge" onclick="App.adjustIncline(+0.5)">+</button>
+        </div>
       </div>
-      <div class="gc-bot">
-        <div class="gc-detail" id="gcDetail">58:42 · 6:59/km · ❤ 156</div>
-        <div class="gc-dots" id="gcDots"></div>
-      </div>
+
+      <!-- Finish button (only when running) -->
+      <button class="nudge" onclick="App.finishRun()" style="width:auto;padding:0 8px;font-size:9px;color:var(--red);border-color:var(--red)" title="End run">⏹ END</button>
     </div>
   </div>
 
-  <!-- ELEV STRIP -->
+  <!-- ELEVATION STRIP -->
   <div class="elev-strip">
-    <div class="es-row">
-      <div class="es-title">ELEVATION PROFILE</div>
-      <div class="es-stats">
-        <div class="es-stat"><div class="es-val" style="color:var(--green)">+186m</div><div class="es-lbl">ASCENT</div></div>
-        <div class="es-stat"><div class="es-val" style="color:var(--red)">-52m</div><div class="es-lbl">DESCENT</div></div>
-        <div class="es-stat"><div class="es-val" style="color:var(--cyan)">248m</div><div class="es-lbl">MAX</div></div>
-      </div>
-      <div class="mult-badge" onclick="cycleMult()">
-        <span style="color:var(--dim);font-size:8px">MULT</span>
-        <span class="mult-v" id="multEl">×1.0</span>
-        <span style="color:var(--dim);font-size:8px">▼</span>
+    <div class="route-progress-bar"><div class="route-progress-fill" id="routeProgress" style="width:0"></div></div>
+    <canvas id="elevC"></canvas>
+
+    <!-- Control mode buttons -->
+    <div class="ctrl-strip">
+      <button class="mode-btn active" data-mode="route" onclick="App.setControlMode('route')">🏔 ROUTE</button>
+      <button class="mode-btn" data-mode="hr-incline" onclick="App.setControlMode('hr-incline')">❤→INCLINE</button>
+      <button class="mode-btn" data-mode="hr-speed" onclick="App.setControlMode('hr-speed')">❤→SPEED</button>
+      <button class="mode-btn" data-mode="manual" onclick="App.setControlMode('manual')">✋ MANUAL</button>
+    </div>
+
+    <div class="ctrl-strip-right">
+      <div style="display:flex;gap:4px;align-items:center">
+        <span style="font-size:8px;color:var(--dim);font-family:'JetBrains Mono',monospace">TARGET ZONE</span>
+        <button class="nudge" onclick="App.setTargetZone(Engine.ctrl.targetZone-1)" style="width:22px;height:20px;font-size:12px">−</button>
+        <span style="font-family:'Orbitron',sans-serif;font-size:12px;font-weight:700;color:var(--text);min-width:24px;text-align:center" id="targetZoneDisplay">Z2</span>
+        <button class="nudge" onclick="App.setTargetZone(Engine.ctrl.targetZone+1)" style="width:22px;height:20px;font-size:12px">+</button>
       </div>
     </div>
-    <div class="ec-wrap">
-      <canvas id="elevC"></canvas>
-      <div class="pt"><div class="pf" id="progFill" style="width:45.5%"></div></div>
+  </div>
+
+</div><!-- .layout -->
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     SPLITS PANEL (slides in from right over map)
+     ══════════════════════════════════════════════════════════════════════════ -->
+<div class="splits-panel" id="splitsPanel" style="position:absolute;top:46px;right:306px;bottom:140px">
+  <div class="splits-header">
+    <div class="splits-title">KM SPLITS</div>
+    <span class="splits-close" onclick="App.toggleSplits()">✕</span>
+  </div>
+  <div class="splits-list" id="splitsList"></div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     HISTORY PANEL (slides in from left over map — for ghost selection)
+     ══════════════════════════════════════════════════════════════════════════ -->
+<div class="history-panel" id="historyPanel" style="position:absolute;top:46px;bottom:140px">
+  <div class="splits-header">
+    <div class="splits-title">👻 GHOST RACE — PAST RUNS</div>
+    <span class="splits-close" onclick="App.closeHistory()">✕</span>
+  </div>
+  <div style="flex:1;overflow-y:auto;padding:8px" id="historyList"></div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     ROUTE IMPORT MODAL
+     ══════════════════════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="routeModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">🗺 ROUTES</div>
+      <button class="modal-close" onclick="App.closeRoutes()">✕</button>
+    </div>
+    <div class="modal-body" id="routeList"></div>
+    <div class="modal-footer">
+      <button class="modal-btn primary" onclick="App.triggerGPXImport()">📁 IMPORT GPX</button>
+      <button class="modal-btn secondary" onclick="App.closeRoutes()">CLOSE</button>
+    </div>
+  </div>
+</div>
+<input type="file" id="gpxFileInput" accept=".gpx,.GPX">
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     SETTINGS MODAL
+     ══════════════════════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="settingsModal">
+  <div class="modal" style="width:480px">
+    <div class="modal-header">
+      <div class="modal-title">⚙ SETTINGS</div>
+      <button class="modal-close" onclick="App.closeSettings()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="settings-row">
+        <div>
+          <div class="settings-label">Max Heart Rate</div>
+          <div class="settings-sub">Used for HR zone calculations</div>
+        </div>
+        <input class="settings-input" id="setMaxHR" type="number" min="120" max="220" value="185">
+      </div>
+      <div class="settings-row">
+        <div>
+          <div class="settings-label">Weight (kg)</div>
+          <div class="settings-sub">Used for calorie estimation</div>
+        </div>
+        <input class="settings-input" id="setWeight" type="number" min="30" max="200" value="72">
+      </div>
+      <div class="settings-row">
+        <div>
+          <div class="settings-label">Safety Max Speed (km/h)</div>
+          <div class="settings-sub">Auto-control won't exceed this</div>
+        </div>
+        <input class="settings-input" id="setMaxSpeed" type="number" min="5" max="25" value="20">
+      </div>
+      <div class="settings-row">
+        <div>
+          <div class="settings-label">Safety Max Incline (%)</div>
+          <div class="settings-sub">Auto-control won't exceed this</div>
+        </div>
+        <input class="settings-input" id="setMaxIncline" type="number" min="0" max="40" value="15">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn primary" onclick="App.saveSettings()">SAVE</button>
+      <button class="modal-btn secondary" onclick="App.closeSettings()">CANCEL</button>
     </div>
   </div>
 </div>
 
-<!-- PROGRAMME LIBRARY MODAL -->
-<div class="prog-back" id="progModal">
-  <div class="prog-modal">
-    <!-- Left: programme list -->
-    <div class="prog-list-pane">
-      <div class="prog-list-header">
-        <div class="prog-list-title">PROGRAMME LIBRARY</div>
-        <div class="prog-list-sub" id="progListSub">14 programmes · tap to load</div>
-      </div>
-      <div class="prog-list-body" id="progListBody"></div>
-      <div class="prog-new-btn" onclick="newCustomProg()">+ CREATE NEW PROGRAMME</div>
-    </div>
-    <!-- Right: detail + builder -->
-    <div class="prog-detail-pane">
-      <div class="prog-detail-header">
-        <input class="prog-detail-title-input" id="progTitleInput" placeholder="Programme name…" value="">
-        <div style="display:flex;gap:6px">
-          <div id="progCloseBtn" class="prog-close" onclick="closeProgModal()">✕</div>
-        </div>
-      </div>
-      <div class="prog-stats-bar" id="progStatsBar">
-        <div class="prog-stat"><div class="prog-stat-v" id="psTotal">–</div><div class="prog-stat-l">TOTAL TIME</div></div>
-        <div class="prog-stat"><div class="prog-stat-v" id="psDist">–</div><div class="prog-stat-l">DISTANCE</div></div>
-        <div class="prog-stat"><div class="prog-stat-v" id="psAvgHR">–</div><div class="prog-stat-l">TARGET HR ZONE</div></div>
-        <div class="prog-stat"><div class="prog-stat-v" id="psStages">–</div><div class="prog-stat-l">STAGES</div></div>
-        <div class="prog-stat"><div class="prog-stat-v" id="psElev">–</div><div class="prog-stat-l">ELEV GAIN</div></div>
-      </div>
-      <div class="prog-stages" id="progStagesBody"></div>
-      <div class="stage-add-row" id="stageAddRow">
-        <span style="font-size:9px;color:var(--dim);font-family:'JetBrains Mono',monospace;letter-spacing:.08em;margin-right:4px;align-self:center">ADD STAGE:</span>
-        <div class="add-stage-type-btn" onclick="addStage('warmup')">🔥 Warm-up</div>
-        <div class="add-stage-type-btn" onclick="addStage('easy')">🟢 Easy</div>
-        <div class="add-stage-type-btn" onclick="addStage('tempo')">🟡 Tempo</div>
-        <div class="add-stage-type-btn" onclick="addStage('threshold')">🟠 Threshold</div>
-        <div class="add-stage-type-btn" onclick="addStage('vo2max')">🔴 VO₂max</div>
-        <div class="add-stage-type-btn" onclick="addStage('hill')">⛰ Hill</div>
-        <div class="add-stage-type-btn" onclick="addStage('interval')">⚡ Interval</div>
-        <div class="add-stage-type-btn" onclick="addStage('hike')">🥾 Power Hike</div>
-        <div class="add-stage-type-btn" onclick="addStage('recovery')">💙 Recovery</div>
-        <div class="add-stage-type-btn" onclick="addStage('cooldown')">❄️ Cool-down</div>
-      </div>
-      <div class="prog-footer">
-        <div style="display:flex;gap:8px">
-          <button class="prog-del-btn" id="progDelBtn" onclick="deleteProg()">🗑 DELETE</button>
-          <button class="prog-save-btn" onclick="saveProg()">💾 SAVE</button>
-        </div>
-        <button class="prog-load-btn" onclick="loadProg()">▶ LOAD &amp; RUN</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- ROUTE SELECTOR MODAL -->
-<div class="rmodal-back" id="routeModal">
-  <div class="rmodal">
-    <div class="rmodal-header">
-      <div>
-        <div class="rmodal-title" id="rmodalTitle">🗺 SELECT ROUTE FROM GARMIN CONNECT</div>
-        <div class="rmodal-sub" id="rmodalSub">Connect your account to load saved routes and courses</div>
-      </div>
-      <div class="rmodal-close" onclick="closeRouteModal()">✕</div>
-    </div>
-
-    <!-- STEP 1: OAuth -->
-    <div class="oauth-screen" id="oauthScreen">
-      <div class="oauth-logo">⌚</div>
-      <div class="oauth-title">CONNECT GARMIN ACCOUNT</div>
-      <div class="oauth-desc">
-        TrailRunner uses Garmin's secure OAuth login. Your password is entered
-        directly on Garmin's servers — it never touches this app.
-      </div>
-      <div class="oauth-perms">
-        <div style="font-size:9px;letter-spacing:.1em;color:var(--dim);font-family:'JetBrains Mono',monospace;margin-bottom:8px;text-transform:uppercase">TrailRunner will be able to:</div>
-        <div class="oauth-perm"><span class="oauth-perm-icon">🗺</span>Read your saved routes &amp; courses</div>
-        <div class="oauth-perm"><span class="oauth-perm-icon">🏃</span>Read your activity history for Ghost Mode</div>
-        <div class="oauth-perm"><span class="oauth-perm-icon">❤️</span>Read real-time heart rate &amp; sensor data</div>
-        <div class="oauth-perm"><span class="oauth-perm-icon">📊</span>Read Body Battery, HRV &amp; wellness metrics</div>
-        <div class="oauth-perm"><span class="oauth-perm-icon">🚫</span>Cannot post, modify or delete anything</div>
-      </div>
-      <button class="oauth-btn" onclick="simulateOAuth()">SIGN IN WITH GARMIN →</button>
-      <div class="oauth-note">Opens Garmin Connect in your browser · Returns automatically</div>
-    </div>
-
-    <!-- STEP 2: Syncing -->
-    <div class="sync-screen" id="syncScreen">
-      <div class="sync-spinner"></div>
-      <div class="oauth-title" style="font-size:13px">LOADING YOUR ROUTES</div>
-      <div class="sync-count" id="syncCount">0</div>
-      <div class="sync-status" id="syncStatus">Connecting to Garmin Connect…</div>
-    </div>
-
-    <!-- STEP 3: Route browser -->
-    <div class="route-browser" id="routeBrowser">
-      <div class="rb-toolbar">
-        <input class="rb-search" id="rbSearch" placeholder="🔍  Search routes…" oninput="filterRoutes()">
-        <div class="rb-filter on" id="fAll"    onclick="setFilter('all')">ALL</div>
-        <div class="rb-filter"   id="fFav"    onclick="setFilter('fav')">⭐ FAVOURITES</div>
-        <div class="rb-filter"   id="fRecent" onclick="setFilter('recent')">🕐 RECENT</div>
-        <div class="rb-filter"   id="fNearby" onclick="setFilter('nearby')">📍 NEARBY</div>
-      </div>
-      <div class="rb-list" id="rbList"></div>
-      <div class="rb-confirm" id="rbConfirm">
-        <div class="rb-sel-info">Selected: <span class="rb-sel-name" id="rbSelName">—</span></div>
-        <button class="rb-go" onclick="loadSelectedRoute()">LOAD ROUTE ▶</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<script>
-// ════════════════════════════════════════════════════════════════════════════
-// STATE
-// ════════════════════════════════════════════════════════════════════════════
-const S={
-  idx:46,speed:9.6,hr:142,cal:387,elapsed:24*60+17,elevMult:1.0,
-  ghostActive:true,ghostIdx:44,
-  ghostActivityId:0,
-  garminConnected:true,stravaConnected:false,
-  togActive:true,
-  paused:false, pausedFor:0,
-  mapStyle:'terrain', // 'terrain' | 'sat' | '3d'
-  zoom:1,            // 1 | 2 | 3 | 4 | 5
-  cadence:172,       // steps per minute
-  cadenceBase:172,
-  splits:[],         // [{km, splitSec, paceSec, hr}]
-  lastKm:0,          // last km marker crossed (0-based)
-  runFinished:false,
-  stravaUploaded:false,
-  garminSaved:false,
-  totalHrSamples:0,
-  hrSum:0,   // accumulates HR for running avg
-  hrFromBT:false,   // true when real BT HR monitor connected
-  speedFromBT:false, // true when FTMS treadmill data connected
-};
-
-// ════════════════════════════════════════════════════════════════════════════
-// UNIT CYCLING
-// ════════════════════════════════════════════════════════════════════════════
-const UNITS={speed:'kmh',dist:'km',elev:'m'};
-// speed: kmh | mph | minperkm | minpermi
-// dist:  km  | mi
-// elev:  m   | ft
-
-function cycleSpeedUnit(){
-  const order=['kmh','mph','minperkm','minpermi'];
-  UNITS.speed=order[(order.indexOf(UNITS.speed)+1)%order.length];
-  const labels={kmh:'km/h',mph:'mph',minperkm:'min/km',minpermi:'min/mi'};
-  // Show current unit (just changed to it)
-  document.getElementById('speedUnitHint').textContent='→ '+labels[UNITS.speed];
-}
-function cycleDistUnit(){
-  UNITS.dist=UNITS.dist==='km'?'mi':'km';
-  document.getElementById('distUnitHint').textContent='→ '+(UNITS.dist==='km'?'km':'miles');
-}
-function cycleElevUnit(){
-  UNITS.elev=UNITS.elev==='m'?'ft':'m';
-  document.getElementById('elevUnitHint').textContent='→ '+UNITS.elev;
-}
-function convSpeed(kmh){
-  if(UNITS.speed==='mph') return (kmh*0.621371).toFixed(1);
-  if(UNITS.speed==='minperkm'){
-    const pm=Math.floor(60/kmh),ps=Math.round((60/kmh%1)*60);
-    return`${pm}:${String(ps).padStart(2,'0')}`;
-  }
-  if(UNITS.speed==='minpermi'){
-    const mpm=60/(kmh*0.621371);
-    const pm=Math.floor(mpm),ps=Math.round((mpm%1)*60);
-    return`${pm}:${String(ps).padStart(2,'0')}`;
-  }
-  return kmh.toFixed(1);
-}
-function speedUnit(){
-  return UNITS.speed==='kmh'?'km/h'
-       : UNITS.speed==='mph'?'mph'
-       : UNITS.speed==='minperkm'?'/km'
-       : '/mi';
-}
-function speedUnitFull(){
-  return UNITS.speed==='kmh'?'km/h'
-       : UNITS.speed==='mph'?'mph'
-       : UNITS.speed==='minperkm'?'min/km'
-       : 'min/mi';
-}
-function convDist(km){return UNITS.dist==='mi'?(km*0.621371).toFixed(2):km.toFixed(2);}
-function distUnit(){return UNITS.dist==='km'?'km':'mi';}
-function convElev(m){return UNITS.elev==='ft'?Math.round(m*3.28084):m;}
-function elevUnit(){return UNITS.elev;}
-
-// ════════════════════════════════════════════════════════════════════════════
-// AUTO HR CONTROL  (incline or speed adjusts to hold HR in target zone)
-// ════════════════════════════════════════════════════════════════════════════
-const CTRL={
-  mode:'route',       // manual | route | hr-incline | hr-speed
-  targetZone:3,
-  maxHR:185,
-  targetSpeed:9.0,    // km/h (fixed when mode=hr-incline)
-  targetIncline:1.0,  // % (fixed when mode=hr-speed)
-  currentIncline:1.0, // live adjusted incline
-};
-const HR_ZONES=[
-  {z:1,min:0.5, max:0.60,label:'Z1 Recovery',  col:'var(--z1)'},
-  {z:2,min:0.60,max:0.70,label:'Z2 Aerobic',   col:'var(--z2)'},
-  {z:3,min:0.70,max:0.80,label:'Z3 Tempo',     col:'var(--z3)'},
-  {z:4,min:0.80,max:0.90,label:'Z4 Threshold', col:'var(--z4)'},
-  {z:5,min:0.90,max:1.00,label:'Z5 VO₂max',   col:'var(--z5)'},
-];
-function zoneHR(z,which){
-  const def=HR_ZONES[z-1];
-  return Math.round(CTRL.maxHR*(which==='min'?def.min:def.max));
-}
-// ════════════════════════════════════════════════════════════════════════════
-// ROUTE GRADE CALCULATION
-// Calculates real terrain gradient from EL[] array at current position.
-// Used by route-auto-incline mode to actually tilt the treadmill.
-// ════════════════════════════════════════════════════════════════════════════
-function getRouteGrade(idx){
-  // Look ahead 4 points to smooth micro-noise in elevation data
-  const i1=Math.max(0,idx-1);
-  const i2=Math.min(EL.length-1,idx+4);
-  if(i2<=i1)return 0;
-  const elevChange=EL[i2]-EL[i1]; // metres
-  const distChange=(i2-i1)*(TOTAL_KM*1000/TOTAL_PTS); // metres
-  const grade=(elevChange/distChange)*100*S.elevMult;
-  return Math.max(-6,Math.min(40,grade)); // clamp to X32i range (-6%→40%)
-}
-
-function getCurrentZone(){
-  const hr=S.hr,mx=CTRL.maxHR;
-  if(hr<mx*0.60)return 1;
-  if(hr<mx*0.70)return 2;
-  if(hr<mx*0.80)return 3;
-  if(hr<mx*0.90)return 4;
-  return 5;
-}
-
-function applyAutoCtrl(){
-  if(CTRL.mode==='manual')return;
-  const zMin=zoneHR(CTRL.targetZone,'min'),zMax=zoneHR(CTRL.targetZone,'max');
-
-  if(CTRL.mode==='route'){
-    // The star feature: auto-match treadmill incline to real trail gradient
-    const grade=getRouteGrade(S.idx);
-    CTRL.currentIncline=grade;
-    treadmillSetIncline(grade);
-    // Fan scales with effort (speed × incline proxy)
-    autoFan();
-
-  }else if(CTRL.mode==='hr-incline'){
-    if(S.hr>zMax+3) CTRL.currentIncline=Math.max(-3,CTRL.currentIncline-0.3);
-    else if(S.hr<zMin-3) CTRL.currentIncline=Math.min(15,CTRL.currentIncline+0.3);
-    S.speed=CTRL.targetSpeed;
-    treadmillSetIncline(CTRL.currentIncline);
-    treadmillSetSpeed(CTRL.targetSpeed);
-    autoFan();
-
-  }else if(CTRL.mode==='hr-speed'){
-    if(S.hr>zMax+3) CTRL.targetSpeed=Math.max(3,CTRL.targetSpeed-0.2);
-    else if(S.hr<zMin-3) CTRL.targetSpeed=Math.min(18,CTRL.targetSpeed+0.2);
-    S.speed=CTRL.targetSpeed;
-    CTRL.currentIncline=CTRL.targetIncline;
-    treadmillSetSpeed(CTRL.targetSpeed);
-    treadmillSetIncline(CTRL.targetIncline);
-    autoFan();
-  }
-}
-
-
-// ════════════════════════════════════════════════════════════════════════════
-// STRAVA DATA + PANEL
-// ════════════════════════════════════════════════════════════════════════════
-const STRAVA_ACTIVITIES=[
-  {id:'s1',name:'Cotswold Way – Broadway to Campden',date:'15 Jan 2026',type:'Trail Run',
-   dist:8.4,timeSec:3724,avgHR:152,elev:186,kudos:41,route:true,
-   splits:[{km:1,pace:'6:52'},{km:2,pace:'7:10'},{km:3,pace:'7:45'},{km:4,pace:'6:58'},
-           {km:5,pace:'7:22'},{km:6,pace:'6:40'},{km:7,pace:'7:02'},{km:8,pace:'6:50'}]},
-  {id:'s2',name:'Cotswold Way PB attempt 🏆',date:'12 Oct 2025',type:'Trail Run',
-   dist:8.4,timeSec:3522,avgHR:161,elev:189,kudos:87,route:true,
-   splits:[{km:1,pace:'6:48'},{km:2,pace:'6:55'},{km:3,pace:'7:12'},{km:4,pace:'6:44'},
-           {km:5,pace:'7:05'},{km:6,pace:'6:22'},{km:7,pace:'6:39'},{km:8,pace:'6:28'}]},
-  {id:'s3',name:'Early morning tempo – Broadway flat loop',date:'8 Dec 2025',type:'Run',
-   dist:12.2,timeSec:5580,avgHR:158,elev:48,kudos:19,route:false,splits:[]},
-  {id:'s4',name:'Zone 2 easy base – Evesham Vale',date:'2 Dec 2025',type:'Trail Run',
-   dist:15.6,timeSec:8340,avgHR:131,elev:210,kudos:12,route:false,splits:[]},
-  {id:'s5',name:'Hill repeats – Fish Hill escarpment',date:'25 Nov 2025',type:'Trail Run',
-   dist:6.2,timeSec:3048,avgHR:172,elev:468,kudos:34,route:false,splits:[]},
-  {id:'s6',name:'Malvern Hills recce – Beacon ridge',date:'10 Nov 2025',type:'Trail Run',
-   dist:18.4,timeSec:9480,avgHR:148,elev:634,kudos:56,route:false,splits:[]},
-  {id:'s7',name:'Back-to-back Sunday long run #2',date:'3 Nov 2025',type:'Run',
-   dist:22.9,timeSec:12420,avgHR:139,elev:298,kudos:22,route:false,splits:[]},
-  {id:'s8',name:'VO₂max intervals – 6×1km at threshold',date:'29 Oct 2025',type:'Run',
-   dist:9.6,timeSec:3132,avgHR:174,elev:22,kudos:31,route:false,splits:[]},
-];
-
-let stravaOpen=false,stravaConnected=false,stravaGhostId=null,stravaTab='activities';
-
-function toggleStravaPanel(){
-  if(stravaOpen){closeAll();return;}
-  closeAll(); stravaOpen=true;
-  renderStravaPanel();
-  document.getElementById('stravaPanel').classList.add('open');
-  document.getElementById('dimEl').classList.add('show');
-}
-
-function showStravaTab(tab){
-  stravaTab=tab;
-  ['activities','ghosts','stats'].forEach(t=>{
-    const el=document.getElementById('stpTab'+t.charAt(0).toUpperCase()+t.slice(1));
-    if(el) el.classList.toggle('on',t===tab);
-  });
-  renderStravaPanel();
-}
-
-function renderStravaPanel(){
-  const el=document.getElementById('stpBody');
-  if(!stravaConnected){
-    el.innerHTML=`<div class="str-connect-box">
-      <div class="str-connect-logo">🟠</div>
-      <div class="str-connect-title">CONNECT STRAVA</div>
-      <div style="font-size:10px;color:var(--mid);font-family:'JetBrains Mono',monospace;text-align:center;max-width:260px;line-height:1.7">
-        Load your activity history, use past runs as Ghost pace references,<br>and upload completed workouts automatically.
-      </div>
-      <button class="str-connect-btn" onclick="connectStrava()">CONNECT WITH STRAVA →</button>
-      <div style="font-size:9px;color:var(--dim);font-family:'JetBrains Mono',monospace">Read-only · Can't post without permission</div>
-    </div>`;
-    return;
-  }
-  if(stravaTab==='activities'){
-    let h='';
-    STRAVA_ACTIVITIES.forEach(a=>{
-      const m=Math.floor(a.timeSec/60),s=a.timeSec%60;
-      const pace=Math.round(a.timeSec/a.dist);
-      const pm=Math.floor(pace/60),ps=pace%60;
-      const isGhost=stravaGhostId===a.id;
-      h+=`<div class="str-act${isGhost?' as-ghost':''}" onclick="selectStravaGhost('${a.id}')">
-        <div class="str-act-top">
-          <div class="str-act-name">${a.name}</div>
-          <div class="str-act-date">${a.date}</div>
-        </div>
-        <div class="str-stats">
-          <div class="str-s"><div class="str-sv">${a.dist.toFixed(1)}km</div><div class="str-sl">DIST</div></div>
-          <div class="str-s"><div class="str-sv">${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}</div><div class="str-sl">TIME</div></div>
-          <div class="str-s"><div class="str-sv">${pm}:${String(ps).padStart(2,'0')}</div><div class="str-sl">/km</div></div>
-          <div class="str-s"><div class="str-sv">❤ ${a.avgHR}</div><div class="str-sl">AVG HR</div></div>
-          <div class="str-s"><div class="str-sv">+${a.elev}m</div><div class="str-sl">ELEV</div></div>
-        </div>
-        ${a.kudos?`<div class="str-badge">🔥 ${a.kudos} kudos</div>`:''}
-        ${a.route?`<div class="str-ghost-btn" onclick="event.stopPropagation();selectStravaGhost('${a.id}')">${isGhost?'✓ GHOST ACTIVE':'👻 USE AS GHOST'}</div>`:''}
-      </div>`;
-    });
-    el.innerHTML=h;
-  } else if(stravaTab==='ghosts'){
-    const routeActs=STRAVA_ACTIVITIES.filter(a=>a.route);
-    let h=`<div style="font-size:9px;color:var(--mid);font-family:'JetBrains Mono',monospace;padding:6px 2px 10px;line-height:1.7">
-      Select any run on the same route to race against as a Ghost. Your position on the current run is compared to your pace at that point in the Strava activity.
-    </div>`;
-    routeActs.forEach(a=>{
-      const m=Math.floor(a.timeSec/60),s=a.timeSec%60;
-      const isGhost=stravaGhostId===a.id;
-      h+=`<div class="str-act${isGhost?' as-ghost':''}" onclick="selectStravaGhost('${a.id}')">
-        <div class="str-act-top">
-          <div class="str-act-name">${isGhost?'👻 ':''} ${a.name}</div>
-          <div class="str-act-date">${a.date}</div>
-        </div>
-        <div class="str-stats">
-          <div class="str-s"><div class="str-sv">${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}</div><div class="str-sl">TIME</div></div>
-          <div class="str-s"><div class="str-sv">❤ ${a.avgHR}</div><div class="str-sl">AVG HR</div></div>
-          <div class="str-s"><div class="str-sv">+${a.elev}m</div><div class="str-sl">ELEV</div></div>
-        </div>
-        <div class="str-badge">${isGhost?'✓ CURRENTLY RACING':'👻 RACE THIS RUN'}</div>
-      </div>`;
-    });
-    el.innerHTML=h;
-  } else {
-    const totalKm=STRAVA_ACTIVITIES.reduce((a,r)=>a+r.dist,0);
-    const totalTime=STRAVA_ACTIVITIES.reduce((a,r)=>a+r.timeSec,0);
-    const totalElev=STRAVA_ACTIVITIES.reduce((a,r)=>a+r.elev,0);
-    const avgHR=Math.round(STRAVA_ACTIVITIES.reduce((a,r)=>a+r.avgHR,0)/STRAVA_ACTIVITIES.length);
-    const th=Math.floor(totalTime/3600),tm=Math.floor((totalTime%3600)/60);
-    el.innerHTML=`<div style="padding:8px 0">
-      <div style="font-size:9px;color:var(--dim);font-family:'JetBrains Mono',monospace;letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px">YTD STATS</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-        ${[['🏃 Distance',totalKm.toFixed(1)+' km'],['⏱ Moving Time',th+'h '+tm+'m'],
-           ['⛰ Elevation','+'+totalElev+'m'],['❤️ Avg HR',avgHR+' bpm'],
-           ['🗓 Activities',STRAVA_ACTIVITIES.length+' runs'],
-           ['🔥 Kudos',STRAVA_ACTIVITIES.reduce((a,r)=>a+(r.kudos||0),0)]
-          ].map(([l,v])=>`<div style="background:var(--card);border:1px solid var(--border);border-radius:5px;padding:9px 10px">
-            <div style="font-size:9px;color:var(--dim);font-family:'JetBrains Mono',monospace">${l}</div>
-            <div style="font-family:'Orbitron',sans-serif;font-size:15px;font-weight:700;color:var(--cyan);margin-top:3px">${v}</div>
-          </div>`).join('')}
-      </div>
-    </div>`;
-  }
-}
-
-function connectStrava(){
-  const btn=document.querySelector('.str-connect-btn');
-  if(btn){btn.textContent='CONNECTING…';}
-  setTimeout(()=>{
-    stravaConnected=true;
-    S.stravaConnected=true;
-    const pill=document.getElementById('stravaPill');
-    pill.innerHTML='<div class="dot" style="background:#fc4c02"></div>STRAVA ✓';
-    pill.classList.add('linked');
-    renderStravaPanel();
-  },1800);
-}
-
-function selectStravaGhost(id){
-  if(stravaGhostId===id){stravaGhostId=null;}
-  else{
-    stravaGhostId=id;
-    const act=STRAVA_ACTIVITIES.find(a=>a.id===id);
-    // Calibrate ghost pace ratio from Strava activity vs our current speed
-    const actPaceSecPerKm=act.timeSec/act.dist;
-    const ourPaceSecPerKm=60/S.speed;
-    S.ghostActivityId=0; // reset to first ghost slot but use strava pace
-    // Update ghost banner
-    const gd=document.getElementById('ghostDelta');
-    if(gd)gd.querySelector('.gd-label').textContent='VS STRAVA · '+act.date;
-  }
-  renderStravaPanel();
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// WORKOUT SETUP PANEL
-// ════════════════════════════════════════════════════════════════════════════
-let workoutPanelOpen=false;
-
-function toggleWorkoutPanel(){
-  if(workoutPanelOpen){closeWorkoutPanel();return;}
-  workoutPanelOpen=true;
-  renderWorkoutPanel();
-  document.getElementById('workoutPanel').classList.add('open');
-  document.getElementById('workoutPill').classList.add('active');
-}
-function closeWorkoutPanel(){
-  workoutPanelOpen=false;
-  document.getElementById('workoutPanel').classList.remove('open');
-  document.getElementById('workoutPill').classList.remove('active');
-}
-
-function renderWorkoutPanel(){
-  const el=document.getElementById('wpBody');
-  const zoneOpts=HR_ZONES.map((z,i)=>
-    `<option value="${z.z}"${CTRL.targetZone===z.z?' selected':''}>${z.label}</option>`).join('');
-  el.innerHTML=`
-  <!-- Col 1: HR Control -->
-  <div class="wp-section">
-    <div class="wp-section-title">HR Zone Control</div>
-    <div class="wp-field">
-      <div class="wp-label">Max Heart Rate</div>
-      <div class="wp-row">
-        <input class="wp-input" id="wpMaxHR" type="number" value="${CTRL.maxHR}" min="140" max="220" style="flex:1">
-        <span style="font-size:10px;color:var(--dim);font-family:'JetBrains Mono',monospace;align-self:center;margin-left:5px">bpm</span>
-      </div>
-    </div>
-    <div class="wp-field">
-      <div class="wp-label">Target HR Zone</div>
-      <div class="zone-btn-row">
-        ${HR_ZONES.map((z,i)=>`<div class="zone-btn z${z.z}${CTRL.targetZone===z.z?' act':''}" onclick="setTargetZone(${z.z})">Z${z.z}</div>`).join('')}
-      </div>
-      <div style="font-size:9px;color:var(--mid);font-family:'JetBrains Mono',monospace;margin-top:5px" id="wpZoneRange">
-        Target: ${zoneHR(CTRL.targetZone,'min')}–${zoneHR(CTRL.targetZone,'max')} bpm
-      </div>
-    </div>
-    <div class="wp-field">
-      <div class="wp-label">Control Mode</div>
-      <div class="ctrl-mode-row">
-        <div class="ctrl-btn${CTRL.mode==='manual'?' act':''}" onclick="setCtrlMode('manual')">Manual</div>
-        <div class="ctrl-btn${CTRL.mode==='route'?' act':''}" onclick="setCtrlMode('route')">🏔 Route</div>
-        <div class="ctrl-btn${CTRL.mode==='hr-incline'?' act':''}" onclick="setCtrlMode('hr-incline')">HR→Incline</div>
-        <div class="ctrl-btn${CTRL.mode==='hr-speed'?' act':''}" onclick="setCtrlMode('hr-speed')">HR→Speed</div>
-      </div>
-    </div>
-    <div style="font-size:9px;color:var(--mid);font-family:'JetBrains Mono',monospace;line-height:1.7;margin-top:4px" id="wpCtrlDesc">
-      ${CTRL.mode==='manual'?'Manual: you control speed &amp; incline physically. App reads real values and maps your position.':
-        CTRL.mode==='route'?'🏔 Route: treadmill incline auto-matches real Cotswold Way terrain as you progress. Gradients applied live — uphills slow you, descents ease off. The trail, for real.':
-        CTRL.mode==='hr-incline'?'HR→Incline: speed fixed, incline auto-adjusts to hold HR in target zone. Belt angle sends HR up/down. Ideal for Z2 aerobic base.':
-        'HR→Speed: incline fixed, speed auto-adjusts to hold HR in zone. Good for tempo &amp; threshold sessions on flat.'}
-    </div>
-  </div>
-
-  <!-- Col 2: Speed + Distance -->
-  <div class="wp-section">
-    <div class="wp-section-title">Speed &amp; Distance Targets</div>
-    <div class="wp-field">
-      <div class="wp-label">Target Speed</div>
-      <div class="wp-row">
-        <input class="wp-input" id="wpTargetSpeed" type="number" value="${CTRL.targetSpeed.toFixed(1)}" min="3" max="20" step="0.5" style="flex:1">
-        <select class="wp-select" id="wpSpeedUnit" style="width:82px">
-          <option value="kmh"${UNITS.speed==='kmh'?' selected':''}>km/h</option>
-          <option value="mph"${UNITS.speed==='mph'?' selected':''}>mph</option>
-          <option value="minperkm"${UNITS.speed==='minperkm'?' selected':''}>min/km</option>
-          <option value="minpermi"${UNITS.speed==='minpermi'?' selected':''}>min/mi</option>
-        </select>
-      </div>
-    </div>
-    <div class="wp-field">
-      <div class="wp-label">Fixed Incline (HR→Speed mode)</div>
-      <div class="wp-row">
-        <input class="wp-input" id="wpTargetIncline" type="number" value="${CTRL.targetIncline.toFixed(1)}" min="-5" max="15" step="0.5" style="flex:1">
-        <span style="font-size:10px;color:var(--dim);font-family:'JetBrains Mono',monospace;align-self:center;margin-left:5px">%</span>
-      </div>
-    </div>
-    <div class="wp-field">
-      <div class="wp-label">Target Distance</div>
-      <div class="wp-row">
-        <input class="wp-input" id="wpTargetDist" type="number" value="${TOTAL_KM}" min="1" max="100" step="0.5" style="flex:1">
-        <select class="wp-select" id="wpDistUnit" style="width:72px">
-          <option value="km"${UNITS.dist==='km'?' selected':''}>km</option>
-          <option value="mi"${UNITS.dist==='mi'?' selected':''}>miles</option>
-        </select>
-      </div>
-    </div>
-    <button class="prog-load-btn" style="width:100%;margin-top:8px;font-size:10px;padding:8px" onclick="applyWorkoutSettings()">APPLY SETTINGS ▶</button>
-  </div>
-
-  <!-- Col 3: Active state + quick adjustments -->
-  <div class="wp-section">
-    <div class="wp-section-title">Live Adjustments</div>
-    <div style="margin-bottom:8px">
-      <div class="wp-label">SPEED</div>
-      <div style="display:flex;gap:6px;margin-top:5px;align-items:center">
-        <div class="ctrl-btn" onclick="adjustLiveSpeed(-0.5)" style="flex:1;padding:7px">− 0.5</div>
-        <div style="text-align:center;flex:1">
-          <div style="font-family:'Orbitron',sans-serif;font-size:18px;font-weight:700;color:var(--cyan)" id="wpLiveSpeed">${convSpeed(S.speed)}</div>
-          <div style="font-size:8px;color:var(--dim);font-family:'JetBrains Mono',monospace" id="wpLiveSpeedUnit">${speedUnitFull()}</div>
-        </div>
-        <div class="ctrl-btn" onclick="adjustLiveSpeed(0.5)" style="flex:1;padding:7px">+ 0.5</div>
-      </div>
-    </div>
-    <div style="margin-bottom:8px">
-      <div class="wp-label">INCLINE</div>
-      <div style="display:flex;gap:6px;margin-top:5px;align-items:center">
-        <div class="ctrl-btn" onclick="adjustLiveIncline(-0.5)" style="flex:1;padding:7px">− 0.5</div>
-        <div style="text-align:center;flex:1">
-          <div style="font-family:'Orbitron',sans-serif;font-size:18px;font-weight:700;color:var(--orange)" id="wpLiveIncline">${CTRL.currentIncline.toFixed(1)}</div>
-          <div style="font-size:8px;color:var(--dim);font-family:'JetBrains Mono',monospace">%</div>
-        </div>
-        <div class="ctrl-btn" onclick="adjustLiveIncline(0.5)" style="flex:1;padding:7px">+ 0.5</div>
-      </div>
-    </div>
-    <div style="font-size:9px;color:var(--mid);font-family:'JetBrains Mono',monospace;line-height:1.7;margin-top:8px;padding:8px;background:rgba(255,255,255,.03);border-radius:4px;border:1px solid var(--border)">
-      💡 <strong style="color:var(--green)">Ultra tip:</strong> 80% of training should be Zone 2 (aerobic base). Use HR→Incline to lock your effort and let the treadmill adjust automatically — the way elite ultra runners train.
-    </div>
-  </div>`;
-}
-
-function setTargetZone(z){
-  CTRL.targetZone=z;
-  renderWorkoutPanel();
-}
-function setCtrlMode(m){
-  CTRL.mode=m;
-  renderWorkoutPanel();
-}
-function adjustLiveSpeed(delta){
-  S.speed=Math.max(3,Math.min(20,S.speed+delta));
-  CTRL.targetSpeed=S.speed;
-  const el=document.getElementById('wpLiveSpeed');
-  const eu=document.getElementById('wpLiveSpeedUnit');
-  if(el) el.textContent=convSpeed(S.speed);
-  if(eu) eu.textContent=speedUnitFull();
-  treadmillSetSpeed(S.speed); // command the real belt
-}
-function adjustLiveIncline(delta){
-  CTRL.currentIncline=Math.max(-6,Math.min(40,CTRL.currentIncline+delta));
-  CTRL.targetIncline=CTRL.currentIncline;
-  const el=document.getElementById('wpLiveIncline');
-  if(el) el.textContent=CTRL.currentIncline.toFixed(1);
-  treadmillSetIncline(CTRL.currentIncline); // command the real ramp
-}
-function applyWorkoutSettings(){
-  CTRL.maxHR=parseInt(document.getElementById('wpMaxHR').value)||185;
-  const rawSpeed=parseFloat(document.getElementById('wpTargetSpeed').value)||9;
-  const speedMode=document.getElementById('wpSpeedUnit').value;
-  // Convert input speed to internal km/h
-  if(speedMode==='mph')           CTRL.targetSpeed=rawSpeed/0.621371;
-  else if(speedMode==='minperkm') CTRL.targetSpeed=60/rawSpeed; // rawSpeed = min:dec/km
-  else if(speedMode==='minpermi') CTRL.targetSpeed=60/(rawSpeed*0.621371);
-  else                            CTRL.targetSpeed=rawSpeed; // kmh
-  CTRL.targetIncline=parseFloat(document.getElementById('wpTargetIncline').value)||1;
-  renderWorkoutPanel();
-  closeWorkoutPanel();
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// PROGRAMME / WORKOUT LIBRARY
-// ════════════════════════════════════════════════════════════════════════════
-const STAGE_TYPES={
-  warmup:  {label:'Warm-up',    col:'#ff9f43',zone:2,speed:7.0, incline:0.5},
-  easy:    {label:'Easy',       col:'#4fc3f7',zone:2,speed:8.0, incline:0.5},
-  tempo:   {label:'Tempo',      col:'#ffe066',zone:3,speed:10.5,incline:1.0},
-  threshold:{label:'Threshold', col:'#ffb74d',zone:4,speed:12.0,incline:1.0},
-  vo2max:  {label:'VO₂max',    col:'#ff5f5f',zone:5,speed:14.0,incline:2.0},
-  hill:    {label:'Hill',       col:'#c084fc',zone:4,speed:8.5, incline:8.0},
-  interval:{label:'Interval',   col:'#ff5f5f',zone:4,speed:13.0,incline:1.0},
-  hike:    {label:'Power Hike', col:'#69f0ae',zone:3,speed:6.0, incline:12.0},
-  recovery:{label:'Recovery',   col:'#69f0ae',zone:1,speed:6.5, incline:0.0},
-  cooldown:{label:'Cool-down',  col:'#4fc3f7',zone:1,speed:6.0, incline:0.0},
-};
-
-// Built-in ultra training programmes
-const BUILTIN_PROGS=[
-  {id:'p_z2base',name:'Zone 2 Easy Base',tag:'Z2 AEROBIC',tagCol:'var(--z2)',piAc:'var(--z2)',builtin:true,
-   desc:'Core ultra training: 80% aerobic base. HR→Incline keeps you glued to Zone 2.',
-   ctrlMode:'hr-incline',
-   stages:[
-     {type:'warmup',name:'Warm-up',duration:600,speed:7.5,incline:0.5,zone:2},
-     {type:'easy',name:'Steady Aerobic',duration:2400,speed:8.5,incline:1.0,zone:2},
-     {type:'easy',name:'Aerobic Hold',duration:1800,speed:8.5,incline:1.5,zone:2},
-     {type:'cooldown',name:'Cool-down',duration:600,speed:6.5,incline:0.0,zone:1},
-   ]},
-  {id:'p_maf',name:'MAF Training',tag:'AEROBIC BASE',tagCol:'var(--z2)',piAc:'var(--z2)',builtin:true,
-   desc:'Maffetone Method: max aerobic function (220-age). Speed auto-adjusts to stay sub-MAF.',
-   ctrlMode:'hr-speed',
-   stages:[
-     {type:'warmup',name:'Warm-up',duration:600,speed:7.0,incline:0.5,zone:2},
-     {type:'easy',name:'MAF Steady',duration:3600,speed:8.0,incline:1.0,zone:2},
-     {type:'cooldown',name:'Cool-down',duration:600,speed:6.0,incline:0.0,zone:1},
-   ]},
-  {id:'p_tempo',name:'Ultra Tempo Run',tag:'LACTATE',tagCol:'var(--z3)',piAc:'var(--z3)',builtin:true,
-   desc:'Sustained Zone 3-4 effort: builds lactate threshold critical for race-day pace.',
-   ctrlMode:'manual',
-   stages:[
-     {type:'warmup',name:'Warm-up',duration:600,speed:8.0,incline:0.5,zone:2},
-     {type:'tempo',name:'Tempo Block 1',duration:1200,speed:11.0,incline:1.0,zone:3},
-     {type:'recovery',name:'Float Recovery',duration:300,speed:8.5,incline:0.5,zone:2},
-     {type:'tempo',name:'Tempo Block 2',duration:1200,speed:11.5,incline:1.0,zone:3},
-     {type:'cooldown',name:'Cool-down',duration:600,speed:7.0,incline:0.0,zone:1},
-   ]},
-  {id:'p_hills',name:'Hilly Trail Simulation',tag:'ELEVATION',tagCol:'var(--orange)',piAc:'var(--orange)',builtin:true,
-   desc:'Simulate hilly race terrain with rolling incline changes. Builds leg strength & power hiking.',
-   ctrlMode:'manual',
-   stages:[
-     {type:'warmup',name:'Flat Warm-up',duration:600,speed:8.0,incline:0.5,zone:2},
-     {type:'hill',name:'Climb 1',duration:420,speed:7.5,incline:8.0,zone:4},
-     {type:'easy',name:'Ridge Run',duration:300,speed:9.0,incline:2.0,zone:3},
-     {type:'hill',name:'Climb 2',duration:600,speed:7.0,incline:10.0,zone:4},
-     {type:'hike',name:'Power Hike',duration:300,speed:5.5,incline:12.0,zone:3},
-     {type:'hill',name:'Climb 3',duration:480,speed:7.5,incline:9.0,zone:4},
-     {type:'easy',name:'Ridge Hold',duration:300,speed:9.0,incline:1.5,zone:3},
-     {type:'cooldown',name:'Descent + Cool',duration:600,speed:8.0,incline:-1.0,zone:2},
-   ]},
-  {id:'p_vo2',name:'VO₂max Intervals',tag:'VO₂MAX',tagCol:'var(--z5)',piAc:'var(--z5)',builtin:true,
-   desc:'6×3min at 90%+ effort with 90s jog recovery. Raises aerobic ceiling.',
-   ctrlMode:'manual',
-   stages:[
-     {type:'warmup',name:'Warm-up',duration:900,speed:8.5,incline:0.5,zone:2},
-     ...Array.from({length:6},(_,i)=>[
-       {type:'vo2max',name:`VO₂max Rep ${i+1}`,duration:180,speed:14.5,incline:2.0,zone:5},
-       {type:'recovery',name:'Recovery Jog',duration:90,speed:7.0,incline:0.5,zone:1},
-     ]).flat(),
-     {type:'cooldown',name:'Cool-down',duration:600,speed:7.0,incline:0.0,zone:1},
-   ]},
-  {id:'p_hillreps',name:'Hill Repeats (Ultra)',tag:'STRENGTH',tagCol:'var(--purple)',piAc:'var(--purple)',builtin:true,
-   desc:'8×60s steep hill repeats with walk-down recovery. Simulates race-day climbing.',
-   ctrlMode:'manual',
-   stages:[
-     {type:'warmup',name:'Flat Warm-up',duration:900,speed:8.5,incline:0.5,zone:2},
-     ...Array.from({length:8},(_,i)=>[
-       {type:'hill',name:`Hill Rep ${i+1}`,duration:60,speed:9.0,incline:10.0,zone:4},
-       {type:'hike',name:'Walk Down',duration:90,speed:5.0,incline:0.0,zone:1},
-     ]).flat(),
-     {type:'cooldown',name:'Cool-down',duration:600,speed:7.5,incline:0.0,zone:1},
-   ]},
-  {id:'p_back2back',name:'Back-to-Back Long Runs',tag:'ENDURANCE',tagCol:'var(--cyan)',piAc:'var(--cyan)',builtin:true,
-   desc:'Day 2 of back-to-back long run. Run tired legs at Zone 2 to simulate late-race fatigue.',
-   ctrlMode:'hr-incline',
-   stages:[
-     {type:'warmup',name:'Tired Warm-up',duration:900,speed:7.0,incline:0.5,zone:2},
-     {type:'easy',name:'Fatigue Aerobic',duration:5400,speed:8.0,incline:1.0,zone:2},
-     {type:'cooldown',name:'Cool-down',duration:600,speed:6.0,incline:0.0,zone:1},
-   ]},
-  {id:'p_pyramid',name:'Pyramid Intervals',tag:'SPEED',tagCol:'var(--yellow)',piAc:'var(--yellow)',builtin:true,
-   desc:'Build up to threshold then back down. Great for improving pace range.',
-   ctrlMode:'manual',
-   stages:[
-     {type:'warmup',name:'Warm-up',duration:600,speed:8.0,incline:0.5,zone:2},
-     {type:'easy',name:'1 min Z2',duration:60,speed:9.0,incline:1.0,zone:2},
-     {type:'tempo',name:'2 min Z3',duration:120,speed:11.0,incline:1.0,zone:3},
-     {type:'threshold',name:'3 min Z4',duration:180,speed:12.5,incline:1.0,zone:4},
-     {type:'vo2max',name:'2 min Z5',duration:120,speed:14.0,incline:1.0,zone:5},
-     {type:'threshold',name:'3 min Z4',duration:180,speed:12.5,incline:1.0,zone:4},
-     {type:'tempo',name:'2 min Z3',duration:120,speed:11.0,incline:1.0,zone:3},
-     {type:'easy',name:'1 min Z2',duration:60,speed:9.0,incline:1.0,zone:2},
-     {type:'cooldown',name:'Cool-down',duration:600,speed:7.0,incline:0.0,zone:1},
-   ]},
-  {id:'p_backyard',name:'Backyard Ultra Loop',tag:'BACKYARD',tagCol:'var(--purple)',piAc:'var(--purple)',builtin:true,
-   desc:'One 6.7km loop every hour. Mix run/walk to target <15min/mile. Mental & physical simulation.',
-   ctrlMode:'hr-incline',
-   stages:[
-     {type:'warmup',name:'Loop Start',duration:600,speed:9.0,incline:0.5,zone:2},
-     {type:'easy',name:'Run Steady',duration:1800,speed:9.5,incline:1.0,zone:2},
-     {type:'hike',name:'Walk Section',duration:420,speed:5.5,incline:3.0,zone:2},
-     {type:'easy',name:'Run Finish',duration:600,speed:10.0,incline:0.5,zone:3},
-     {type:'recovery',name:'Hourly Rest',duration:180,speed:5.0,incline:0.0,zone:1},
-   ]},
-  {id:'p_race',name:'Race Simulation',tag:'RACE',tagCol:'var(--red)',piAc:'var(--red)',builtin:true,
-   desc:'Simulate race-day pacing: conservative start, middle build, strong finish.',
-   ctrlMode:'manual',
-   stages:[
-     {type:'warmup',name:'Conservative Start',duration:600,speed:9.0,incline:0.5,zone:2},
-     {type:'easy',name:'Build Phase',duration:1200,speed:10.0,incline:1.0,zone:3},
-     {type:'tempo',name:'Race Pace',duration:2400,speed:11.5,incline:1.5,zone:3},
-     {type:'threshold',name:'Push Phase',duration:900,speed:12.0,incline:1.0,zone:4},
-     {type:'vo2max',name:'Final Surge',duration:300,speed:14.0,incline:0.5,zone:5},
-     {type:'cooldown',name:'Cool-down',duration:600,speed:7.0,incline:0.0,zone:1},
-   ]},
-  {id:'p_constant',name:'Constant Incline',tag:'STRENGTH',tagCol:'var(--orange)',piAc:'var(--orange)',builtin:true,
-   desc:'Fixed 6% incline throughout. Builds quad and glute strength for mountain racing.',
-   ctrlMode:'manual',
-   stages:[
-     {type:'warmup',name:'Warm-up',duration:600,speed:7.0,incline:3.0,zone:2},
-     {type:'hill',name:'Steady Climb',duration:3600,speed:8.0,incline:6.0,zone:3},
-     {type:'cooldown',name:'Cool-down',duration:600,speed:7.0,incline:1.0,zone:1},
-   ]},
-  {id:'p_recovery',name:'Active Recovery',tag:'RECOVERY',tagCol:'var(--z1)',piAc:'var(--z1)',builtin:true,
-   desc:'Very easy Z1 movement to flush legs post-race or hard session. Keep it truly easy.',
-   ctrlMode:'hr-speed',
-   stages:[
-     {type:'recovery',name:'Easy Walk/Jog',duration:1800,speed:7.0,incline:0.5,zone:1},
-     {type:'recovery',name:'Steady Easy',duration:1200,speed:7.5,incline:0.5,zone:1},
-   ]},
-  {id:'p_fartlek',name:'Ultra Fartlek',tag:'MIXED',tagCol:'var(--yellow)',piAc:'var(--yellow)',builtin:true,
-   desc:'Unstructured effort changes inspired by terrain. Hard when you feel good, easy otherwise.',
-   ctrlMode:'manual',
-   stages:[
-     {type:'warmup',name:'Warm-up',duration:600,speed:8.0,incline:0.5,zone:2},
-     {type:'easy',name:'Easy Float',duration:300,speed:9.0,incline:0.5,zone:2},
-     {type:'tempo',name:'Hard Surge',duration:120,speed:12.0,incline:2.0,zone:4},
-     {type:'easy',name:'Easy Float',duration:300,speed:9.0,incline:0.5,zone:2},
-     {type:'hill',name:'Hill Push',duration:180,speed:8.5,incline:8.0,zone:4},
-     {type:'easy',name:'Easy Float',duration:420,speed:9.0,incline:0.5,zone:2},
-     {type:'threshold',name:'Threshold Push',duration:180,speed:12.5,incline:1.0,zone:4},
-     {type:'easy',name:'Easy Float',duration:300,speed:9.0,incline:0.5,zone:2},
-     {type:'cooldown',name:'Cool-down',duration:600,speed:7.0,incline:0.0,zone:1},
-   ]},
-];
-
-// Custom user programmes (start with one demo)
-let customProgs=[
-  {id:'cp_1',name:'My Custom Run',tag:'CUSTOM',tagCol:'var(--mid)',piAc:'var(--mid)',builtin:false,
-   desc:'Your custom workout.',ctrlMode:'manual',
-   stages:[
-     {type:'warmup',name:'Warm-up',duration:600,speed:7.5,incline:0.5,zone:2},
-     {type:'easy',name:'Main Block',duration:1800,speed:9.0,incline:1.0,zone:3},
-     {type:'cooldown',name:'Cool-down',duration:300,speed:6.5,incline:0.0,zone:1},
-   ]},
-];
-
-let selectedProgId=null;
-let editingProg=null; // deep copy of selected prog being edited
-let activeWorkout=null;
-let workoutStageIdx=0;
-let workoutStageElapsed=0;
-
-function getAllProgs(){return[...BUILTIN_PROGS,...customProgs];}
-
-function progTotalTime(p){return p.stages.reduce((a,s)=>a+(s.duration||0),0);}
-function progTotalDist(p){return p.stages.reduce((a,s)=>a+((s.speed||8)*(s.duration||0)/3600),0);}
-function progAvgZone(p){return p.stages.length?Math.round(p.stages.reduce((a,s)=>a+(s.zone||2),0)/p.stages.length):2;}
-
-function fmtSec(s){const m=Math.floor(s/60),r=s%60;return String(m).padStart(2,'0')+':'+String(r).padStart(2,'0');}
-
-// ── Programme Modal ───────────────────────────────────────────────────────
-function openProgModal(){
-  document.getElementById('progModal').classList.add('show');
-  renderProgList();
-  if(selectedProgId){
-    openProgDetail(selectedProgId);
-  } else {
-    openProgDetail(getAllProgs()[0].id);
-  }
-}
-function closeProgModal(){
-  document.getElementById('progModal').classList.remove('show');
-}
-
-function renderProgList(){
-  const progs=getAllProgs();
-  document.getElementById('progListSub').textContent=progs.length+' programmes';
-  let h='';
-  progs.forEach(p=>{
-    const dur=fmtSec(progTotalTime(p));
-    const dist=progTotalDist(p).toFixed(1);
-    h+=`<div class="prog-item${selectedProgId===p.id?' selected':''}" 
-          style="--pi-ac:${p.piAc}" onclick="openProgDetail('${p.id}')">
-      <div class="prog-item-name">${p.name}</div>
-      <div class="prog-item-meta">${dur} · ${dist}km · ${p.stages.length} stages</div>
-      <div class="prog-item-tag" style="background:${p.piAc}18;color:${p.piAc};border:1px solid ${p.piAc}44">${p.tag}</div>
-    </div>`;
-  });
-  document.getElementById('progListBody').innerHTML=h;
-}
-
-function openProgDetail(id){
-  selectedProgId=id;
-  const p=getAllProgs().find(x=>x.id===id);
-  if(!p)return;
-  editingProg=JSON.parse(JSON.stringify(p)); // deep copy
-  document.getElementById('progTitleInput').value=p.name;
-  document.getElementById('progDelBtn').style.display=p.builtin?'none':'flex';
-  renderProgStats();
-  renderProgStages();
-  renderProgList();
-}
-
-function renderProgStats(){
-  if(!editingProg)return;
-  const tot=progTotalTime(editingProg);
-  const dist=progTotalDist(editingProg);
-  const avgZ=progAvgZone(editingProg);
-  const elev=editingProg.stages.reduce((a,s)=>a+(s.incline>0?s.speed*s.duration/3600*s.incline*10:0),0);
-  document.getElementById('psTotal').textContent=fmtSec(tot);
-  document.getElementById('psDist').textContent=dist.toFixed(1)+'km';
-  document.getElementById('psAvgHR').textContent='Z'+avgZ;
-  document.getElementById('psStages').textContent=editingProg.stages.length;
-  document.getElementById('psElev').textContent='+'+Math.round(elev)+'m';
-}
-
-function renderProgStages(){
-  if(!editingProg){document.getElementById('progStagesBody').innerHTML='';return;}
-  const p=editingProg;
-  let h='';
-  p.stages.forEach((s,i)=>{
-    const st=STAGE_TYPES[s.type]||STAGE_TYPES.easy;
-    const dur=fmtSec(s.duration||0);
-    const canUp=i>0,canDn=i<p.stages.length-1;
-    h+=`<div class="stage-row" id="stageRow_${i}">
-      <div class="stage-handle">⠿</div>
-      <div class="stage-num">${i+1}</div>
-      <div class="stage-type-dot" style="background:${st.col}"></div>
-      <div class="stage-name">${s.name}</div>
-      <div class="stage-fields">
-        <div class="stage-field">
-          <input class="stage-edit-input" value="${Math.round((s.duration||0)/60)}" 
-            onchange="updateStageField(${i},'duration',+this.value)" 
-            title="Duration (minutes)" style="width:44px">
-          <div class="stage-field-l">MIN</div>
-        </div>
-        <div class="stage-field">
-          <input class="stage-edit-input" value="${(s.speed||8).toFixed(1)}" 
-            onchange="updateStageField(${i},'speed',+this.value)" title="Speed (km/h)">
-          <div class="stage-field-l">KM/H</div>
-        </div>
-        <div class="stage-field">
-          <input class="stage-edit-input" value="${(s.incline||0).toFixed(1)}" 
-            onchange="updateStageField(${i},'incline',+this.value)" title="Incline (%)">
-          <div class="stage-field-l">%</div>
-        </div>
-        <div class="stage-field">
-          <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:${STAGE_TYPES[s.type]?.col||'var(--text)'}">Z${s.zone||2}</div>
-          <div class="stage-field-l">ZONE</div>
-        </div>
-      </div>
-      <div class="stage-actions">
-        <div class="stage-btn" onclick="moveStage(${i},-1)" style="opacity:${canUp?.9:.2}" title="Move up">↑</div>
-        <div class="stage-btn" onclick="moveStage(${i},1)"  style="opacity:${canDn?.9:.2}" title="Move down">↓</div>
-        <div class="stage-btn" onclick="dupStage(${i})" title="Duplicate">⧉</div>
-        <div class="stage-btn del" onclick="removeStage(${i})" title="Delete">✕</div>
-      </div>
-    </div>`;
-  });
-  if(!p.stages.length) h='<div style="text-align:center;padding:32px;color:var(--dim);font-family:\'JetBrains Mono\',monospace;font-size:10px">No stages yet — add some below</div>';
-  document.getElementById('progStagesBody').innerHTML=h;
-  renderProgStats();
-}
-
-function updateStageField(idx,field,val){
-  if(!editingProg||idx>=editingProg.stages.length)return;
-  // duration input is in minutes, convert to seconds
-  editingProg.stages[idx][field]=field==='duration'?Math.round(val*60):val;
-  renderProgStats();
-}
-
-function addStage(type){
-  if(!editingProg)return;
-  const st=STAGE_TYPES[type]||STAGE_TYPES.easy;
-  editingProg.stages.push({
-    type,name:st.label,duration:300,speed:st.speed,incline:st.incline,zone:st.zone
-  });
-  renderProgStages();
-}
-
-function removeStage(i){
-  if(!editingProg)return;
-  editingProg.stages.splice(i,1);
-  renderProgStages();
-}
-
-function moveStage(i,dir){
-  if(!editingProg)return;
-  const j=i+dir;
-  if(j<0||j>=editingProg.stages.length)return;
-  [editingProg.stages[i],editingProg.stages[j]]=[editingProg.stages[j],editingProg.stages[i]];
-  renderProgStages();
-}
-
-function dupStage(i){
-  if(!editingProg)return;
-  const copy=JSON.parse(JSON.stringify(editingProg.stages[i]));
-  copy.name=copy.name+' (copy)';
-  editingProg.stages.splice(i+1,0,copy);
-  renderProgStages();
-}
-
-function saveProg(){
-  if(!editingProg)return;
-  editingProg.name=document.getElementById('progTitleInput').value||editingProg.name;
-  if(editingProg.builtin){
-    // Save as new custom
-    const copy=JSON.parse(JSON.stringify(editingProg));
-    copy.id='cp_'+Date.now();
-    copy.builtin=false;
-    copy.tag='CUSTOM';
-    copy.tagCol='var(--mid)';
-    copy.piAc='var(--mid)';
-    copy.name=copy.name+' (custom)';
-    customProgs.push(copy);
-    selectedProgId=copy.id;
-    editingProg=copy;
-  } else {
-    const idx=customProgs.findIndex(p=>p.id===editingProg.id);
-    if(idx>=0)customProgs[idx]=editingProg;
-    else customProgs.push(editingProg);
-  }
-  renderProgList();
-  renderProgStages();
-}
-
-function newCustomProg(){
-  const p={
-    id:'cp_'+Date.now(),name:'New Programme',tag:'CUSTOM',tagCol:'var(--mid)',piAc:'var(--mid)',
-    builtin:false,desc:'Custom workout.',ctrlMode:'manual',stages:[
-      {type:'warmup',name:'Warm-up',duration:300,speed:7.5,incline:0.5,zone:2},
-    ]
-  };
-  customProgs.push(p);
-  selectedProgId=p.id;
-  editingProg=JSON.parse(JSON.stringify(p));
-  document.getElementById('progTitleInput').value=p.name;
-  renderProgList();
-  renderProgStages();
-}
-
-function deleteProg(){
-  if(!editingProg||editingProg.builtin)return;
-  customProgs=customProgs.filter(p=>p.id!==editingProg.id);
-  selectedProgId=null;
-  editingProg=null;
-  renderProgList();
-  openProgDetail(getAllProgs()[0].id);
-}
-
-function loadProg(){
-  if(!editingProg)return;
-  activeWorkout=JSON.parse(JSON.stringify(editingProg));
-  workoutStageIdx=0;workoutStageElapsed=0;
-  CTRL.mode=activeWorkout.ctrlMode||'manual';
-  applyStageTargets();
-  document.getElementById('workoutHud').classList.add('show');
-  document.getElementById('workoutPill').classList.add('active');
-  document.getElementById('workoutPill').innerHTML='🏋️ '+activeWorkout.name.substring(0,12).toUpperCase();
-  closeProgModal();
-}
-
-function applyStageTargets(){
-  if(!activeWorkout||workoutStageIdx>=activeWorkout.stages.length)return;
-  const s=activeWorkout.stages[workoutStageIdx];
-  CTRL.targetSpeed=s.speed||9;
-  CTRL.targetIncline=s.incline||0;
-  CTRL.currentIncline=s.incline||0;
-  CTRL.targetZone=s.zone||2;
-  if(CTRL.mode==='manual'||CTRL.mode==='route'){S.speed=s.speed||9;}
-  // Actually command the treadmill belt and ramp
-  treadmillSetSpeed(s.speed||9);
-  treadmillSetIncline(s.incline||0);
-  updateWorkoutHUD();
-}
-
-function updateWorkoutHUD(){
-  if(!activeWorkout)return;
-  const s=activeWorkout.stages[workoutStageIdx];
-  const st=STAGE_TYPES[s.type]||STAGE_TYPES.easy;
-  const remaining=Math.max(0,(s.duration||0)-workoutStageElapsed);
-  const progPct=(workoutStageElapsed/(s.duration||1)*100).toFixed(1);
-  document.getElementById('whProgName').textContent=activeWorkout.name.toUpperCase();
-  document.getElementById('whdot').style.background=st.col;
-  document.getElementById('whStageName').textContent=`(${workoutStageIdx+1}/${activeWorkout.stages.length}) ${s.name}`;
-  document.getElementById('whTimer').textContent=fmtSec(remaining);
-  document.getElementById('whFill').style.width=progPct+'%';
-  const z=HR_ZONES[CTRL.targetZone-1];
-  document.getElementById('whtSpeed').textContent=convSpeed(s.speed||9)+' '+speedUnit();
-  document.getElementById('whtIncline').textContent=(s.incline||0).toFixed(1)+'%';
-  document.getElementById('whtHR').textContent=z.label+' '+zoneHR(CTRL.targetZone,'min')+'-'+zoneHR(CTRL.targetZone,'max');
-}
-
-function tickWorkout(){
-  if(!activeWorkout)return;
-  workoutStageElapsed++;
-  const s=activeWorkout.stages[workoutStageIdx];
-  if(workoutStageElapsed>=(s.duration||0)){
-    workoutStageIdx++;
-    workoutStageElapsed=0;
-    if(workoutStageIdx>=activeWorkout.stages.length){
-      // Programme complete
-      activeWorkout=null;
-      document.getElementById('workoutHud').classList.remove('show');
-      document.getElementById('workoutPill').innerHTML='🏋️ WORKOUT';
-      document.getElementById('workoutPill').classList.remove('active');
-      return;
-    }
-    applyStageTargets();
-  }
-  updateWorkoutHUD();
-}
-
-const TOTAL_KM=8.4,TOTAL_PTS=100,TOTAL_ASCENT=186;
-const EL=[142,148,155,162,170,175,180,186,190,192,195,198,202,206,210,215,218,222,218,
-  215,212,210,215,220,224,228,232,236,240,242,238,234,230,226,222,218,215,212,
-  210,208,206,210,215,218,220,218,215,212,210,212,215,218,222,226,230,234,238,
-  242,246,248,244,240,236,232,228,224,220,216,212,208,204,200,196,192,188,184,
-  180,176,172,168,165,162,160,158,160,162,165,168,172,176,180,184,188,192,196,
-  200,204,208,212,216,218];
-
-const MULTS=[0.5,1.0,1.5,2.0,2.5,3.0,3.5];
-let multIdx=1;
-function cycleMult(){multIdx=(multIdx+1)%MULTS.length;S.elevMult=MULTS[multIdx];
-  document.getElementById('multEl').textContent='×'+S.elevMult.toFixed(1);}
-
-// ════════════════════════════════════════════════════════════════════════════
-// GARMIN INSIGHTS DATA
-// (These are the exact metrics Garmin's algorithms compute — we mirror them)
-// ════════════════════════════════════════════════════════════════════════════
-const garminInsights = {
-  // Real-time during workout
-  live:{
-    vo2max:{val:49,unit:'',label:'VO₂ Max',icon:'🫁',color:'var(--cyan)',
-      sub:'Above average · Improving',trend:'up',
-      note:'Garmin estimates aerobic capacity from HR+pace data'},
-    trainingStatus:{val:'PEAKING',unit:'',label:'Training Status',icon:'📈',color:'var(--green)',
-      sub:'Race readiness high',trend:'up',
-      note:'Based on 4-week load trend vs VO₂ max'},
-    trainingLoad:{val:312,unit:'',label:'7-Day Training Load',icon:'⚡',color:'var(--orange)',
-      sub:'High · Rest recommended tomorrow',trend:'up',
-      note:'Acute load vs chronic load ratio'},
-    bodyBattery:{val:62,unit:'%',label:'Body Battery',icon:'🔋',color:'var(--green)',
-      sub:'Good energy entering workout',trend:'flat',
-      note:'Based on HRV, sleep, stress & activity'},
-    hrv:{val:58,unit:'ms',label:'HRV Status',icon:'💓',color:'var(--purple)',
-      sub:'Balanced · Within normal range',trend:'flat',
-      note:'7-day HRV vs 21-day baseline'},
-    stress:{val:24,unit:'',label:'Stress Level',icon:'🧠',color:'var(--green)',
-      sub:'Low · Rest phase between intervals',trend:'dn',
-      note:'Derived from HRV during non-active periods'},
-    respRate:{val:32,unit:'brpm',label:'Breathing Rate',icon:'💨',color:'var(--cyan)',
-      sub:'Normal for Zone 4 effort',trend:'up',
-      note:'Estimated from wrist sensor motion'},
-    groundContact:{val:228,unit:'ms',label:'Ground Contact',icon:'👟',color:'var(--yellow)',
-      sub:'Optimal range 220-260ms',trend:'flat',
-      note:'Time foot spends on ground (Garmin HRM-Pro)'},
-    vertOsc:{val:8.4,unit:'cm',label:'Vertical Oscillation',icon:'↕',color:'var(--yellow)',
-      sub:'Efficient · Target <9cm',trend:'flat',
-      note:'Bounce in stride — lower is more efficient'},
-    strideLen:{val:1.42,unit:'m',label:'Stride Length',icon:'↔',color:'var(--mid)',
-      sub:'Increasing with pace',trend:'up',
-      note:'Distance covered per stride cycle'},
-  },
-  // Today's wellness (from watch sync this morning)
-  wellness:{
-    sleep:{val:'7h 22m',unit:'',label:'Last Night\'s Sleep',icon:'😴',color:'var(--purple)',
-      sub:'Good · 3× deep sleep cycles',trend:'up',
-      note:'Sleep stages tracked via wrist HRV'},
-    recoveryTime:{val:18,unit:'hrs',label:'Recovery Time',icon:'🔄',color:'var(--orange)',
-      sub:'Light training OK after 6pm',trend:'flat',
-      note:'Time until ready for hard effort'},
-    trainingReadiness:{val:68,unit:'/100',label:'Training Readiness',icon:'🎯',color:'var(--green)',
-      sub:'Good day for a hard effort',trend:'up',
-      note:'Composite of sleep, HRV, load, stress'},
-    intensityMins:{val:47,unit:'min',label:'Intensity Minutes',icon:'🏅',color:'var(--cyan)',
-      sub:'Weekly goal: 150min · On track',trend:'up',
-      note:'WHO-guidelines moderate+vigorous activity'},
-  }
-};
-
-function renderInsights(){
-  const el=document.getElementById('ipScroll');
-  const d=garminInsights;
-  let h='<div class="ip-section-title">LIVE WORKOUT METRICS</div>';
-  // Body Battery (wide)
-  const bb=d.live.bodyBattery;
-  h+=`<div class="ig-card" style="border-color:${bb.color}22">
-    <div class="ig-icon">${bb.icon}</div>
-    <div class="ig-body" style="flex:1">
-      <div class="ig-label">${bb.label}</div>
-      <div style="display:flex;align-items:baseline;gap:4px">
-        <div class="ig-val" style="color:${bb.color}">${bb.val}<span style="font-size:11px;color:var(--dim);margin-left:2px">${bb.unit}</span></div>
-        <span class="trend-up">${bb.trend==='up'?'↑':bb.trend==='dn'?'↓':'→'}</span>
-      </div>
-      <div class="bb-bar"><div class="bb-fill" style="width:${bb.val}%;background:${bb.color}"></div></div>
-      <div class="ig-sub" style="color:var(--mid);margin-top:3px;font-size:9px">${bb.sub}</div>
-    </div>
-    <div class="ig-bar" style="background:${bb.color}"></div>
-  </div>`;
-  // Training Status + VO2
-  h+=`<div class="ig-grid">`;
-  for(const key of ['trainingStatus','vo2max']){
-    const m=d.live[key];
-    h+=`<div class="ig-mini" style="border-color:${m.color}22">
-      <div class="ig-mini-label">${m.label}</div>
-      <div class="ig-mini-val" style="color:${m.color}">${m.val}<span style="font-size:9px;color:var(--dim);margin-left:2px">${m.unit}</span></div>
-      <div style="font-size:9px;color:var(--mid);margin-top:2px">${m.sub}</div>
-    </div>`;
-  }
-  h+=`</div>`;
-  // Live running dynamics
-  h+=`<div class="ig-grid">`;
-  for(const key of ['hrv','respRate','groundContact','vertOsc','strideLen','stress']){
-    const m=d.live[key];
-    h+=`<div class="ig-mini" style="border-color:${m.color}22">
-      <div class="ig-mini-label">${m.label}</div>
-      <div class="ig-mini-val" style="color:${m.color}">${m.val}<span style="font-size:9px;color:var(--dim);margin-left:2px">${m.unit}</span></div>
-      <div style="font-size:9px;color:var(--mid);margin-top:1px">${m.sub}</div>
-    </div>`;
-  }
-  h+=`</div>`;
-  // Training Load
-  const tl=d.live.trainingLoad;
-  h+=`<div class="ig-card" style="border-color:${tl.color}22">
-    <div class="ig-icon">${tl.icon}</div>
-    <div class="ig-body">
-      <div class="ig-label">${tl.label}</div>
-      <div class="ig-val" style="color:${tl.color}">${tl.val}</div>
-      <div class="ig-sub" style="color:var(--mid);font-size:9px">${tl.sub}</div>
-    </div><div class="ig-bar" style="background:${tl.color}"></div></div>`;
-
-  h+=`<div class="ip-section-title">TODAY'S WELLNESS</div>`;
-  for(const key of Object.keys(d.wellness)){
-    const m=d.wellness[key];
-    h+=`<div class="ig-card" style="border-color:${m.color}22">
-      <div class="ig-icon">${m.icon}</div>
-      <div class="ig-body">
-        <div class="ig-label">${m.label}</div>
-        <div style="display:flex;align-items:baseline;gap:4px">
-          <div class="ig-val" style="color:${m.color}">${m.val}<span style="font-size:10px;color:var(--dim);margin-left:2px">${m.unit}</span></div>
-          <span style="font-size:9px;color:var(--dim)">${m.trend==='up'?'↑ improving':m.trend==='dn'?'↓ decreasing':'→ stable'}</span>
-        </div>
-        <div class="ig-sub" style="color:var(--mid);font-size:9px;margin-top:1px">${m.sub}</div>
-        <div style="font-size:8px;color:var(--dim);margin-top:2px;font-family:'JetBrains Mono',monospace;opacity:.7">${m.note}</div>
-      </div><div class="ig-bar" style="background:${m.color}"></div></div>`;
-  }
-  el.innerHTML=h;
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// GHOST MODE — persistent card in metrics panel, cycle with arrows
-// ════════════════════════════════════════════════════════════════════════════
-const ALL_ACTIVITIES=[
-  {date:'12 Oct 2024',finish:'58:42',avgPace:'6:59/km',avgHR:156,paceRatio:0.96},
-  {date:'3 Sep 2024', finish:'1:03:14',avgPace:'7:31/km',avgHR:152,paceRatio:1.04},
-  {date:'18 Aug 2024',finish:'1:07:48',avgPace:'8:04/km',avgHR:148,paceRatio:1.12},
-  {date:'1 Jul 2024', finish:'1:12:30',avgPace:'8:37/km',avgHR:162,paceRatio:1.20},
-  {date:'4 Mar 2024', finish:'1:09:05',avgPace:'8:13/km',avgHR:159,paceRatio:1.14},
-  {date:'14 Jan 2024',finish:'1:16:44',avgPace:'9:08/km',avgHR:165,paceRatio:1.27},
-  {date:'22 Nov 2023',finish:'1:21:12',avgPace:'9:40/km',avgHR:168,paceRatio:1.34},
-  {date:'9 Aug 2023', finish:'1:04:50',avgPace:'7:43/km',avgHR:154,paceRatio:1.07},
-  {date:'3 May 2023', finish:'1:18:30',avgPace:'9:21/km',avgHR:170,paceRatio:1.30},
-  {date:'11 Feb 2023',finish:'1:29:15',avgPace:'10:37/km',avgHR:172,paceRatio:1.47},
-];
-const YEAR_CUTOFF_IDX=5;
-function parseTime(t){const p=t.split(':');return p.length===3?(+p[0]*3600)+(+p[1]*60)+ +p[2]:(+p[0]*60)+ +p[1];}
-function buildGhosts(){
-  const ws=ALL_ACTIVITIES.map((a,i)=>({...a,secs:parseTime(a.finish),origIdx:i}));
-  const as=[...ws].sort((a,b)=>a.secs-b.secs);
-  const yr=ws.filter(a=>a.origIdx<YEAR_CUTOFF_IDX);
-  const ys=[...yr].sort((a,b)=>a.secs-b.secs);
-  return [
-    {...as[0],               tag:'best-ever', tagLabel:'⭐ BEST EVER'},
-    {...as[as.length-1],     tag:'worst-ever',tagLabel:'💪 ROOM TO GROW'},
-    {...ys[0],               tag:'best-year', tagLabel:'🏅 BEST THIS YEAR'},
-    {...ys[ys.length-1],     tag:'worst-year',tagLabel:'🔥 CHARACTER BUILDER'},
-  ];
-}
-const GHOST_ACTIVITIES=buildGhosts();
-
-// Ghost colours for map dot — each ghost type gets its own distinct look
-const GHOST_COLORS={
-  'best-ever': {r:255,g:224,b:102},   // gold
-  'worst-ever':{r:255,g:95,b:95},     // red
-  'best-year': {r:61,g:220,b:132},    // green
-  'worst-year':{r:255,g:159,b:67},    // orange
-};
-
-function cycleGhost(dir){
-  S.ghostActivityId=(S.ghostActivityId+dir+GHOST_ACTIVITIES.length)%GHOST_ACTIVITIES.length;
-  S.ghostIdx=Math.floor(S.idx/GHOST_ACTIVITIES[S.ghostActivityId].paceRatio);
-  updateGhostCard();
-}
-
-function updateGhostCard(){
-  const g=GHOST_ACTIVITIES[S.ghostActivityId];
-  const card=document.getElementById('ghostCard');
-  // Update accent class
-  card.className='ghost-card '+g.tag;
-  document.getElementById('gcTag').className='gc-tag '+g.tag;
-  document.getElementById('gcTag').textContent=g.tagLabel;
-  document.getElementById('gcDetail').textContent=`${g.finish} · ${g.avgPace} · ❤ ${g.avgHR}`;
-  // Dot indicators
-  document.getElementById('gcDots').innerHTML=GHOST_ACTIVITIES.map((_,i)=>
-    `<div class="gc-dot${i===S.ghostActivityId?' active':''}" onclick="selectGhost(${i})"></div>`).join('');
-}
-function selectGhost(i){S.ghostActivityId=i;S.ghostIdx=Math.floor(S.idx/GHOST_ACTIVITIES[i].paceRatio);updateGhostCard();}
-
-function updateGhostDelta(){
-  if(!S.ghostActive)return;
-  const diff=S.idx-S.ghostIdx;
-  const timeDiffSec=Math.abs(diff)*(TOTAL_KM*1000/TOTAL_PTS)/S.speed*0.8;
-  const m=Math.floor(timeDiffSec/60),sec=Math.round(timeDiffSec%60);
-  const str=(diff>=0?'+':'-')+String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0');
-  const ahead=diff>=0;
-  document.getElementById('gcDelta').textContent=str;
-  document.getElementById('gcDelta').className='gc-delta '+(ahead?'ahead':'behind');
-  document.getElementById('gcDir').textContent=ahead?'AHEAD':'BEHIND';
-  document.getElementById('gcDir').className='gc-direction '+(ahead?'ahead':'behind');
-  // Also update the map banner
-  const gEl=document.getElementById('ghostTimeEl');
-  if(gEl){gEl.textContent=str+(ahead?' AHEAD':' BEHIND');gEl.className='gd-time '+(ahead?'ahead':'behind');}
-  const g=GHOST_ACTIVITIES[S.ghostActivityId];
-  const gPaceKm=60/(S.speed*(ahead?1.05:.95));
-  const gpm=Math.floor(gPaceKm),gps=Math.round((gPaceKm%1)*60);
-  const gpl=document.getElementById('ghostPaceLabel');
-  if(gpl)gpl.textContent=`Ghost: ${g.tagLabel} · ${gpm}:${String(gps).padStart(2,'0')}/km`;
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// RUN TOGETHER
-// Live tracking of friends — outside (GPS) or on their own treadmill
-// ════════════════════════════════════════════════════════════════════════════
-const RUNNERS=[
-  {name:'Soph',initials:'S',color:'#ff9f43',border:'#cc7a30',
-   mode:'OUTSIDE · GPS',distKm:3.24,speed:8.4,hr:158,distTarget:8.4,
-   location:'0.6km ahead on route'},
-  {name:'Dave K.',initials:'D',color:'#c084fc',border:'#8b5cf6',
-   mode:'TREADMILL · REMOTE',distKm:2.18,speed:9.1,hr:145,distTarget:8.4,
-   location:'1.6km behind on route'},
-];
-
-function renderTogetherpanel(){
-  const el=document.getElementById('tpRunners');
-  const myDist=S.idx/TOTAL_PTS*TOTAL_KM;
-  el.innerHTML=RUNNERS.map((r,i)=>{
-    const diff=r.distKm-myDist;
-    const ahead=diff>0;
-    const distStr=(Math.abs(diff)).toFixed(2);
-    return `<div class="tp-runner">
-      <div class="tp-avatar" style="color:${r.color};border-color:${r.border};background:${r.color}18">${r.initials}</div>
-      <div class="tp-info">
-        <div class="tp-name" style="color:${r.color}">${r.name} <span style="font-size:9px;color:var(--dim);font-family:'JetBrains Mono',monospace">${r.mode}</span></div>
-        <div class="tp-stats">
-          <div class="tp-stat"><div class="tp-stat-val" style="color:${r.color}">${r.hr}</div><div class="tp-stat-lbl">BPM</div></div>
-          <div class="tp-stat"><div class="tp-stat-val" style="color:${r.color}">${r.speed.toFixed(1)}</div><div class="tp-stat-lbl">KM/H</div></div>
-          <div class="tp-stat"><div class="tp-stat-val" style="color:${r.color}">${r.distKm.toFixed(2)}</div><div class="tp-stat-lbl">KM</div></div>
-        </div>
-      </div>
-    </div>
-    <div class="tp-delta">
-      <div class="tp-delta-label">${r.location}</div>
-      <div class="tp-delta-val" style="color:${ahead?'var(--green)':'var(--red)'}">${ahead?'+':'-'}${distStr}km</div>
-    </div>`;
-  }).join('');
-}
-
-function renderRTBadges(){
-  const el=document.getElementById('rtBadges');
-  el.innerHTML=RUNNERS.map((r,i)=>{
-    const diff=r.distKm-S.distKm;
-    const ahead=diff>0;
-    return `<div class="rb" style="border-color:${r.border}44">
-      <div class="rb-dot" style="background:${r.color};box-shadow:0 0 6px ${r.color}"></div>
-      <div>
-        <div class="rb-name" style="color:${r.color}">${r.name}</div>
-        <div class="rb-dist" style="color:var(--dim)">${r.distKm.toFixed(2)}km · ❤${r.hr}</div>
-      </div>
-      <div class="rb-delta" style="color:${ahead?'var(--green)':'var(--red)'}">${ahead?'↑':'↓'}${Math.abs(diff).toFixed(1)}km</div>
-    </div>`;
-  }).join('');
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// PANEL TOGGLES
-// ════════════════════════════════════════════════════════════════════════════
-let insightsOpen=false,togetherOpen=false,splitsOpen=false;
-function closeAll(){
-  document.getElementById('insightsPanel').classList.remove('open');
-  document.getElementById('togetherPanel').classList.remove('open');
-  document.getElementById('splitsPanel').classList.remove('open');
-  document.getElementById('stravaPanel').classList.remove('open');
-  document.getElementById('dimEl').classList.remove('show');
-  insightsOpen=togetherOpen=splitsOpen=stravaOpen=false;
-  // Don't close workoutPanel here — it has its own toggle
-}
-function toggleInsights(){
-  if(insightsOpen){closeAll();return;}
-  closeAll(); insightsOpen=true;
-  renderInsights();
-  document.getElementById('insightsPanel').classList.add('open');
-  document.getElementById('dimEl').classList.add('show');
-}
-function toggleTogether(){
-  if(togetherOpen){closeAll();return;}
-  closeAll(); togetherOpen=true;
-  renderTogetherpanel();
-  document.getElementById('togetherPanel').classList.add('open');
-  document.getElementById('dimEl').classList.add('show');
-}
-// ════════════════════════════════════════════════════════════════════════════
-// SPLITS PANEL
-// ════════════════════════════════════════════════════════════════════════════
-function toggleSplits(){
-  if(splitsOpen){closeAll();return;}
-  closeAll(); splitsOpen=true;
-  renderSplitsPanel();
-  document.getElementById('splitsPanel').classList.add('open');
-  document.getElementById('dimEl').classList.add('show');
-}
-
-function renderSplitsPanel(){
-  const el=document.getElementById('spBody');
-  if(!S.splits.length){
-    el.innerHTML=`<div class="sp-empty">No splits yet.<br>Keep running — splits appear<br>at each km marker.</div>`;
-    return;
-  }
-  let h=`<div class="sp-table-head">
-    <div>KM</div><div>SPLIT</div><div>PACE</div><div>❤ HR</div><div></div>
-  </div>`;
-  const prevPaces=S.splits.map(s=>s.paceSec);
-  S.splits.forEach((sp,i)=>{
-    const sm=Math.floor(sp.splitSec/60),ss=sp.splitSec%60;
-    const pm=Math.floor(sp.paceSec/60),ps=sp.paceSec%60;
-    const faster=i>0&&sp.paceSec<S.splits[i-1].paceSec;
-    const slower=i>0&&sp.paceSec>S.splits[i-1].paceSec;
-    const paceColor=faster?'var(--green)':slower?'var(--red)':'var(--text)';
-    const trend=i===0?'–':faster?'↑':'↓';
-    const trendColor=i===0?'var(--dim)':faster?'var(--green)':'var(--red)';
-    h+=`<div class="sp-row">
-      <div class="sp-km">${sp.km}</div>
-      <div class="sp-time">${String(sm).padStart(2,'0')}:${String(ss).padStart(2,'0')}</div>
-      <div class="sp-pace" style="color:${paceColor}">${String(pm).padStart(2,'0')}:${String(ps).padStart(2,'0')}</div>
-      <div class="sp-hr">${sp.hr}</div>
-      <div class="sp-trend" style="color:${trendColor}">${trend}</div>
-    </div>`;
-  });
-  // Average row
-  if(S.splits.length>1){
-    const avgPace=Math.round(S.splits.reduce((a,s)=>a+s.paceSec,0)/S.splits.length);
-    const avgHR=Math.round(S.splits.reduce((a,s)=>a+s.hr,0)/S.splits.length);
-    const bestSplit=Math.min(...S.splits.map(s=>s.splitSec));
-    const bm=Math.floor(bestSplit/60),bs=bestSplit%60;
-    const apm=Math.floor(avgPace/60),aps=avgPace%60;
-    h+=`<div class="sp-avg">
-      <div class="sp-avg-item"><div class="sp-avg-v">${String(apm).padStart(2,'0')}:${String(aps).padStart(2,'0')}</div><div class="sp-avg-l">AVG PACE</div></div>
-      <div class="sp-avg-item"><div class="sp-avg-v">${avgHR}</div><div class="sp-avg-l">AVG HR</div></div>
-      <div class="sp-avg-item" style="color:var(--yellow)"><div class="sp-avg-v" style="color:var(--yellow)">${String(bm).padStart(2,'0')}:${String(bs).padStart(2,'0')}</div><div class="sp-avg-l">BEST KM</div></div>
-    </div>`;
-  }
-  el.innerHTML=h;
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// KM SPLIT TOAST
-// ════════════════════════════════════════════════════════════════════════════
-let toastTimer=null;
-function showKmToast(km,splitSec,paceSec,hr){
-  const t=document.getElementById('kmToast');
-  const pm=Math.floor(paceSec/60),ps=paceSec%60;
-  const sm=Math.floor(splitSec/60),ss=splitSec%60;
-  document.getElementById('kmToastNum').textContent=km;
-  document.getElementById('kmToastSplit').textContent=String(sm).padStart(2,'0')+':'+String(ss).padStart(2,'0');
-  document.getElementById('kmToastPace').textContent=String(pm).padStart(2,'0')+':'+String(ps).padStart(2,'0');
-  document.getElementById('kmToastHR').textContent=hr;
-  t.classList.add('show');
-  if(toastTimer)clearTimeout(toastTimer);
-  toastTimer=setTimeout(()=>t.classList.remove('show'),4500);
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// RUN COMPLETE
-// ════════════════════════════════════════════════════════════════════════════
-function showRunComplete(){
-  if(S.runFinished)return;
-  S.runFinished=true;
-  S.paused=true;
-  // Time
-  const m=Math.floor(S.elapsed/60),sec=S.elapsed%60;
-  document.getElementById('fTime').textContent=String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0');
-  // Distance — unit-aware
-  document.getElementById('fDist').textContent=convDist(TOTAL_KM)+distUnit();
-  // Avg pace — unit-aware
-  const avgPaceSec=S.elapsed/TOTAL_KM;
-  const apm=Math.floor(avgPaceSec/60),aps=Math.round(avgPaceSec%60);
-  if(UNITS.speed==='minpermi'||UNITS.speed==='mph'){
-    const mpm=S.elapsed/(TOTAL_KM*0.621371);
-    const bpm=Math.floor(mpm/60),bps=Math.round(mpm%60);
-    document.getElementById('fPace').textContent=`${bpm}:${String(bps).padStart(2,'0')}/mi`;
-  } else {
-    document.getElementById('fPace').textContent=`${apm}:${String(aps).padStart(2,'0')}/km`;
-  }
-  // HR (runs avg)
-  const avgHR=Math.round(S.hrSum/Math.max(1,S.elapsed));
-  document.getElementById('fHR').textContent=avgHR;
-  // Calories
-  document.getElementById('fCal').textContent=Math.round(S.cal);
-  // Elevation — unit-aware
-  document.getElementById('fElev').textContent='+'+convElev(TOTAL_ASCENT)+elevUnit();
-  // Route name
-  const rnEl=document.querySelector('.rname');
-  if(rnEl) document.getElementById('finishRoute').textContent=rnEl.textContent;
-  // PR check
-  const bestSecs=Math.min(...ALL_ACTIVITIES.map(a=>parseTime(a.finish)));
-  if(S.elapsed<bestSecs) document.getElementById('finishPR').style.display='block';
-  // Show Strava upload button active if connected
-  if(stravaConnected||S.stravaConnected){
-    const btn=document.getElementById('stravaUploadBtn');
-    if(btn) btn.style.opacity='1';
-  }
-  document.getElementById('finishOverlay').classList.add('show');
-}
-
-function uploadToStrava(){
-  if(S.stravaUploaded)return;
-  const btn=document.getElementById('stravaUploadBtn');
-  const txt=document.getElementById('stravaUploadTxt');
-  // Check either flag (connectStrava sets both)
-  if(!stravaConnected&&!S.stravaConnected){
-    if(txt) txt.textContent='CONNECT STRAVA FIRST';
-    setTimeout(()=>{if(txt)txt.textContent='UPLOAD TO STRAVA';},2200);
-    return;
-  }
-  if(txt) txt.textContent='UPLOADING…';
-  setTimeout(()=>{
-    S.stravaUploaded=true;
-    if(btn) btn.classList.add('uploaded');
-    if(txt) txt.textContent='✓ UPLOADED TO STRAVA';
-  },1600);
-}
-
-function saveToGarmin(){
-  if(S.garminSaved)return;
-  const btn=document.getElementById('garminSaveBtn');
-  const txt=document.getElementById('garminSaveTxt');
-  txt.textContent='SAVING…';
-  setTimeout(()=>{
-    S.garminSaved=true;
-    btn.classList.add('saved');
-    txt.textContent='✓ SAVED TO GARMIN';
-  },1200);
-}
-
-function discardRun(){
-  document.getElementById('finishOverlay').classList.remove('show');
-  S.paused=false;
-  S.runFinished=false;
-  S.idx=0;S.elapsed=0;S.splits=[];S.lastKm=0;S.cal=0;S.stravaUploaded=false;S.garminSaved=false;
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// ROUTE SELECTOR — Garmin Connect OAuth + Route Browser
-// ════════════════════════════════════════════════════════════════════════════
-
-// Simulated Garmin Connect routes (mirrors the real API response structure)
-// Real API returns: courseId, courseName, distanceInMeters, elevationGain,
-// startPoint, endPoint, activityType, isFavorite, createdDate, mapPolyline
-const GARMIN_ROUTES=[
-  {id:'gc_001',name:'Cotswold Way — Broadway to Chipping Campden',
-   dist:8.4,elev:186,type:'TRAIL_RUNNING',fav:true,recent:true,nearby:true,
-   region:'Cotswolds, UK',runs:14,lastRun:'2 days ago',pr:'58:42',
-   elevPts:[142,150,162,175,192,210,222,218,212,228,240,248,236,220,212,206,212,218],
-   accentColor:'var(--cyan)'},
-  {id:'gc_002',name:'Box Hill Loop — Zigzag Road & Stepping Stones',
-   dist:12.2,elev:342,type:'TRAIL_RUNNING',fav:true,recent:false,nearby:false,
-   region:'Surrey Hills, UK',runs:6,lastRun:'3 weeks ago',pr:'1:34:18',
-   elevPts:[80,95,130,168,185,195,185,172,155,140,125,130,145,162,178,185,175,160],
-   accentColor:'var(--green)'},
-  {id:'gc_003',name:'Thames Path — Pangbourne to Reading',
-   dist:15.6,elev:48,type:'RUNNING',fav:false,recent:true,nearby:true,
-   region:'Thames Valley, UK',runs:3,lastRun:'1 week ago',pr:'1:28:55',
-   elevPts:[42,44,45,44,46,48,47,45,44,43,45,46,47,46,44,43,44,45],
-   accentColor:'var(--blue,#4fc3f7)'},
-  {id:'gc_004',name:'Malvern Hills — Worcestershire Beacon Ridge',
-   dist:10.8,elev:468,type:'TRAIL_RUNNING',fav:true,recent:false,nearby:false,
-   region:'Malvern Hills, UK',runs:2,lastRun:'6 weeks ago',pr:'1:22:10',
-   elevPts:[100,130,175,220,280,340,400,425,410,380,340,295,260,220,180,150,125,105],
-   accentColor:'var(--orange)'},
-  {id:'gc_005',name:'Bath Two Tunnels Greenway',
-   dist:22.9,elev:82,type:'RUNNING',fav:false,recent:false,nearby:true,
-   region:'Bath, Somerset, UK',runs:1,lastRun:'2 months ago',pr:'2:18:40',
-   elevPts:[40,55,70,80,85,88,82,75,68,72,80,84,86,80,74,68,62,55],
-   accentColor:'var(--yellow)'},
-  {id:'gc_006',name:'Brecon Beacons — Pen y Fan Circuit',
-   dist:14.2,elev:634,type:'TRAIL_RUNNING',fav:true,recent:false,nearby:false,
-   region:'Brecon Beacons, Wales',runs:4,lastRun:'4 months ago',pr:'1:58:22',
-   elevPts:[305,340,390,450,510,590,648,702,728,710,680,635,580,510,445,390,350,315],
-   accentColor:'var(--purple)'},
-  {id:'gc_007',name:'Ridgeway — Avebury to Ogbourne St George',
-   dist:18.4,elev:298,type:'TRAIL_RUNNING',fav:false,recent:true,nearby:false,
-   region:'North Wessex Downs, UK',runs:2,lastRun:'5 weeks ago',pr:'2:04:15',
-   elevPts:[110,125,145,168,188,202,215,220,218,212,220,228,235,228,218,208,195,182],
-   accentColor:'var(--green)'},
-  {id:'gc_008',name:'Kennet & Avon Canal — Devizes to Pewsey',
-   dist:9.6,elev:22,type:'RUNNING',fav:false,recent:false,nearby:true,
-   region:'Wiltshire, UK',runs:5,lastRun:'3 weeks ago',pr:'52:14',
-   elevPts:[48,50,51,50,52,53,52,51,50,52,54,53,52,50,51,52,53,51],
-   accentColor:'var(--cyan)'},
-];
-
-let routeFilter='all';
-let selectedRouteId=null;
-let garminConnected=false;
-
-function openRouteSelector(){
-  document.getElementById('routeModal').classList.add('show');
-  if(garminConnected){
-    showRouteBrowser();
-  } else {
-    showOAuth();
-  }
-}
-function closeRouteModal(){
-  document.getElementById('routeModal').classList.remove('show');
-}
-
-function showOAuth(){
-  document.getElementById('oauthScreen').style.display='flex';
-  document.getElementById('syncScreen').style.display='none';
-  document.getElementById('routeBrowser').style.display='none';
-  document.getElementById('rbConfirm').classList.remove('show');
-  document.getElementById('rmodalTitle').textContent='🗺 SELECT ROUTE FROM GARMIN CONNECT';
-  document.getElementById('rmodalSub').textContent='Connect your account to load saved routes and courses';
-}
-
-function simulateOAuth(){
-  // In real Android app this opens: https://connect.garmin.com/oauthConfirm
-  // with client_id, redirect_uri, scope=ACTIVITY_EXPORT,COURSE_READ,HEALTH_SNAPSHOT
-  // Here we simulate the token exchange
-  document.getElementById('oauthScreen').style.display='none';
-  const ss=document.getElementById('syncScreen');
-  ss.style.display='flex';
-  document.getElementById('rmodalSub').textContent='Authenticating with Garmin Connect…';
-
-  const steps=[
-    [400,'Authenticating with Garmin Connect…'],
-    [900,'Fetching saved courses & routes…'],
-    [1500,'Loading activity history for Ghost Mode…'],
-    [2100,'Pulling wellness & HRV baseline…'],
-    [2600,'Syncing complete ✓'],
-  ];
-  steps.forEach(([ms,msg],i)=>{
-    setTimeout(()=>{
-      document.getElementById('syncStatus').textContent=msg;
-      document.getElementById('syncCount').textContent=Math.floor((i/steps.length)*GARMIN_ROUTES.length+1);
-    },ms);
-  });
-  setTimeout(()=>{
-    garminConnected=true;
-    showRouteBrowser();
-  },3000);
-}
-
-function showRouteBrowser(){
-  document.getElementById('oauthScreen').style.display='none';
-  document.getElementById('syncScreen').style.display='none';
-  const rb=document.getElementById('routeBrowser');
-  rb.style.display='flex';
-  document.getElementById('rmodalTitle').textContent='🗺 YOUR GARMIN ROUTES';
-  document.getElementById('rmodalSub').textContent=`${GARMIN_ROUTES.length} routes loaded · Garmin Connect ✓`;
-  renderRouteList(GARMIN_ROUTES);
-}
-
-function filterRoutes(){
-  const q=document.getElementById('rbSearch').value.toLowerCase();
-  let routes=GARMIN_ROUTES.filter(r=>{
-    if(routeFilter==='fav'&&!r.fav)return false;
-    if(routeFilter==='recent'&&!r.recent)return false;
-    if(routeFilter==='nearby'&&!r.nearby)return false;
-    if(q&&!r.name.toLowerCase().includes(q)&&!r.region.toLowerCase().includes(q))return false;
-    return true;
-  });
-  renderRouteList(routes);
-}
-
-function setFilter(f){
-  routeFilter=f;
-  ['all','fav','recent','nearby'].forEach(x=>{
-    document.getElementById('f'+x.charAt(0).toUpperCase()+x.slice(1))?.classList.toggle('on',x===f);
-  });
-  filterRoutes();
-}
-
-function renderRouteList(routes){
-  const el=document.getElementById('rbList');
-  if(!routes.length){
-    el.innerHTML=`<div style="grid-column:1/-1;text-align:center;padding:32px;color:var(--dim);
-      font-family:'JetBrains Mono',monospace;font-size:11px">No routes match this filter</div>`;
-    return;
-  }
-  el.innerHTML=routes.map(r=>{
-    const distKm=r.dist.toFixed(1);
-    const typeLabel=r.type==='TRAIL_RUNNING'?'⛰ TRAIL':'🛣 ROAD';
-    // Mini elevation sparkline via inline SVG
-    const pts=r.elevPts;
-    const mn=Math.min(...pts),mx2=Math.max(...pts),rng=mx2-mn||1;
-    const w=200,h=24;
-    const svgPts=pts.map((v,i)=>`${Math.round(i/(pts.length-1)*w)},${Math.round(h-((v-mn)/rng)*(h-2)-1)}`).join(' ');
-    const fillPts=`0,${h} ${svgPts} ${w},${h}`;
-    return `<div class="rc ${selectedRouteId===r.id?'selected':''}" 
-              style="--rc-ac:${r.accentColor}" onclick="selectRoute('${r.id}')">
-      <div class="rc-top">
-        <div class="rc-name">${r.name}</div>
-        <div style="display:flex;gap:4px;flex-shrink:0">
-          ${r.fav?'<div class="rc-badge fav">⭐ FAV</div>':''}
-          ${r.recent?'<div class="rc-badge new">🕐 RECENT</div>':''}
-        </div>
-      </div>
-      <div class="rc-stats">
-        <div class="rc-stat">
-          <div class="rc-stat-v" style="color:${r.accentColor}">${distKm}<span style="font-size:9px;color:var(--dim);margin-left:2px">km</span></div>
-          <div class="rc-stat-l">DISTANCE</div>
-        </div>
-        <div class="rc-stat">
-          <div class="rc-stat-v" style="color:var(--orange)">+${r.elev}<span style="font-size:9px;color:var(--dim);margin-left:2px">m</span></div>
-          <div class="rc-stat-l">ASCENT</div>
-        </div>
-        <div class="rc-stat">
-          <div class="rc-stat-v" style="color:var(--yellow)">${r.pr}</div>
-          <div class="rc-stat-l">BEST TIME</div>
-        </div>
-        <div class="rc-stat">
-          <div class="rc-stat-v" style="color:var(--mid);font-size:11px">${typeLabel}</div>
-          <div class="rc-stat-l">TYPE</div>
-        </div>
-      </div>
-      <div class="rc-elev-bar">
-        <svg width="100%" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" class="rc-elev-path">
-          <polygon points="${fillPts}" fill="rgba(62,207,255,.08)"/>
-          <polyline points="${svgPts}" fill="none" stroke="${r.accentColor}" stroke-width="1.5" opacity=".7"/>
-        </svg>
-      </div>
-      <div class="rc-meta">
-        <div class="rc-date">📍 ${r.region}</div>
-        <div class="rc-runs">Last: ${r.lastRun} · ${r.runs} runs</div>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-function selectRoute(id){
-  selectedRouteId=id;
-  const r=GARMIN_ROUTES.find(x=>x.id===id);
-  document.getElementById('rbSelName').textContent=r.name;
-  document.getElementById('rbConfirm').classList.add('show');
-  filterRoutes(); // re-render to update selection highlight
-}
-
-function loadSelectedRoute(){
-  const r=GARMIN_ROUTES.find(x=>x.id===selectedRouteId);
-  if(!r)return;
-  // Update the topbar route name
-  document.querySelector('.rname').textContent=r.name.toUpperCase();
-  closeRouteModal();
-  // Flash confirmation on the topbar
-  const pill=document.querySelector('[onclick="openRouteSelector()"]');
-  pill.style.color='var(--green)';
-  pill.textContent='✓ '+r.name.split('—')[0].trim().toUpperCase();
-  setTimeout(()=>{pill.style.color='var(--cyan)';pill.textContent='🗺 SELECT ROUTE';},3000);
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// MAP — Leaflet with real tile layers (Cotswold Way actual coordinates)
-// ════════════════════════════════════════════════════════════════════════════
-
-// Actual GPS waypoints: Cotswold Way, Broadway → Chipping Campden
-// Route climbs up the Cotswold escarpment via Broadway Hill (Fish Hill),
-// follows the ridge northeast past Broadway Tower, Dovers Hill, into Campden
-const ROUTE_LATLNGS=[
-  [52.0401,-1.8598],  // Broadway – start (village centre)
-  [52.0392,-1.8570],  // heading SE through village
-  [52.0378,-1.8532],  // leaving Broadway, climbing begins
-  [52.0362,-1.8498],  // steepening ascent
-  [52.0345,-1.8462],  // Fish Hill climb
-  [52.0335,-1.8440],  // Broadway Tower vicinity (top of escarpment)
-  [52.0342,-1.8408],  // ridge path turning NE
-  [52.0362,-1.8368],  // open ridge walking
-  [52.0390,-1.8302],  // Shenberrow Hill area
-  [52.0420,-1.8228],  // high ridge, wide views
-  [52.0448,-1.8155],  // continuing NE along escarpment
-  [52.0470,-1.8082],  // Willersey Hill direction
-  [52.0488,-1.8008],  // heading toward Dovers Hill
-  [52.0503,-1.7938],  // Dovers Hill approach
-  [52.0511,-1.7878],  // Dovers Hill (summit, NT viewpoint)
-  [52.0514,-1.7848],  // descent path into Campden
-  [52.0516,-1.7826],  // Hoo Lane, entering town
-  [52.0517,-1.7808],  // Chipping Campden – finish (High Street)
-];
-
-// Interpolate a lat/lng position from a 0-1 fraction along the route
-function getLatLng(frac){
-  const pts=ROUTE_LATLNGS,n=pts.length;
-  const fi=Math.max(0,Math.min(n-1.001,frac*(n-1)));
-  const lo=pts[Math.floor(fi)],hi=pts[Math.min(n-1,Math.ceil(fi))];
-  const t=fi-Math.floor(fi);
-  return[lo[0]+t*(hi[0]-lo[0]),lo[1]+t*(hi[1]-lo[1])];
-}
-
-// Leaflet objects
-let leafletMap,routeDone,routeAhead;
-let runnerMark,ghostMark,friendMarks=[];
-let tileLayers={},currentTileKey='terrain';
-let mapReady=false;
-
-// Build a DivIcon for a runner/ghost/friend dot
-function mkMarkerIcon(color,size,glowPx){
-  const half=size/2;
-  return L.divIcon({
-    className:'',
-    html:`<div style="
-      width:${size}px;height:${size}px;border-radius:50%;
-      background:${color};
-      border:2.5px solid rgba(255,255,255,.92);
-      box-shadow:0 0 ${glowPx}px ${color},0 0 0 ${Math.round(half*.55)}px ${color}28;
-    "></div>`,
-    iconSize:[size,size],iconAnchor:[half,half],
-  });
-}
-
-// Label icon (runner name tag above dot)
-function mkLabelIcon(color,size,glowPx,label){
-  const half=size/2;
-  return L.divIcon({
-    className:'',
-    html:`<div style="position:relative;display:flex;flex-direction:column;align-items:center;gap:2px">
-      <div style="
-        font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;
-        color:${color};background:rgba(9,11,16,.82);
-        padding:1px 5px;border-radius:3px;border:1px solid ${color}55;
-        white-space:nowrap;letter-spacing:.04em;
-      ">${label}</div>
-      <div style="
-        width:${size}px;height:${size}px;border-radius:50%;
-        background:${color};border:2.5px solid rgba(255,255,255,.9);
-        box-shadow:0 0 ${glowPx}px ${color},0 0 0 ${Math.round(half*.55)}px ${color}28;
-      "></div>
-    </div>`,
-    iconSize:[size,size+18],iconAnchor:[half,size+18],
-  });
-}
-
-function initLeafletMap(){
-  // Tile layers — no API key needed for any of these
-  tileLayers.terrain=L.tileLayer(
-    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
-    {maxZoom:18,attribution:''}
-  );
-  tileLayers.sat=L.tileLayer(
-    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    {maxZoom:19,attribution:''}
-  );
-  tileLayers['3d']=L.tileLayer(
-    'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    {maxZoom:19,subdomains:'abcd',attribution:''}
-  );
-
-  const startPos=getLatLng(S.idx/TOTAL_PTS);
-
-  leafletMap=L.map('mapDiv',{
-    center:startPos, zoom:14,
-    zoomControl:false,
-    attributionControl:false,
-    scrollWheelZoom:false,
-  });
-
-  // Add default tile layer
-  tileLayers[S.mapStyle].addTo(leafletMap);
-  currentTileKey=S.mapStyle;
-
-  // Full route – dim dashed line showing what lies ahead
-  routeAhead=L.polyline(ROUTE_LATLNGS,{
-    color:'#3ecfff',weight:3,opacity:.20,dashArray:'7,6',
-  }).addTo(leafletMap);
-
-  // Completed portion – solid bright line
-  routeDone=L.polyline([startPos],{
-    color:'#3ecfff',weight:5,opacity:.88,
-    lineCap:'round',lineJoin:'round',
-  }).addTo(leafletMap);
-
-  // Start / finish markers
-  const flagIcon=(emoji,offsetY)=>L.divIcon({
-    className:'',
-    html:`<div style="font-size:20px;line-height:1;filter:drop-shadow(0 1px 4px rgba(0,0,0,.7))">${emoji}</div>`,
-    iconSize:[24,24],iconAnchor:[4,offsetY||20],
-  });
-  L.marker(ROUTE_LATLNGS[0],{icon:flagIcon('🟢'),interactive:false,zIndexOffset:50}).addTo(leafletMap);
-  L.marker(ROUTE_LATLNGS[ROUTE_LATLNGS.length-1],{icon:flagIcon('🏁'),interactive:false,zIndexOffset:50}).addTo(leafletMap);
-
-  // Ghost marker
-  ghostMark=L.marker(getLatLng(S.ghostIdx/TOTAL_PTS),{
-    icon:mkLabelIcon('#b8c4d8',10,5,'👻 GHOST'),
-    interactive:false,zIndexOffset:200,
-  }).addTo(leafletMap);
-
-  // Friend markers
-  RUNNERS.forEach((r,i)=>{
-    const m=L.marker(getLatLng(r.distKm/TOTAL_KM),{
-      icon:mkLabelIcon(r.color,12,8,r.name.toUpperCase()),
-      interactive:false,zIndexOffset:300,
-    });
-    m.addTo(leafletMap);
-    friendMarks.push(m);
-  });
-
-  // Runner marker (YOU) — on top
-  runnerMark=L.marker(startPos,{
-    icon:mkLabelIcon('#3ecfff',16,14,'YOU'),
-    interactive:false,zIndexOffset:1000,
-  }).addTo(leafletMap);
-
-  mapReady=true;
-  updateMapView();
-}
-
-function updateMapView(){
-  if(!mapReady)return;
-  const frac=S.idx/TOTAL_PTS;
-  const pos=getLatLng(frac);
-
-  // Move runner
-  runnerMark.setLatLng(pos);
-
-  // Update done polyline
-  const nDone=Math.max(2,Math.floor(frac*(ROUTE_LATLNGS.length-1))+1);
-  const donePts=ROUTE_LATLNGS.slice(0,nDone);
-  donePts.push(pos); // smooth leading edge
-  routeDone.setLatLngs(donePts);
-
-  // Ghost
-  if(S.ghostActive){
-    const gFrac=S.ghostIdx/TOTAL_PTS;
-    const gPos=getLatLng(gFrac);
-    ghostMark.setLatLng(gPos);
-    // Update ghost icon colour based on active ghost type
-    const gTag=GHOST_ACTIVITIES[S.ghostActivityId].tag;
-    const gCols={'best-ever':'#ffe066','worst-ever':'#ff5f5f','best-year':'#3ddc84','worst-year':'#ff9f43'};
-    const gLabel={'best-ever':'⭐ BEST','worst-ever':'💪 GROW','best-year':'🏅 /YR','worst-year':'🔥 CHAR'};
-    ghostMark.setIcon(mkLabelIcon(gCols[gTag],10,5,gLabel[gTag]));
-  }
-
-  // Friends
-  if(S.togActive){
-    RUNNERS.forEach((r,i)=>{
-      friendMarks[i].setLatLng(getLatLng(Math.min(1,r.distKm/TOTAL_KM)));
-    });
-  }
-
-  // Live coordinates display
-  const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
-  const absLng=Math.abs(pos[1]);
-  set('coordsEl',`${pos[0].toFixed(3)}°N · ${absLng.toFixed(3)}°W`);
-
-  // Smooth pan to follow runner
-  leafletMap.panTo(pos,{animate:true,duration:.4,easeLinearity:.5,noMoveStart:true});
-}
-
-function resizeMap(){
-  if(mapReady)leafletMap.invalidateSize();
-}
-
-// ── Map style switcher ────────────────────────────────────────────────────
-function setMapStyle(style){
-  S.mapStyle=style;
-  document.getElementById('btnTerrain').classList.toggle('act',style==='terrain');
-  document.getElementById('btnSat').classList.toggle('act',    style==='sat');
-  document.getElementById('btn3d').classList.toggle('act',     style==='3d');
-  if(mapReady&&currentTileKey!==style){
-    leafletMap.removeLayer(tileLayers[currentTileKey]);
-    tileLayers[style].addTo(leafletMap);
-    currentTileKey=style;
-  }
-}
-
-// ── Zoom ──────────────────────────────────────────────────────────────────
-function adjustZoom(dir){
-  if(!mapReady)return;
-  if(dir>0)leafletMap.zoomIn();else leafletMap.zoomOut();
-  setTimeout(()=>{
-    document.getElementById('zoomLbl').textContent=leafletMap.getZoom()+'×';
-  },150);
-}
-
-// ── Pause ─────────────────────────────────────────────────────────────────
-function togglePause(){
-  S.paused=!S.paused;
-  S.pausedFor=0;
-  document.getElementById('pauseOverlay').classList.toggle('show',S.paused);
-  const btn=document.querySelector('.pause-pill');
-  btn.textContent=S.paused?'▶ RESUME':'⏸ PAUSE';
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// ELEVATION CANVAS
-// ════════════════════════════════════════════════════════════════════════════
-const ec=document.getElementById('elevC'),ex=ec.getContext('2d');
-function drawElev(){
-  const W=ec.parentElement.clientWidth,H=ec.parentElement.clientHeight;
-  ec.width=W;ec.height=H;
-  const mn=Math.min(...EL),mx2=Math.max(...EL),range=mx2-mn,pad=3;
-  const xs=(i)=>pad+(i/(TOTAL_PTS-1))*(W-pad*2);
-  const ys=(e)=>H-pad-((e-mn)/range)*(H-pad*2-6);
-  // Background fill
-  ex.beginPath();ex.moveTo(xs(0),H);
-  EL.forEach((e,i)=>ex.lineTo(xs(i),ys(e)));
-  ex.lineTo(xs(TOTAL_PTS-1),H);ex.closePath();
-  const fg=ex.createLinearGradient(0,0,0,H);
-  fg.addColorStop(0,'rgba(62,207,255,.12)');fg.addColorStop(1,'rgba(62,207,255,.01)');
-  ex.fillStyle=fg;ex.fill();
-  // Coloured grade line
-  for(let i=1;i<TOTAL_PTS;i++){
-    const g=((EL[i]-EL[i-1])/(TOTAL_KM*1000/TOTAL_PTS))*100*S.elevMult;
-    const ahead=i>S.idx;
-    ex.beginPath();ex.moveTo(xs(i-1),ys(EL[i-1]));ex.lineTo(xs(i),ys(EL[i]));
-    ex.strokeStyle=gradeCol(g,ahead);ex.lineWidth=ahead?2:2.5;ex.stroke();
-  }
-  // Ghost position on elevation strip
-  if(S.ghostActive){
-    const gx=xs(S.ghostIdx);
-    ex.beginPath();ex.moveTo(gx,0);ex.lineTo(gx,H);
-    ex.strokeStyle='rgba(184,196,216,.4)';ex.lineWidth=1;
-    ex.setLineDash([2,3]);ex.stroke();ex.setLineDash([]);
-    ex.beginPath();ex.arc(gx,ys(EL[S.ghostIdx]),4,0,Math.PI*2);
-    ex.fillStyle='rgba(184,196,216,.7)';ex.fill();
-  }
-  // Friends on elevation strip
-  if(S.togActive){
-    const rCols=['rgba(255,159,67,.7)','rgba(192,132,252,.7)'];
-    RUNNERS.forEach((r,i)=>{
-      const ri=Math.floor((r.distKm/TOTAL_KM)*TOTAL_PTS);
-      const rx=xs(Math.min(TOTAL_PTS-1,ri));
-      ex.beginPath();ex.arc(rx,ys(EL[Math.min(TOTAL_PTS-1,ri)]),4,0,Math.PI*2);
-      ex.fillStyle=rCols[i];ex.fill();
-    });
-  }
-  // You position
-  const cx=xs(S.idx);
-  ex.beginPath();ex.moveTo(cx,0);ex.lineTo(cx,H);
-  ex.strokeStyle='rgba(62,207,255,.6)';ex.lineWidth=1.5;
-  ex.setLineDash([3,3]);ex.stroke();ex.setLineDash([]);
-  ex.beginPath();ex.arc(cx,ys(EL[S.idx]),5,0,Math.PI*2);
-  ex.fillStyle='#3ecfff';ex.fill();
-  ex.strokeStyle='white';ex.lineWidth=1.5;ex.stroke();
-}
-
-function gradeCol(g,ahead){
-  const a=ahead?.5:.9;
-  if(g>10)return`rgba(255,95,95,${a})`;
-  if(g>6) return`rgba(255,159,67,${a})`;
-  if(g>2) return`rgba(255,224,102,${a})`;
-  if(g>-1)return`rgba(62,207,255,${a})`;
-  return`rgba(61,220,132,${a})`;
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// SIMULATION UPDATE
-// ════════════════════════════════════════════════════════════════════════════
-function updateMetrics(){
-  S.elapsed++;
-
-  // ── Active workout tick (every simulated second = 333ms tick) ─────────────
-  if(activeWorkout) tickWorkout();
-
-  // ── Auto HR control: adjust incline or speed to hold HR zone ─────────────
-  applyAutoCtrl();
-
-  if(S.idx>=TOTAL_PTS-1){showRunComplete();return;}
-  const g=(EL[S.idx+1]-EL[S.idx])/(TOTAL_KM*1000/TOTAL_PTS)*100;
-  const ag=g*S.elevMult;
-
-  // Speed physics:
-  // - If treadmill WebSocket or FTMS connected: real speed comes from hardware
-  // - If HR mode: applyAutoCtrl sets speed
-  // - Manual/route/sim: drift toward 10kph baseline
-  if(!S.speedFromBT && (CTRL.mode==='manual'||CTRL.mode==='route')){
-    S.speed+=((10-g*.35+(Math.random()-.5)*.15)-S.speed)*.06;
-    S.speed=Math.max(4,Math.min(14,S.speed));
-  }
-
-  // HR physics:
-  // - If BT HR monitor connected: real HR comes from onBTHRData, don't simulate
-  if(!S.hrFromBT){
-    S.hr+=(((100+S.speed*5+Math.max(0,ag)*1.8+(Math.random()*3-1.5))-S.hr)*.04);
-    S.hr=Math.round(Math.max(80,Math.min(200,S.hr)));
-  }
-  S.hrSum=(S.hrSum||0)+S.hr;
-  // Cadence varies with speed (higher speed = higher cadence)
-  S.cadence=Math.round(Math.max(158,Math.min(188,
-    S.cadenceBase+(S.speed-9)*1.8+(Math.random()-.5)*2)));
-  const met=2+S.speed*1.5;
-  S.cal+=(met*3.5*72/200)/60*(1/3);
-  if(Math.random()<(S.speed/3.6*(1/3))/(TOTAL_KM*1000/TOTAL_PTS)) S.idx++;
-  if(Math.random()<((S.speed*.96)/3.6*(1/3))/(TOTAL_KM*1000/TOTAL_PTS)&&S.ghostIdx<TOTAL_PTS-1) S.ghostIdx++;
-  RUNNERS[0].distKm+=S.speed*.96/3600/3;
-  RUNNERS[1].distKm+=S.speed*.88/3600/3;
-  RUNNERS[0].hr=Math.round(Math.max(140,Math.min(178,RUNNERS[0].hr+(Math.random()*2-1))));
-  RUNNERS[1].hr=Math.round(Math.max(130,Math.min(165,RUNNERS[1].hr+(Math.random()*2-1))));
-
-  const dist=S.idx/TOTAL_PTS*TOTAL_KM;
-  const pct=S.idx/(TOTAL_PTS-1)*100;
-  const elevCl=Math.min(TOTAL_ASCENT,Math.round(pct/100*TOTAL_ASCENT*1.05));
-
-  // ── Km Split detection ──────────────────────────────────────────────────
-  const currentKm=Math.floor(dist);
-  if(currentKm>S.lastKm&&currentKm<=Math.floor(TOTAL_KM)){
-    for(let k=S.lastKm+1;k<=currentKm;k++){
-      const prevSplitEnd=S.splits.length?S.splits[S.splits.length-1].elapsedAtEnd||0:0;
-      const splitSec=Math.max(180,Math.round(S.elapsed-prevSplitEnd));
-      const paceSec=Math.round(60/(S.speed));
-      const split={km:k,splitSec,paceSec,hr:S.hr,elapsedAtEnd:S.elapsed};
-      S.splits.push(split);
-      showKmToast(k,splitSec,paceSec,S.hr);
-      if(splitsOpen)renderSplitsPanel();
-    }
-    S.lastKm=currentKm;
-  }
-
-  // null-safe DOM helper
-  const set=(id,v,prop='textContent')=>{const e=document.getElementById(id);if(e)e[prop]=v;};
-  const css=(id,prop,v)=>{const e=document.getElementById(id);if(e)e.style[prop]=v;};
-
-  // HR
-  set('hrVal', S.hr);
-  // Show LIVE badge if real BT HR is flowing
-  const hrBadge=document.getElementById('hrLiveBadge');
-  if(hrBadge) hrBadge.style.display=S.hrFromBT?'inline-block':'none';
-  css('zCur','left',((S.hr-80)/120*100).toFixed(1)+'%');
-  const zi=([115,130,150,165,200]).findIndex(m=>S.hr<=m);
-  const zones=[{l:'ZONE 1·RECOVERY',c:'var(--z1)'},{l:'ZONE 2·AEROBIC',c:'var(--z2)'},
-    {l:'ZONE 3·TEMPO',c:'var(--z3)'},{l:'ZONE 4·THRESHOLD',c:'var(--z4)'},{l:'ZONE 5·MAX',c:'var(--z5)'}];
-  const z=zones[Math.max(0,zi)];
-  const hrz=document.getElementById('hrZoneLbl');
-  if(hrz){hrz.textContent=z.l;hrz.style.color=z.c;}
-
-  // Speed — unit-aware; if FTMS connected, speed comes from real treadmill
-  const spBadge=document.getElementById('speedLiveBadge');
-  if(spBadge) spBadge.style.display=S.speedFromBT?'inline-block':'none';
-  const kph=S.speed;
-  set('spVal', convSpeed(kph));
-  set('spUnit', speedUnit());
-  // Pace secondary line — always shows the complementary metric
-  if(UNITS.speed==='kmh'||UNITS.speed==='minpermi'){
-    // main = km/h or min/mi → show min/km as sub
-    const pm=Math.floor(60/kph),ps=Math.round((60/kph%1)*60);
-    set('paceVal',`${pm}:${String(ps).padStart(2,'0')} /km`);
-  } else if(UNITS.speed==='mph'||UNITS.speed==='minperkm'){
-    // main = mph or min/km → show min/mi as sub
-    const mpm=60/(kph*0.621371);
-    const pm=Math.floor(mpm),ps=Math.round((mpm%1)*60);
-    set('paceVal',`${pm}:${String(ps).padStart(2,'0')} /mi`);
-  }
-
-  // Incline (use CTRL.currentIncline if auto mode, else terrain grade)
-  const displayIncline=CTRL.mode==='manual'?ag:CTRL.currentIncline;
-  const sg=displayIncline>=0?'+':'',sf=displayIncline.toFixed(1);
-  // Show route indicator when in route mode
-  const incSuffix=CTRL.mode==='route'?' ROUTE':CTRL.mode==='hr-incline'?' AUTO':CTRL.mode==='hr-speed'?' FIX':'';
-  set('incVal', sg+sf);
-  const incLbl=document.getElementById('incLbl');
-  if(incLbl)incLbl.textContent='INCLINE'+incSuffix;
-  const pf=document.getElementById('iFill');
-  if(pf){pf.style.width=Math.max(0,(displayIncline+6)/46*100)+'%';
-    pf.style.background=displayIncline>8?'var(--red)':displayIncline>3?'var(--orange)':'var(--cyan)';}
-
-  // Distance — unit-aware
-  const distDisp=convDist(dist);
-  const distRem=convDist(Math.max(0,TOTAL_KM-dist));
-  set('distVal', distDisp);
-  set('distUnit', distUnit());
-  set('distRemEl', distRem);
-  set('distRemUnit', distUnit());
-  set('distPctEl', pct.toFixed(0)+'%');
-
-  // Elevation — unit-aware
-  const elevDispCl=convElev(elevCl);
-  const elevDispRem=convElev(Math.max(0,TOTAL_ASCENT-elevCl));
-  set('elevClEl', elevDispCl);
-  set('elevUnit', elevUnit());
-  set('elevRemEl', elevDispRem);
-  set('elevRemUnit', elevUnit());
-
-  css('progFill','width',pct.toFixed(1)+'%');
-  set('altEl', convElev(EL[S.idx])+elevUnit());
-
-  // Calories
-  set('calVal', Math.round(S.cal));
-  const calPerMin=(met*3.5*72/200)/60;
-  set('calRate','~'+calPerMin.toFixed(0)+' kcal/min');
-
-  // Cadence
-  set('cadVal', S.cadence);
-  const cadLabel=S.cadence>=180?'Elite cadence':S.cadence>=170?'Optimal stride':'Building rhythm';
-  set('cadSub', cadLabel);
-
-  const gd=ag>7?'▲ STEEP':ag>2?'▲ ASCENDING':ag<-4?'▽ STEEP DESCENT':ag<-1?'▽ DESCENDING':'— FLAT';
-  const tc=document.getElementById('terrainChip');
-  if(tc)tc.innerHTML=`${gd} · <span class="tv">${sg}${sf}%</span>`;
-  const m2=Math.floor(S.elapsed/60),sec2=S.elapsed%60;
-  set('timerEl', String(m2).padStart(2,'0')+':'+String(sec2).padStart(2,'0'));
-  updateGhostDelta();
-  if(togetherOpen) renderTogetherpanel();
-  renderRTBadges();
-  garminInsights.live.bodyBattery.val=Math.max(40,Math.min(80,
-    garminInsights.live.bodyBattery.val+(Math.random()-.6)*.2|0));
-  garminInsights.live.stress.val=Math.max(15,Math.min(60,
-    garminInsights.live.stress.val+(Math.random()-.4)*.3|0));
-  garminInsights.live.respRate.val=Math.max(24,Math.min(42,
-    Math.round(24+(S.hr-80)/120*18)));
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// LOOP
-// ════════════════════════════════════════════════════════════════════════════
-let lastTick=0;
-function loop(t){
-  if(t-lastTick>333){
-    if(!S.paused){
-      updateMetrics();
-    } else {
-      S.pausedFor++;
-      const pm=Math.floor(S.pausedFor/3),ps=Math.round((S.pausedFor%3)*20);
-      document.getElementById('pauseTimerEl').textContent=
-        `Paused for ${pm}:${String(ps).padStart(2,'0')}`;
-    }
-    updateMapView();
-    lastTick=t;
-  }
-  drawElev();
-  requestAnimationFrame(loop);
-}
-resizeMap();
-updateGhostCard();
-initLeafletMap();
-requestAnimationFrame(loop);
-
-// ════════════════════════════════════════════════════════════════════════════
-// ANDROID / TREADMILL — Scale to fill screen
-// ════════════════════════════════════════════════════════════════════════════
-function scaleApp(){
-  const app=document.getElementById('rootApp');
-  const scaleX=window.innerWidth/1280;
-  const scaleY=window.innerHeight/720;
-  const scale=Math.min(scaleX,scaleY);
-  const ox=Math.round((window.innerWidth-1280*scale)/2);
-  const oy=Math.round((window.innerHeight-720*scale)/2);
-  app.style.transform=`scale(${scale})`;
-  app.style.left=ox+'px';
-  app.style.top=oy+'px';
-}
-scaleApp();
-window.addEventListener('resize',scaleApp);
-window.addEventListener('orientationchange',()=>setTimeout(scaleApp,200));
-
-// ════════════════════════════════════════════════════════════════════════════
-// WAKE LOCK — prevent screen sleep during runs
-// ════════════════════════════════════════════════════════════════════════════
-let wakeLock=null;
-async function requestWakeLock(){
-  if(!('wakeLock' in navigator))return;
-  try{
-    wakeLock=await navigator.wakeLock.request('screen');
-    console.log('Wake lock active');
-    wakeLock.addEventListener('release',()=>{wakeLock=null;});
-  }catch(e){console.warn('Wake lock failed:',e);}
-}
-// Re-acquire on visibility change (Android pauses wake lock when app backgrounded)
-document.addEventListener('visibilitychange',()=>{
-  if(document.visibilityState==='visible'&&wakeLock===null) requestWakeLock();
-});
-requestWakeLock();
-
-// ════════════════════════════════════════════════════════════════════════════
-// WEB BLUETOOTH — HR Monitor (standard GATT heart_rate service)
-// ════════════════════════════════════════════════════════════════════════════
-let btHRDevice=null,btHRConnected=false;
-
-async function connectBTHR(){
-  if(!navigator.bluetooth){
-    alert('Web Bluetooth not available. Make sure you are using Chromium and have enabled bluetooth.');
-    return;
-  }
-  try{
-    updateBTStatus('hr','connecting');
-    btHRDevice=await navigator.bluetooth.requestDevice({
-      filters:[{services:['heart_rate']}],
-      optionalServices:['battery_service','device_information']
-    });
-    btHRDevice.addEventListener('gattserverdisconnected',onBTHRDisconnected);
-    const server=await btHRDevice.gatt.connect();
-    const service=await server.getPrimaryService('heart_rate');
-    const char=await service.getCharacteristic('heart_rate_measurement');
-    char.addEventListener('characteristicvaluechanged',onBTHRData);
-    await char.startNotifications();
-    btHRConnected=true;
-    S.hrFromBT=true;
-    updateBTStatus('hr','connected',btHRDevice.name||'HR Monitor');
-  }catch(e){
-    console.warn('BT HR error:',e);
-    updateBTStatus('hr','idle');
-  }
-}
-
-function onBTHRData(event){
-  const v=event.target.value;
-  const flags=v.getUint8(0);
-  // Bit 0: HR format. 0 = UINT8, 1 = UINT16
-  S.hr=(flags&0x01)?v.getUint16(1,true):v.getUint8(1);
-  S.hrFromBT=true;
-  // Flash HR card to show live data
-  const el=document.getElementById('hrVal');
-  if(el){el.style.color='var(--green)';setTimeout(()=>{el.style.color='';},300);}
-}
-
-function onBTHRDisconnected(){
-  btHRConnected=false;
-  S.hrFromBT=false;
-  updateBTStatus('hr','idle');
-  // Auto-reconnect
-  setTimeout(async()=>{
-    if(btHRDevice&&!btHRConnected){
-      try{await btHRDevice.gatt.connect();}catch(e){}
-    }
-  },3000);
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// TREADMILL DIRECT CONTROL — uthttpd WebSocket (ws://localhost:80)
-// ════════════════════════════════════════════════════════════════════════════
-// The NordicTrack X32i runs iFIT on Android. NordicUnchained restores full
-// Android access. The iFIT firmware runs a local WebSocket server (uthttpd)
-// on port 80. When TrailRunner runs in Chromium ON the treadmill, we connect
-// to this WebSocket and can both READ sensor data AND WRITE control commands.
-//
-// READ (treadmill → app):
-//   {"values":{"MPH":"6.2","Incline":"4.5","Heart Rate":"152"},"type":"stats"}
-//
-// WRITE (app → treadmill):
-//   {"values":{"MPH":"6.2"},"type":"set"}        → set belt speed
-//   {"values":{"Incline":"8.0"},"type":"set"}     → set ramp angle
-//   {"values":{"Fan Speed":"70"},"type":"set"}    → set fan speed
-//
-// Fallback: if localhost WebSocket unavailable (running on phone/PC),
-// falls back to QZ Companion FTMS BLE for read-only data.
-// ════════════════════════════════════════════════════════════════════════════
-let treadmillWS=null,treadmillConnected=false;
-let _lastSpeedCmd=-1,_lastInclineCmd=-9999,_lastFanCmd=-1;
-let _lastSpeedSent=0,_lastInclineSent=0,_lastFanSent=0;
-let _wsRetrying=false;
-const WS_PORTS=[80,8080]; // uthttpd usually port 80, try 8080 as fallback
-let _wsPortIdx=0;
-
-function connectTreadmill(){
-  if(treadmillConnected||(treadmillWS&&treadmillWS.readyState===0)){
-    // Already connected or connecting — disconnect
-    if(treadmillWS)treadmillWS.close();
-    treadmillConnected=false;S.speedFromBT=false;
-    updateBTStatus('ftms','idle');
-    return;
-  }
-  _wsPortIdx=0;_wsRetrying=false;
-  _tryConnectWS();
-}
-
-function _tryConnectWS(){
-  if(_wsRetrying)return;
-  updateBTStatus('ftms','connecting');
-  const port=WS_PORTS[_wsPortIdx];
-  try{
-    treadmillWS=new WebSocket('ws://localhost:'+port);
-    treadmillWS.onopen=()=>{
-      treadmillConnected=true;S.speedFromBT=true;
-      updateBTStatus('ftms','connected','X32i');
-      // Request current state
-      _tmSend({"values":{},"type":"get"});
-      console.log('[TrailRunner] Treadmill WebSocket connected on port '+port);
-    };
-    treadmillWS.onmessage=(e)=>{
-      try{onTreadmillData(JSON.parse(e.data));}catch(_){}
-    };
-    treadmillWS.onerror=()=>{
-      if(!treadmillConnected){
-        _wsPortIdx++;
-        if(_wsPortIdx<WS_PORTS.length){
-          setTimeout(_tryConnectWS,400);
-        } else {
-          // WebSocket unavailable — fall back to QZ Companion FTMS BLE
-          console.log('[TrailRunner] localhost WS unavailable, trying QZ FTMS BLE…');
-          updateBTStatus('ftms','idle');
-          connectFTMSBLE();
-        }
-      }
-    };
-    treadmillWS.onclose=()=>{
-      if(treadmillConnected){
-        treadmillConnected=false;S.speedFromBT=false;
-        updateBTStatus('ftms','idle');
-        // Auto-reconnect every 4s
-        setTimeout(()=>{ if(!treadmillConnected){_wsPortIdx=0;_tryConnectWS();} },4000);
-      }
-    };
-  }catch(e){updateBTStatus('ftms','idle');}
-}
-
-function onTreadmillData(msg){
-  if(!msg||!msg.values)return;
-  const v=msg.values;
-  // Speed (may arrive as MPH or KPH)
-  if(v.MPH!==undefined){
-    const mph=parseFloat(v.MPH);
-    if(mph>=0&&mph<25){S.speed=mph*1.60934;S.speedFromBT=true;}
-  } else if(v.KPH!==undefined||v['km/h']!==undefined){
-    const kph=parseFloat(v.KPH||v['km/h']);
-    if(kph>=0&&kph<40){S.speed=kph;S.speedFromBT=true;}
-  }
-  // Incline
-  if(v.Incline!==undefined){
-    CTRL.currentIncline=parseFloat(v.Incline)||0;
-  } else if(v.Grade!==undefined){
-    CTRL.currentIncline=parseFloat(v.Grade)||0;
-  }
-  // Heart Rate (built-in handle or chest contacts)
-  if(v['Heart Rate']!==undefined&&!btHRConnected){
-    const hr=parseInt(v['Heart Rate']);
-    if(hr>30&&hr<220)S.hr=hr;
-  }
-  // Calories
-  if(v.Calories!==undefined){
-    const c=parseInt(v.Calories);
-    if(c>0)S.cal=c;
-  }
-}
-
-function _tmSend(obj){
-  if(treadmillWS&&treadmillWS.readyState===1){
-    treadmillWS.send(JSON.stringify(obj));
-  }
-}
-
-// Rate-limited control commands — debounced and throttled to avoid
-// overwhelming the uthttpd server or causing jerky ramp movements
-function treadmillSetSpeed(kmh){
-  if(!treadmillConnected)return;
-  const mph=+(kmh/1.60934).toFixed(1);
-  if(Math.abs(mph-_lastSpeedCmd)<0.15)return; // ignore tiny changes
-  const now=Date.now();
-  if(now-_lastSpeedSent<1200)return; // max 1 command per 1.2s
-  _lastSpeedCmd=mph;_lastSpeedSent=now;
-  _tmSend({"values":{"MPH":mph.toString()},"type":"set"});
-}
-
-function treadmillSetIncline(pct){
-  if(!treadmillConnected)return;
-  const clamped=Math.max(-6,Math.min(40,pct)); // X32i range
-  const rounded=Math.round(clamped*2)/2; // quantise to 0.5% steps
-  if(Math.abs(rounded-_lastInclineCmd)<0.4)return;
-  const now=Date.now();
-  if(now-_lastInclineSent<2500)return; // ramp motor needs time to respond
-  _lastInclineCmd=rounded;_lastInclineSent=now;
-  _tmSend({"values":{"Incline":rounded.toFixed(1)},"type":"set"});
-}
-
-function treadmillSetFan(pct){
-  if(!treadmillConnected)return;
-  const r=Math.round(Math.max(0,Math.min(100,pct))/10)*10;
-  if(r===_lastFanCmd)return;
-  _lastFanCmd=r;
-  _tmSend({"values":{"Fan Speed":r.toString()},"type":"set"});
-}
-
-// Auto-scale fan to current effort level — updated every 30s
-let _lastFanUpdate=0;
-function autoFan(){
-  const now=Date.now();
-  if(now-_lastFanUpdate<30000)return;
-  _lastFanUpdate=now;
-  const zoneFan=[0,20,30,50,70,100];
-  treadmillSetFan(zoneFan[getCurrentZone()]||30);
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// QZ COMPANION BLE FALLBACK (read-only, for use on phone/PC)
-// ════════════════════════════════════════════════════════════════════════════
-const FTMS_SVC='00001826-0000-1000-8000-00805f9b34fb';
-const TREADMILL_DATA='00002acd-0000-1000-8000-00805f9b34fb';
-let btFTMSDevice=null,btFTMSConnected=false;
-
-async function connectFTMSBLE(){
-  if(!navigator.bluetooth)return;
-  try{
-    updateBTStatus('ftms','connecting');
-    btFTMSDevice=await navigator.bluetooth.requestDevice({
-      filters:[{services:[FTMS_SVC]}],optionalServices:[FTMS_SVC]
-    });
-    btFTMSDevice.addEventListener('gattserverdisconnected',()=>{
-      btFTMSConnected=false;S.speedFromBT=false;updateBTStatus('ftms','idle');
-    });
-    const server=await btFTMSDevice.gatt.connect();
-    const svc=await server.getPrimaryService(FTMS_SVC);
-    const char=await svc.getCharacteristic(TREADMILL_DATA);
-    char.addEventListener('characteristicvaluechanged',(e)=>{
-      const d=e.target.value,flags=d.getUint16(0,true);let offset=2;
-      if(!(flags&0x0001)){S.speed=d.getUint16(offset,true)/100;S.speedFromBT=true;offset+=2;}
-      if(flags&0x0002)offset+=2;
-      if(flags&0x0004)offset+=3;
-      if(flags&0x0008){CTRL.currentIncline=d.getInt16(offset,true)/10;offset+=4;}
-      if(flags&0x0010)offset+=4;
-      if((flags&0x0100)&&!btHRConnected){const hr=d.getUint8(offset);if(hr>30&&hr<220)S.hr=hr;}
-    });
-    await char.startNotifications();
-    btFTMSConnected=true;S.speedFromBT=true;
-    updateBTStatus('ftms','connected',btFTMSDevice.name||'QZ');
-  }catch(e){
-    console.warn('QZ BLE fallback error:',e);
-    updateBTStatus('ftms','idle');
-  }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// BT STATUS UI
-// ════════════════════════════════════════════════════════════════════════════
-function updateBTStatus(type,state,name){
-  const pill=document.getElementById(type==='hr'?'btHRPill':'btFTMSPill');
-  if(!pill)return;
-  const icons={hr:'❤',ftms:'🏃'};
-  const labels={hr:'HR',ftms:'TREADMILL'};
-  if(state==='idle'){
-    pill.textContent=icons[type]+' '+labels[type];
-    pill.className='topbtn bt-pill';
-  } else if(state==='connecting'){
-    pill.textContent=icons[type]+' CONNECTING…';
-    pill.className='topbtn bt-pill connecting';
-  } else if(state==='connected'){
-    pill.textContent=icons[type]+' '+(name||'LIVE');
-    pill.className='topbtn bt-pill connected';
-  }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// ANDROID BACK BUTTON — close top panel/modal instead of navigating away
-// ════════════════════════════════════════════════════════════════════════════
-window.addEventListener('popstate',()=>{
-  // Close whatever is open
-  const prog=document.getElementById('progModal');
-  const pause=document.getElementById('pauseOverlay');
-  const finish=document.getElementById('finishOverlay');
-  if(prog&&prog.classList.contains('show')){closeProgModal();return;}
-  if(pause&&pause.classList.contains('show')){S.paused=false;pause.classList.remove('show');return;}
-  if(finish&&finish.classList.contains('show')){discardRun();return;}
-  closeAll();
-  // Push a new state so back button is always available
-  history.pushState(null,'','');
-});
-// Push initial state
-history.pushState(null,'','');
-
-</script>
 </div><!-- #rootApp -->
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     SCRIPTS (order matters — no modules, no build tools)
+     ══════════════════════════════════════════════════════════════════════════ -->
+<script src="js/gpx.js"></script>
+<script src="js/storage.js"></script>
+<script src="js/treadmill.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/map.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/app.js"></script>
+
+<!-- Service Worker registration -->
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+</script>
+
 </body>
 </html>
