@@ -78,7 +78,13 @@
       💡 <strong style="color:var(--dim)">No treadmill?</strong> Use as a route planner — import GPX files and explore elevation profiles.
     </div>
 
-    <button class="setup-start-btn" onclick="App.startRun()">START RUNNING</button>
+    <div style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap">
+      <button class="setup-start-btn" onclick="App.startRun()">START RUNNING</button>
+      <button class="setup-freerun-btn" onclick="App.freeRun()">FREE RUN</button>
+    </div>
+    <div style="font-size:9px;color:var(--dim);font-family:'JetBrains Mono',monospace;margin-top:12px;letter-spacing:.08em">
+      FREE RUN = no route, set speed &amp; incline manually
+    </div>
   </div>
 </div>
 
@@ -146,6 +152,30 @@
       <span style="font-size:10px;color:var(--mid);font-family:'JetBrains Mono',monospace">GHOST</span>
       <span class="gc-delta" id="ghostDelta">+0:00</span>
       <span style="font-size:10px;cursor:pointer;color:var(--dim)" onclick="App.clearGhost()">✕</span>
+    </div>
+
+    <!-- Big floating run controls -->
+    <div class="float-controls" id="floatControls">
+      <button class="fc-btn fc-start" id="fcStart" onclick="App.startRun()">▶ START</button>
+      <button class="fc-btn fc-pause" id="fcPause" onclick="App.togglePause()" style="display:none">⏸ PAUSE</button>
+      <button class="fc-btn fc-resume" id="fcResume" onclick="App.togglePause()" style="display:none">▶ RESUME</button>
+      <button class="fc-btn fc-stop" id="fcStop" onclick="App.finishRun()" style="display:none">⏹ STOP</button>
+      <div class="fc-nudge-panel" id="fcNudgePanel" style="display:none">
+        <div class="fc-nudge-group">
+          <span class="fc-nudge-label">SPEED</span>
+          <button class="fc-nudge" onclick="App.adjustSpeed(-0.5)">−</button>
+          <span class="fc-nudge-val" id="fcSpeedVal">9.0</span>
+          <button class="fc-nudge" onclick="App.adjustSpeed(+0.5)">+</button>
+          <span class="fc-nudge-unit">km/h</span>
+        </div>
+        <div class="fc-nudge-group">
+          <span class="fc-nudge-label">INCLINE</span>
+          <button class="fc-nudge" onclick="App.adjustIncline(-0.5)">−</button>
+          <span class="fc-nudge-val" id="fcIncVal">1.0</span>
+          <button class="fc-nudge" onclick="App.adjustIncline(+0.5)">+</button>
+          <span class="fc-nudge-unit">%</span>
+        </div>
+      </div>
     </div>
 
     <!-- Zoom controls -->

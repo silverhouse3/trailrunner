@@ -149,6 +149,20 @@ const App = {
     document.getElementById('setupOverlay').style.display = 'none';
     Engine.startRun();
     this._updateRunButton();
+    this._updateFloatingControls();
+  },
+
+  freeRun() {
+    // Start immediately with no route in manual mode
+    Engine.clearRoute();
+    Engine.newRun();
+    this.setControlMode('manual');
+    document.getElementById('setupOverlay').style.display = 'none';
+    const rname = document.getElementById('routeName');
+    if (rname) rname.textContent = 'FREE RUN';
+    Engine.startRun();
+    this._updateRunButton();
+    this._updateFloatingControls();
   },
 
   togglePause() {
@@ -161,12 +175,14 @@ const App = {
       document.getElementById('pauseOverlay').classList.remove('show');
     }
     this._updateRunButton();
+    this._updateFloatingControls();
   },
 
   finishRun() {
     Engine.finishRun();
     UI.showRunComplete();
     this._updateRunButton();
+    this._updateFloatingControls();
   },
 
   saveAndNewRun() {
@@ -176,6 +192,7 @@ const App = {
     Engine.newRun();
     UI.update();
     this._updateRunButton();
+    this._updateFloatingControls();
     if (saved) {
       console.log('[App] Run saved:', saved.id);
       // Auto-sync to Strava (fire and forget)
@@ -192,6 +209,7 @@ const App = {
     Engine.newRun();
     UI.update();
     this._updateRunButton();
+    this._updateFloatingControls();
   },
 
   exportGPX() {
@@ -371,13 +389,34 @@ const App = {
   },
 
   adjustSpeed(delta) {
-    Engine.ctrl.targetSpeed = Math.max(3, Math.min(20, Engine.ctrl.targetSpeed + delta));
-    TM.setSpeed(Engine.ctrl.targetSpeed);
+    Engine.ctrl.targetSpeed = Math.max(0, Math.min(20, +(Engine.ctrl.targetSpeed + delta).toFixed(1)));
+    if (TM.connected) {
+      TM.setSpeed(Engine.ctrl.targetSpeed);
+    }
+    // Always set run speed directly so distance tracks (user matches treadmill display)
+    if (Engine.run && (Engine.ctrl.mode === 'manual' || !TM.connected)) {
+      Engine.run.speed = Engine.ctrl.targetSpeed;
+    }
+    this._updateNudgeDisplays();
   },
 
   adjustIncline(delta) {
-    Engine.ctrl.targetIncline = Math.max(-6, Math.min(15, Engine.ctrl.targetIncline + delta));
-    TM.setIncline(Engine.ctrl.targetIncline);
+    Engine.ctrl.targetIncline = Math.max(-6, Math.min(40, +(Engine.ctrl.targetIncline + delta).toFixed(1)));
+    if (TM.connected) {
+      TM.setIncline(Engine.ctrl.targetIncline);
+    }
+    // Always set run incline directly in manual/disconnected mode
+    if (Engine.run && (Engine.ctrl.mode === 'manual' || !TM.connected)) {
+      Engine.run.incline = Engine.ctrl.targetIncline;
+    }
+    this._updateNudgeDisplays();
+  },
+
+  _updateNudgeDisplays() {
+    const sv = document.getElementById('fcSpeedVal');
+    const iv = document.getElementById('fcIncVal');
+    if (sv) sv.textContent = Engine.ctrl.targetSpeed.toFixed(1);
+    if (iv) iv.textContent = Engine.ctrl.targetIncline.toFixed(1);
   },
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -483,6 +522,25 @@ const App = {
   // ════════════════════════════════════════════════════════════════════════════
   // INTERNALS
   // ════════════════════════════════════════════════════════════════════════════
+
+  _updateFloatingControls() {
+    const start = document.getElementById('fcStart');
+    const pause = document.getElementById('fcPause');
+    const resume = document.getElementById('fcResume');
+    const stop = document.getElementById('fcStop');
+    const nudge = document.getElementById('fcNudgePanel');
+    if (!start) return;
+
+    const status = Engine.run ? Engine.run.status : 'ready';
+
+    start.style.display = status === 'ready' ? '' : 'none';
+    pause.style.display = status === 'running' ? '' : 'none';
+    resume.style.display = status === 'paused' ? '' : 'none';
+    stop.style.display = (status === 'running' || status === 'paused') ? '' : 'none';
+    nudge.style.display = (status === 'running' || status === 'paused') ? 'flex' : 'none';
+
+    this._updateNudgeDisplays();
+  },
 
   _scaleViewport() {
     const root = document.getElementById('rootApp');
