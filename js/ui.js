@@ -485,13 +485,13 @@ const UI = {
   openHistoryPanel() {
     const panel = document.getElementById('historyPanel');
     if (!panel) return;
-    panel.classList.add('show');
+    panel.classList.add('open');
     this.renderHistory();
   },
 
   closeHistoryPanel() {
     const panel = document.getElementById('historyPanel');
-    if (panel) panel.classList.remove('show');
+    if (panel) panel.classList.remove('open');
   },
 
   renderHistory() {

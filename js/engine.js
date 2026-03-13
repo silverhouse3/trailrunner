@@ -426,8 +426,12 @@ const Engine = {
       }
     }
 
-    // ── Auto-control ─────────────────────────────────────────────────────
-    this._applyAutoControl();
+    // ── Cool-down or Auto-control ────────────────────────────────────────
+    if (this.run._cooldown) {
+      this._tickCooldown(cappedDt);
+    } else {
+      this._applyAutoControl();
+    }
 
     // ── HR stats ─────────────────────────────────────────────────────────
     if (this.run.hr > 0) {
@@ -697,8 +701,88 @@ const Engine = {
     return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
   },
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // COOL-DOWN
+  // ════════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Start a cool-down phase. Duration is based on:
+   *   - Base: 3 minutes
+   *   - +1 min per 5km run
+   *   - +1 min if avg HR > 80% maxHR
+   *   - +30s per 5% current incline
+   * Speed ramps linearly from current speed → 3.0 km/h
+   * Incline ramps linearly from current incline → 0%
+   */
+  startCooldown() {
+    if (!this.run || this.run.status !== 'running') return;
+
+    const distKm = this.run.distanceM / 1000;
+    const avgHR = this.getAvgHR();
+    const maxHR = this.run.maxHR;
+    const currentSpeed = Math.max(this.run.speed, 3.5);
+    const currentIncline = Math.max(this.run.incline, 0);
+
+    // Calculate duration (seconds)
+    let duration = 180; // 3 min base
+    duration += Math.floor(distKm / 5) * 60;           // +1 min per 5km
+    if (avgHR > 0 && avgHR > maxHR * 0.8) duration += 60; // +1 min if hard effort
+    duration += Math.floor(currentIncline / 5) * 30;    // +30s per 5% incline
+    duration = Math.max(120, Math.min(600, duration));  // clamp 2-10 min
+
+    this.run._cooldown = {
+      startSpeed: currentSpeed,
+      startIncline: currentIncline,
+      endSpeed: 3.0,
+      endIncline: 0,
+      totalDuration: duration,
+      elapsed: 0,
+    };
+  },
+
+  skipCooldown() {
+    if (!this.run) return;
+    this.run._cooldown = null;
+    // Set to walking pace before finishing
+    this.run.speed = 0;
+    this.ctrl.targetSpeed = 0;
+    this.ctrl.targetIncline = 0;
+    TM.setSpeed(0, true);
+    setTimeout(() => TM.setIncline(0, true), 1000);
+  },
+
+  _tickCooldown(dt) {
+    const cd = this.run._cooldown;
+    if (!cd) return;
+
+    cd.elapsed += dt;
+    const progress = Math.min(1, cd.elapsed / cd.totalDuration);
+
+    // Linear ramp down
+    const newSpeed = cd.startSpeed + (cd.endSpeed - cd.startSpeed) * progress;
+    const newIncline = cd.startIncline + (cd.endIncline - cd.startIncline) * progress;
+
+    this.run.speed = Math.max(0, +newSpeed.toFixed(1));
+    this.run.incline = Math.max(0, +newIncline.toFixed(1));
+    this.ctrl.targetSpeed = this.run.speed;
+    this.ctrl.targetIncline = this.run.incline;
+
+    // Send to treadmill
+    TM.setSpeed(this.run.speed);
+    TM.setIncline(this.run.incline);
+
+    // Cool-down complete
+    if (progress >= 1) {
+      this.run._cooldown = null;
+      TM.setSpeed(0, true);
+      setTimeout(() => TM.setIncline(0, true), 1000);
+      if (this.onCooldownComplete) this.onCooldownComplete();
+    }
+  },
+
   // ── Callbacks (set by app.js) ──────────────────────────────────────────────
   onTick: null,
   onSplit: null,
   onRunComplete: null,
+  onCooldownComplete: null,
 };

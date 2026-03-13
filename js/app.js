@@ -34,6 +34,11 @@ const App = {
     Engine.onTick = () => {
       UI.update();
       UI.drawElevation();
+      // Keep big displays in sync with actual run values
+      const bs = document.getElementById('bigSpeedVal');
+      const bi = document.getElementById('bigIncVal');
+      if (bs && Engine.run) bs.textContent = Engine.run.speed.toFixed(1);
+      if (bi && Engine.run) bi.textContent = Engine.run.incline.toFixed(1);
       if (Engine.hasRoute()) {
         MapView.updateRunner(Engine.getCurrentLatLon());
         MapView.updateGhost(Engine.getGhostLatLon(), Engine.ghostEnabled);
@@ -69,6 +74,11 @@ const App = {
 
     Engine.onRunComplete = () => {
       UI.showRunComplete();
+    };
+
+    Engine.onCooldownComplete = () => {
+      this._endCooldownUI();
+      this.finishRun();
     };
 
     // ── Init map ─────────────────────────────────────────────────────────
@@ -182,6 +192,50 @@ const App = {
     Engine.finishRun();
     UI.showRunComplete();
     this._updateRunButton();
+    this._updateFloatingControls();
+  },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // COOL-DOWN
+  // ════════════════════════════════════════════════════════════════════════════
+
+  startCooldown() {
+    if (!Engine.run || Engine.run.status !== 'running') return;
+    Engine.startCooldown();
+    document.getElementById('cooldownOverlay').classList.add('show');
+    this._updateFloatingControls();
+
+    // Tick the cooldown UI every 500ms
+    this._cooldownUIHandle = setInterval(() => {
+      const cd = Engine.run ? Engine.run._cooldown : null;
+      if (!cd) {
+        this._endCooldownUI();
+        return;
+      }
+      const remaining = Math.max(0, cd.totalDuration - cd.elapsed);
+      const mins = Math.floor(remaining / 60);
+      const secs = Math.floor(remaining % 60);
+      const el = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+      el('cdSpeed', Engine.run.speed.toFixed(1));
+      el('cdTimer', mins + ':' + String(secs).padStart(2, '0'));
+      el('cdHR', Engine.run.hr > 0 ? Engine.run.hr : '—');
+      const fill = document.getElementById('cdFill');
+      if (fill) fill.style.width = (remaining / cd.totalDuration * 100).toFixed(1) + '%';
+    }, 500);
+  },
+
+  skipCooldown() {
+    Engine.skipCooldown();
+    this._endCooldownUI();
+  },
+
+  _endCooldownUI() {
+    if (this._cooldownUIHandle) {
+      clearInterval(this._cooldownUIHandle);
+      this._cooldownUIHandle = null;
+    }
+    const overlay = document.getElementById('cooldownOverlay');
+    if (overlay) overlay.classList.remove('show');
     this._updateFloatingControls();
   },
 
@@ -417,6 +471,11 @@ const App = {
     const iv = document.getElementById('fcIncVal');
     if (sv) sv.textContent = Engine.ctrl.targetSpeed.toFixed(1);
     if (iv) iv.textContent = Engine.ctrl.targetIncline.toFixed(1);
+    // Also update bottom-strip big displays
+    const bs = document.getElementById('bigSpeedVal');
+    const bi = document.getElementById('bigIncVal');
+    if (bs) bs.textContent = Engine.ctrl.targetSpeed.toFixed(1);
+    if (bi) bi.textContent = Engine.ctrl.targetIncline.toFixed(1);
   },
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -528,16 +587,17 @@ const App = {
     const pause = document.getElementById('fcPause');
     const resume = document.getElementById('fcResume');
     const stop = document.getElementById('fcStop');
-    const nudge = document.getElementById('fcNudgePanel');
+    const cooldown = document.getElementById('fcCooldown');
     if (!start) return;
 
     const status = Engine.run ? Engine.run.status : 'ready';
+    const isCooling = Engine.run && Engine.run._cooldown;
 
     start.style.display = status === 'ready' ? '' : 'none';
-    pause.style.display = status === 'running' ? '' : 'none';
+    pause.style.display = (status === 'running' && !isCooling) ? '' : 'none';
     resume.style.display = status === 'paused' ? '' : 'none';
+    if (cooldown) cooldown.style.display = (status === 'running' && !isCooling) ? '' : 'none';
     stop.style.display = (status === 'running' || status === 'paused') ? '' : 'none';
-    nudge.style.display = (status === 'running' || status === 'paused') ? 'flex' : 'none';
 
     this._updateNudgeDisplays();
   },
@@ -566,6 +626,8 @@ const App = {
     if (routeModal && routeModal.classList.contains('show')) { UI.closeRouteModal(); return; }
     const settingsModal = document.getElementById('settingsModal');
     if (settingsModal && settingsModal.classList.contains('show')) { UI.closeSettings(); return; }
+    const cdOverlay = document.getElementById('cooldownOverlay');
+    if (cdOverlay && cdOverlay.classList.contains('show')) { this.skipCooldown(); return; }
     const pauseOverlay = document.getElementById('pauseOverlay');
     if (pauseOverlay && pauseOverlay.classList.contains('show')) { this.togglePause(); return; }
     const finishOverlay = document.getElementById('finishOverlay');

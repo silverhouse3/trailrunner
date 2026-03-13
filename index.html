@@ -25,11 +25,11 @@
     <div class="pills">
       <div class="bt-pill" id="pillTM" onclick="App.connectTreadmill()" title="Connect to treadmill WebSocket">🏃 TREADMILL</div>
       <div class="bt-pill" id="pillHR" onclick="App.connectHR()" title="Connect Bluetooth HR Monitor">❤ HR</div>
-      <div class="pill" style="color:var(--cyan);border-color:#1a3040" onclick="App.openRoutes()">🗺 ROUTES</div>
-      <div class="pill" style="color:var(--cyan);border-color:#1a3040" onclick="App.toggleSplits()">📊 SPLITS</div>
-      <div class="pill" style="color:var(--ghost);border-color:#2a3050" onclick="App.openHistory()">👻 GHOST</div>
+      <div class="pill pill-nav" onclick="App.openRoutes()">🗺 ROUTES</div>
+      <div class="pill pill-nav" onclick="App.toggleSplits()">📊 SPLITS</div>
+      <div class="pill pill-nav" onclick="App.openHistory()">👻 GHOST</div>
       <div class="pill" id="pillSync" style="color:var(--dim);border-color:#1a2030;font-size:9px" title="Strava sync status"></div>
-      <div class="pill" style="color:var(--dim);border-color:#1a2030" onclick="App.openSettings()">⚙ SETTINGS</div>
+      <div class="pill pill-settings" onclick="App.openSettings()">⚙ SETTINGS</div>
     </div>
   </div>
   <div style="display:flex;align-items:center;gap:10px">
@@ -99,6 +99,21 @@
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════════════════
+     COOL-DOWN OVERLAY
+     ══════════════════════════════════════════════════════════════════════════ -->
+<div class="cooldown-overlay" id="cooldownOverlay">
+  <div class="cooldown-icon">🧊</div>
+  <div class="cooldown-title">COOLING DOWN</div>
+  <div class="cooldown-info">
+    <div class="cooldown-stat"><span class="cooldown-val" id="cdSpeed">—</span><span class="cooldown-unit">km/h</span></div>
+    <div class="cooldown-stat"><span class="cooldown-val" id="cdTimer">—</span><span class="cooldown-unit">remaining</span></div>
+    <div class="cooldown-stat"><span class="cooldown-val" id="cdHR">—</span><span class="cooldown-unit">bpm</span></div>
+  </div>
+  <div class="cooldown-bar"><div class="cooldown-fill" id="cdFill" style="width:100%"></div></div>
+  <button class="cooldown-skip" onclick="App.skipCooldown()">SKIP — FINISH NOW</button>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
      RUN COMPLETE OVERLAY
      ══════════════════════════════════════════════════════════════════════════ -->
 <div class="finish-overlay" id="finishOverlay">
@@ -138,12 +153,12 @@
       <button class="no-route-btn" onclick="App.openRoutes()">IMPORT GPX ROUTE</button>
     </div>
 
-    <!-- Map controls -->
+    <!-- Map controls — coloured backgrounds -->
     <div class="map-tl" style="position:absolute;z-index:20">
-      <button class="map-mode-btn act" data-style="terrain" onclick="App.setMapStyle('terrain')">TERRAIN</button>
-      <button class="map-mode-btn" data-style="sat" onclick="App.setMapStyle('sat')">SAT</button>
-      <button class="map-mode-btn" data-style="dark" onclick="App.setMapStyle('dark')">DARK</button>
-      <button class="map-mode-btn" data-style="track" onclick="App.setMapStyle('track')">TRACK</button>
+      <button class="map-mode-btn act" data-style="terrain" onclick="App.setMapStyle('terrain')">🏔 TERRAIN</button>
+      <button class="map-mode-btn" data-style="sat" onclick="App.setMapStyle('sat')">🛰 SAT</button>
+      <button class="map-mode-btn" data-style="dark" onclick="App.setMapStyle('dark')">🌙 DARK</button>
+      <button class="map-mode-btn" data-style="track" onclick="App.setMapStyle('track')">🎮 TRACK</button>
     </div>
 
     <!-- Ghost delta banner -->
@@ -159,23 +174,8 @@
       <button class="fc-btn fc-start" id="fcStart" onclick="App.startRun()">▶ START</button>
       <button class="fc-btn fc-pause" id="fcPause" onclick="App.togglePause()" style="display:none">⏸ PAUSE</button>
       <button class="fc-btn fc-resume" id="fcResume" onclick="App.togglePause()" style="display:none">▶ RESUME</button>
+      <button class="fc-btn fc-cooldown" id="fcCooldown" onclick="App.startCooldown()" style="display:none">🧊 COOL DOWN</button>
       <button class="fc-btn fc-stop" id="fcStop" onclick="App.finishRun()" style="display:none">⏹ STOP</button>
-      <div class="fc-nudge-panel" id="fcNudgePanel" style="display:none">
-        <div class="fc-nudge-group">
-          <span class="fc-nudge-label">SPEED</span>
-          <button class="fc-nudge" onclick="App.adjustSpeed(-0.5)">−</button>
-          <span class="fc-nudge-val" id="fcSpeedVal">9.0</span>
-          <button class="fc-nudge" onclick="App.adjustSpeed(+0.5)">+</button>
-          <span class="fc-nudge-unit">km/h</span>
-        </div>
-        <div class="fc-nudge-group">
-          <span class="fc-nudge-label">INCLINE</span>
-          <button class="fc-nudge" onclick="App.adjustIncline(-0.5)">−</button>
-          <span class="fc-nudge-val" id="fcIncVal">1.0</span>
-          <button class="fc-nudge" onclick="App.adjustIncline(+0.5)">+</button>
-          <span class="fc-nudge-unit">%</span>
-        </div>
-      </div>
     </div>
 
     <!-- Zoom controls -->
@@ -184,8 +184,6 @@
       <div class="zoom-level" id="zoomLbl">14×</div>
       <button class="zoom-btn" onclick="App.zoomOut()">−</button>
     </div>
-
-    <!-- KM toast target (toasts appended here dynamically) -->
 
     <!-- Workout HUD -->
     <div id="workoutHud">
@@ -273,53 +271,49 @@
       <div class="ms2" id="avgHR"></div>
     </div>
 
-    <!-- Run Button + Controls -->
-    <div class="mcard wide" style="display:flex;flex-direction:row;align-items:center;gap:8px;padding:6px 8px">
-      <button class="run-btn ready" id="runBtn" onclick="Engine.run&&Engine.run.status==='ready'?App.startRun():App.togglePause()">▶ START RUN</button>
-
-      <!-- Speed nudge -->
-      <div class="nudge-group">
-        <div class="nudge-label">SPEED</div>
-        <div class="nudge-btns">
-          <button class="nudge" onclick="App.adjustSpeed(-0.5)">−</button>
-          <button class="nudge" onclick="App.adjustSpeed(+0.5)">+</button>
-        </div>
+    <!-- Control Mode (moved from bottom strip to here) -->
+    <div class="mcard wide" style="display:flex;flex-direction:row;align-items:center;gap:6px;padding:6px 8px">
+      <button class="mode-btn active" data-mode="route" onclick="App.setControlMode('route')">🏔 ROUTE</button>
+      <button class="mode-btn" data-mode="hr-incline" onclick="App.setControlMode('hr-incline')">❤→INC</button>
+      <button class="mode-btn" data-mode="hr-speed" onclick="App.setControlMode('hr-speed')">❤→SPD</button>
+      <button class="mode-btn" data-mode="manual" onclick="App.setControlMode('manual')">✋ MANUAL</button>
+      <div style="margin-left:auto;display:flex;gap:4px;align-items:center">
+        <span style="font-size:7px;color:var(--dim);font-family:'JetBrains Mono',monospace">ZONE</span>
+        <button class="nudge" onclick="App.setTargetZone(Engine.ctrl.targetZone-1)" style="width:20px;height:18px;font-size:11px">−</button>
+        <span style="font-family:'Orbitron',sans-serif;font-size:11px;font-weight:700;color:var(--text);min-width:20px;text-align:center" id="targetZoneDisplay">Z2</span>
+        <button class="nudge" onclick="App.setTargetZone(Engine.ctrl.targetZone+1)" style="width:20px;height:18px;font-size:11px">+</button>
       </div>
-
-      <!-- Incline nudge -->
-      <div class="nudge-group">
-        <div class="nudge-label">INCLINE</div>
-        <div class="nudge-btns">
-          <button class="nudge" onclick="App.adjustIncline(-0.5)">−</button>
-          <button class="nudge" onclick="App.adjustIncline(+0.5)">+</button>
-        </div>
-      </div>
-
-      <!-- Finish button (only when running) -->
-      <button class="nudge" onclick="App.finishRun()" style="width:auto;padding:0 8px;font-size:9px;color:var(--red);border-color:var(--red)" title="End run">⏹ END</button>
     </div>
   </div>
 
-  <!-- ELEVATION STRIP -->
-  <div class="elev-strip">
-    <div class="route-progress-bar"><div class="route-progress-fill" id="routeProgress" style="width:0"></div></div>
-    <canvas id="elevC"></canvas>
-
-    <!-- Control mode buttons -->
-    <div class="ctrl-strip">
-      <button class="mode-btn active" data-mode="route" onclick="App.setControlMode('route')">🏔 ROUTE</button>
-      <button class="mode-btn" data-mode="hr-incline" onclick="App.setControlMode('hr-incline')">❤→INCLINE</button>
-      <button class="mode-btn" data-mode="hr-speed" onclick="App.setControlMode('hr-speed')">❤→SPEED</button>
-      <button class="mode-btn" data-mode="manual" onclick="App.setControlMode('manual')">✋ MANUAL</button>
+  <!-- BOTTOM CONTROL STRIP — Big Speed/Incline Controls + Elevation -->
+  <div class="bottom-strip">
+    <!-- Speed Control -->
+    <div class="big-control speed-ctrl">
+      <button class="big-btn speed-down" onclick="App.adjustSpeed(-0.5)">−</button>
+      <div class="big-display">
+        <div class="big-label">SPEED</div>
+        <div class="big-value" id="bigSpeedVal">0.0</div>
+        <div class="big-unit">km/h</div>
+      </div>
+      <button class="big-btn speed-up" onclick="App.adjustSpeed(+0.5)">+</button>
     </div>
 
-    <div class="ctrl-strip-right">
-      <div style="display:flex;gap:4px;align-items:center">
-        <span style="font-size:8px;color:var(--dim);font-family:'JetBrains Mono',monospace">TARGET ZONE</span>
-        <button class="nudge" onclick="App.setTargetZone(Engine.ctrl.targetZone-1)" style="width:22px;height:20px;font-size:12px">−</button>
-        <span style="font-family:'Orbitron',sans-serif;font-size:12px;font-weight:700;color:var(--text);min-width:24px;text-align:center" id="targetZoneDisplay">Z2</span>
-        <button class="nudge" onclick="App.setTargetZone(Engine.ctrl.targetZone+1)" style="width:22px;height:20px;font-size:12px">+</button>
+    <!-- Elevation Canvas -->
+    <div class="elev-canvas-wrap">
+      <div class="route-progress-bar"><div class="route-progress-fill" id="routeProgress" style="width:0"></div></div>
+      <canvas id="elevC"></canvas>
+    </div>
+
+    <!-- Incline Control -->
+    <div class="big-control incline-ctrl">
+      <button class="big-btn incline-down" onclick="App.adjustIncline(-0.5)">−</button>
+      <div class="big-display">
+        <div class="big-label">INCLINE</div>
+        <div class="big-value" id="bigIncVal">0.0</div>
+        <div class="big-unit">%</div>
       </div>
+      <button class="big-btn incline-up" onclick="App.adjustIncline(+0.5)">+</button>
     </div>
   </div>
 
@@ -328,7 +322,7 @@
 <!-- ══════════════════════════════════════════════════════════════════════════
      SPLITS PANEL (slides in from right over map)
      ══════════════════════════════════════════════════════════════════════════ -->
-<div class="splits-panel" id="splitsPanel" style="position:absolute;top:46px;right:306px;bottom:140px">
+<div class="splits-panel" id="splitsPanel">
   <div class="splits-header">
     <div class="splits-title">KM SPLITS</div>
     <span class="splits-close" onclick="App.toggleSplits()">✕</span>
@@ -339,7 +333,7 @@
 <!-- ══════════════════════════════════════════════════════════════════════════
      HISTORY PANEL (slides in from left over map — for ghost selection)
      ══════════════════════════════════════════════════════════════════════════ -->
-<div class="history-panel" id="historyPanel" style="position:absolute;top:46px;bottom:140px">
+<div class="history-panel" id="historyPanel">
   <div class="splits-header">
     <div class="splits-title">👻 GHOST RACE — PAST RUNS</div>
     <span class="splits-close" onclick="App.closeHistory()">✕</span>
