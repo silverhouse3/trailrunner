@@ -42,6 +42,10 @@ const App = {
       if (Engine.hasRoute()) {
         MapView.updateRunner(Engine.getCurrentLatLon());
         MapView.updateGhost(Engine.getGhostLatLon(), Engine.ghostEnabled);
+        // Update Street View if active
+        if (this._streetViewReady && document.getElementById('streetViewPanel').style.display !== 'none') {
+          this._updateStreetViewPosition();
+        }
       }
       // Feed track view with current run data
       if (TrackView.active && Engine.run) {
@@ -86,6 +90,9 @@ const App = {
 
     // ── Init track view ────────────────────────────────────────────────
     TrackView.init('trackCanvas');
+
+    // ── Init media player ─────────────────────────────────────────────
+    Media.init();
 
     // ── Load last active route ───────────────────────────────────────────
     const activeId = Store.getActiveRouteId();
@@ -483,18 +490,109 @@ const App = {
   // ════════════════════════════════════════════════════════════════════════════
 
   setMapStyle(style) {
-    // Toggle between map views and 3D track view
+    const mapDiv = document.getElementById('mapDiv');
+    const mediaPanel = document.getElementById('mediaPanel');
+    const streetPanel = document.getElementById('streetViewPanel');
+
+    // Hide all panels first
+    TrackView.hide();
+    mapDiv.style.display = 'none';
+    if (mediaPanel) mediaPanel.style.display = 'none';
+    if (streetPanel) streetPanel.style.display = 'none';
+
     if (style === 'track') {
-      document.getElementById('mapDiv').style.display = 'none';
       TrackView.show();
+    } else if (style === 'media') {
+      if (mediaPanel) mediaPanel.style.display = 'flex';
+    } else if (style === 'street') {
+      if (streetPanel) streetPanel.style.display = '';
+      this._initStreetView();
     } else {
-      TrackView.hide();
-      document.getElementById('mapDiv').style.display = '';
+      // Map views: terrain, sat, dark
+      mapDiv.style.display = '';
       MapView.setStyle(style);
+      MapView.invalidateSize();
     }
+
     document.querySelectorAll('.map-mode-btn').forEach(btn => {
       btn.classList.toggle('act', btn.dataset.style === style);
     });
+  },
+
+  _streetViewReady: false,
+  _streetViewPanorama: null,
+
+  _initStreetView() {
+    const settings = Store.getSettings();
+    const apiKey = settings.googleApiKey;
+    const noKeyMsg = document.getElementById('svNoKey');
+    const svDiv = document.getElementById('streetViewDiv');
+
+    if (!apiKey) {
+      if (noKeyMsg) noKeyMsg.style.display = 'flex';
+      if (svDiv) svDiv.style.display = 'none';
+      return;
+    }
+
+    if (noKeyMsg) noKeyMsg.style.display = 'none';
+    if (svDiv) svDiv.style.display = '';
+
+    // Load Google Maps API if not already loaded
+    if (!window.google || !window.google.maps) {
+      const script = document.createElement('script');
+      script.src = 'https://maps.googleapis.com/maps/api/js?key=' + apiKey;
+      script.onload = () => this._createStreetViewPanorama();
+      document.head.appendChild(script);
+    } else if (!this._streetViewReady) {
+      this._createStreetViewPanorama();
+    } else {
+      this._updateStreetViewPosition();
+    }
+  },
+
+  _createStreetViewPanorama() {
+    const svDiv = document.getElementById('streetViewDiv');
+    if (!svDiv || !window.google) return;
+
+    // Default to route start or UK center
+    let pos = { lat: 52.04, lng: -1.85 };
+    if (Engine.hasRoute() && Engine.resampled.length > 0) {
+      const p = Engine.resampled[0];
+      pos = { lat: p.lat, lng: p.lon };
+    }
+
+    this._streetViewPanorama = new google.maps.StreetViewPanorama(svDiv, {
+      position: pos,
+      pov: { heading: 0, pitch: 0 },
+      zoom: 1,
+      disableDefaultUI: true,
+      showRoadLabels: false,
+    });
+    this._streetViewReady = true;
+  },
+
+  _updateStreetViewPosition() {
+    if (!this._streetViewPanorama || !Engine.hasRoute() || !Engine.run) return;
+    const latlon = Engine.getCurrentLatLon();
+    if (!latlon) return;
+
+    // Calculate heading from route direction
+    const idx = Engine.run.routeIdx;
+    const pts = Engine.resampled;
+    let heading = 0;
+    if (pts && idx < pts.length - 1) {
+      const a = pts[idx];
+      const b = pts[Math.min(idx + 5, pts.length - 1)];
+      const dLon = (b.lon - a.lon) * Math.PI / 180;
+      const lat1 = a.lat * Math.PI / 180;
+      const lat2 = b.lat * Math.PI / 180;
+      const y = Math.sin(dLon) * Math.cos(lat2);
+      const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+      heading = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+    }
+
+    this._streetViewPanorama.setPosition({ lat: latlon[0], lng: latlon[1] });
+    this._streetViewPanorama.setPov({ heading, pitch: 0 });
   },
 
   zoomIn() {

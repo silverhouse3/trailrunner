@@ -410,6 +410,7 @@ const UI = {
     v('setWeight', s.weight);
     v('setMaxSpeed', s.safetyMaxSpeed);
     v('setMaxIncline', s.safetyMaxIncline);
+    v('setGoogleApiKey', s.googleApiKey || '');
   },
 
   closeSettings() {
@@ -424,6 +425,11 @@ const UI = {
     s.weight = Math.max(30, Math.min(200, v('setWeight')));
     s.safetyMaxSpeed = Math.max(5, Math.min(25, v('setMaxSpeed')));
     s.safetyMaxIncline = Math.max(0, Math.min(40, v('setMaxIncline')));
+    // Save Google API key
+    const googleKey = (document.getElementById('setGoogleApiKey')?.value || '').trim();
+    if (googleKey) s.googleApiKey = googleKey;
+    else delete s.googleApiKey;
+
     Store.saveSettings(s);
 
     // Save Strava app credentials

@@ -146,6 +146,47 @@
     <div id="mapDiv"></div>
     <canvas id="trackCanvas" style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;z-index:5"></canvas>
 
+    <!-- Media Player Panel (replaces map when active) -->
+    <div class="media-panel" id="mediaPanel" style="display:none">
+      <div class="media-now-playing">
+        <div class="media-np-icon">📻</div>
+        <div class="media-np-info">
+          <div class="media-np-label">NOW PLAYING</div>
+          <div class="media-np-name" id="mediaNPName">Select a station</div>
+          <div class="media-np-genre" id="mediaNPGenre"></div>
+        </div>
+        <div class="media-np-controls">
+          <button class="media-ctrl-btn" id="mediaPlayBtn" onclick="Media.togglePlayPause()">▶</button>
+          <button class="media-ctrl-btn media-stop" onclick="Media.stop()">⏹</button>
+        </div>
+      </div>
+      <div class="media-volume">
+        <span class="media-vol-icon" id="mediaVolIcon">🔊</span>
+        <input type="range" class="media-vol-slider" id="mediaVolume" min="0" max="100" value="70"
+               oninput="Media.setVolume(this.value/100)">
+      </div>
+      <div class="media-stations-grid" id="mediaStations"></div>
+      <div class="media-custom">
+        <input type="text" class="media-custom-input" id="mediaCustomUrl" placeholder="Paste stream URL (https://...)">
+        <button class="media-custom-play" onclick="Media.playCustom(document.getElementById('mediaCustomUrl').value)">▶ PLAY</button>
+      </div>
+    </div>
+
+    <!-- Street View Panel (replaces map when active) -->
+    <div class="streetview-panel" id="streetViewPanel" style="display:none">
+      <div class="sv-no-key" id="svNoKey">
+        <div class="sv-no-key-icon">📍</div>
+        <div class="sv-no-key-title">STREET VIEW</div>
+        <div class="sv-no-key-msg">Add a Google Maps API key in Settings to enable<br>Street View along your route</div>
+      </div>
+      <div id="streetViewDiv" style="width:100%;height:100%"></div>
+    </div>
+
+    <!-- Mini now-playing indicator (shown on map when media is playing) -->
+    <div class="mini-np" id="mediaMiniNP" style="display:none">
+      <span class="mini-np-name"></span>
+    </div>
+
     <!-- No route message -->
     <div class="no-route" id="noRouteMsg">
       <div class="no-route-icon">🗺</div>
@@ -159,6 +200,8 @@
       <button class="map-mode-btn" data-style="sat" onclick="App.setMapStyle('sat')">🛰 SAT</button>
       <button class="map-mode-btn" data-style="dark" onclick="App.setMapStyle('dark')">🌙 DARK</button>
       <button class="map-mode-btn" data-style="track" onclick="App.setMapStyle('track')">🎮 TRACK</button>
+      <button class="map-mode-btn" data-style="media" onclick="App.setMapStyle('media')">📻 MEDIA</button>
+      <button class="map-mode-btn" data-style="street" onclick="App.setMapStyle('street')">📍 STREET</button>
     </div>
 
     <!-- Ghost delta banner -->
@@ -426,6 +469,18 @@
         <input class="settings-input" id="setStravaSecret" type="password" placeholder="abc123..." style="width:160px">
       </div>
 
+      <!-- Google Maps API Key -->
+      <div style="border-top:1px solid #1e2a3a;margin:12px 0 8px;padding-top:12px">
+        <div style="font-family:'Orbitron',sans-serif;font-size:11px;font-weight:700;color:#4fc3f7;letter-spacing:.1em;margin-bottom:8px">GOOGLE STREET VIEW</div>
+      </div>
+      <div class="settings-row">
+        <div>
+          <div class="settings-label">Google Maps API Key</div>
+          <div class="settings-sub">From console.cloud.google.com — enables Street View</div>
+        </div>
+        <input class="settings-input" id="setGoogleApiKey" type="text" placeholder="AIza..." style="width:200px">
+      </div>
+
       <div style="border-top:1px solid #1e2a3a;margin:12px 0 8px;padding-top:12px">
         <div style="font-family:'Orbitron',sans-serif;font-size:11px;font-weight:700;color:#22c55e;letter-spacing:.1em;margin-bottom:4px">GARMIN CONNECT</div>
         <div style="font-size:11px;color:#8094ab;line-height:1.5">
@@ -452,6 +507,7 @@
 <script src="js/engine.js"></script>
 <script src="js/map.js"></script>
 <script src="js/ui.js"></script>
+<script src="js/media.js"></script>
 <script src="js/sync.js"></script>
 <script src="js/trackview.js"></script>
 <script src="js/app.js"></script>

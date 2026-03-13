@@ -401,6 +401,73 @@ body { color: var(--text); font-family: 'Rajdhani', sans-serif; user-select: non
   background: var(--border); z-index: 5; }
 .route-progress-fill { height: 100%; background: var(--green); transition: width .5s; border-radius: 0 2px 2px 0; }
 
+/* ══ MEDIA PANEL ═════════════════════════════════════════════════════════ */
+.media-panel { position: absolute; inset: 0; z-index: 10; background: var(--bg);
+  display: flex; flex-direction: column; padding: 16px; gap: 12px; overflow-y: auto; }
+
+.media-now-playing { display: flex; align-items: center; gap: 16px; padding: 16px 20px;
+  background: var(--card); border: 1px solid var(--border); border-radius: 10px; }
+.media-np-icon { font-size: 48px; }
+.media-np-info { flex: 1; }
+.media-np-label { font-size: 8px; color: var(--dim); font-family: 'JetBrains Mono', monospace;
+  letter-spacing: .2em; text-transform: uppercase; }
+.media-np-name { font-family: 'Orbitron', sans-serif; font-size: 20px; font-weight: 700;
+  color: var(--cyan); margin-top: 2px; }
+.media-np-genre { font-size: 11px; color: var(--mid); font-family: 'JetBrains Mono', monospace;
+  margin-top: 2px; }
+.media-np-controls { display: flex; gap: 8px; }
+.media-ctrl-btn { width: 56px; height: 56px; border-radius: 50%; border: 2px solid var(--cyan);
+  background: rgba(62,207,255,.1); color: var(--cyan); font-size: 22px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; transition: .15s; }
+.media-ctrl-btn:hover { background: rgba(62,207,255,.25); box-shadow: 0 0 16px rgba(62,207,255,.3); }
+.media-ctrl-btn.media-stop { border-color: var(--red); color: var(--red); background: rgba(255,95,95,.08); }
+.media-ctrl-btn.media-stop:hover { background: rgba(255,95,95,.2); }
+
+.media-volume { display: flex; align-items: center; gap: 12px; padding: 0 4px; }
+.media-vol-icon { font-size: 18px; width: 28px; text-align: center; }
+.media-vol-slider { flex: 1; height: 6px; -webkit-appearance: none; appearance: none;
+  background: var(--border); border-radius: 3px; outline: none; cursor: pointer; }
+.media-vol-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px;
+  border-radius: 50%; background: var(--cyan); border: 2px solid #fff; cursor: pointer; }
+
+.media-stations-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; flex: 1; }
+.media-station { background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px 14px; cursor: pointer; transition: .15s; display: flex; flex-direction: column;
+  justify-content: center; }
+.media-station:hover { border-color: var(--mid); background: #1c2030; }
+.media-station.active { border-color: var(--cyan); background: rgba(62,207,255,.08);
+  box-shadow: 0 0 12px rgba(62,207,255,.15); }
+.media-st-name { font-size: 13px; font-weight: 600; color: var(--text); }
+.media-st-genre { font-size: 9px; color: var(--dim); font-family: 'JetBrains Mono', monospace;
+  margin-top: 3px; letter-spacing: .05em; }
+
+.media-custom { display: flex; gap: 8px; }
+.media-custom-input { flex: 1; background: var(--card); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text); font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; padding: 8px 12px; outline: none; }
+.media-custom-input:focus { border-color: var(--cyan); }
+.media-custom-play { padding: 8px 18px; background: var(--card); border: 1px solid var(--cyan);
+  border-radius: 6px; color: var(--cyan); font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; cursor: pointer; transition: .15s; white-space: nowrap; }
+.media-custom-play:hover { background: rgba(62,207,255,.12); }
+
+/* Mini now-playing indicator on map */
+.mini-np { position: absolute; bottom: 80px; left: 10px; z-index: 25;
+  background: rgba(9,11,16,.92); border: 1px solid var(--border); border-radius: 6px;
+  padding: 5px 12px; backdrop-filter: blur(6px); }
+.mini-np-name { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--cyan);
+  letter-spacing: .05em; }
+
+/* ══ STREET VIEW PANEL ══════════════════════════════════════════════════ */
+.streetview-panel { position: absolute; inset: 0; z-index: 10; background: var(--bg); }
+.sv-no-key { position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 12px; z-index: 5; }
+.sv-no-key-icon { font-size: 48px; opacity: .4; }
+.sv-no-key-title { font-family: 'Orbitron', sans-serif; font-size: 16px; font-weight: 700;
+  color: var(--mid); letter-spacing: .15em; }
+.sv-no-key-msg { font-size: 11px; color: var(--dim); font-family: 'JetBrains Mono', monospace;
+  text-align: center; line-height: 1.8; letter-spacing: .05em; }
+
 /* ══ NO ROUTE MESSAGE ═════════════════════════════════════════════════════ */
 .no-route { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   flex-direction: column; gap: 12px; color: var(--dim); z-index: 5; }
