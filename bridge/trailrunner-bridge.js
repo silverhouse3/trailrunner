@@ -1,32 +1,41 @@
 #!/usr/bin/env node
 // ═══════════════════════════════════════════════════════════════════════════════
-// TrailRunner Bridge — WebSocket server for NordicTrack X32i hardware control
+// TrailRunner Bridge v3.0 — gRPC + WebSocket bridge for NordicTrack X32i
 //
-// Runs on the treadmill (in Termux) or on a PC connected via ADB.
-// Reads speed/incline/HR from glassos_service log files.
-// Writes speed/incline via `input swipe` on iFIT UI or via direct ADB.
+// Runs on a PC connected via ADB to the treadmill.
+// Controls speed/incline directly via glassos_service gRPC API (port 54321).
+// Reads telemetry via gRPC streaming subscriptions + log file fallback.
 //
-// Usage (on treadmill via Termux):
-//   npm install ws
-//   node trailrunner-bridge.js
+// Architecture:
+//   TrailRunner PWA (browser) ← WebSocket :4510 → this bridge
+//     ↓ ADB port-forward (localhost:54321 → treadmill:54321)
+//     ↓ gRPC with mTLS (testca CA, com.ifit.eriador client cert)
+//   glassos_service on treadmill
+//     ↓ FitPro USB → motor controller
+//   Treadmill belt + incline motor
 //
-// Usage (on PC via ADB):
+// Usage:
 //   node trailrunner-bridge.js --adb --ip 192.168.100.54
 //
-// TrailRunner connects to ws://localhost:4510
+// TrailRunner PWA connects to ws://localhost:4510
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const http = require('http');
-const { exec, spawn } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const { exec, execSync, spawn } = require('child_process');
+const grpc = require('@grpc/grpc-js');
+const protoLoader = require('@grpc/proto-loader');
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
 const PORT = 4510;
-const LOG_POLL_MS = 200;       // How often to poll logs (ms)
-const SWIPE_COOLDOWN_MS = 600; // Min delay between swipe commands
-const ACTIVITY_SWITCH_MS = 300; // Delay after switching to iFIT
+const APK_PORT = 4511;           // TrailRunnerBridge APK HTTP port (still used for UI automation)
+const GRPC_PORT = 54321;         // glassos gRPC port (forwarded via ADB)
+const LOG_POLL_MS = 500;         // Log poll interval (backup, gRPC streaming is primary)
+const CONTROL_COOLDOWN_MS = 200; // Min delay between gRPC control commands
 
-// glassos_service log paths (tried in order)
+// glassos_service log paths (fallback telemetry)
 const LOG_PATHS = [
   '/sdcard/android/data/com.ifit.glassos_service/files/.valinorlogs/log.latest.txt',
   '/sdcard/Android/data/com.ifit.glassos_service/files/.valinorlogs/log.latest.txt',
@@ -34,43 +43,49 @@ const LOG_PATHS = [
   '/sdcard/eru/',
 ];
 
-// X32i-specific swipe coordinates (from QZCompanion calibration data)
-// Screen resolution: 2560x1440 (32" display)
-const X32I = {
-  speed: {
-    x: 1845,
-    y1: 927,           // Position at 2.0 km/h (start of slider)
-    calcY: (kph) => Math.round(834.85 - (26.946 * kph)),
-  },
-  incline: {
-    x: 76,
-    y1: 881,            // Position at 0.0% (start of slider)
-    calcY: (pct) => Math.round(734.07 - (12.297 * pct)),
-  },
-  swipeDuration: 200,   // ms
-};
+// mTLS certificate paths
+const KEYS_DIR = path.join(__dirname, 'keys');
+const CA_CERT = path.join(KEYS_DIR, 'ca_cert.txt');
+const CLIENT_CERT = path.join(KEYS_DIR, 'cert.txt');
+const CLIENT_KEY = path.join(KEYS_DIR, 'key.txt');
+
+// Proto files root
+const PROTOS_DIR = path.join(__dirname, 'protos');
 
 // ── State ────────────────────────────────────────────────────────────────────
 
-let currentSpeed = 0;      // km/h
-let currentIncline = 0;    // %
+let currentSpeed = 0;        // km/h
+let currentIncline = 0;      // %
 let currentHR = 0;
 let currentWatts = 0;
 let currentRPM = 0;
-let lastSwipeTime = 0;
+let workoutState = 'IDLE';   // IDLE, DMK, RUNNING, PAUSED, RESULTS
+let workoutId = null;
+let lastControlTime = 0;
 let logPath = null;
 let logFileSize = 0;
 let adbMode = false;
 let adbIP = '192.168.100.54';
 let wsClients = new Set();
 
-// WebSocket implementation (minimal, no dependency required)
-// Falls back to ws module if available
+// gRPC state
+let grpcConnected = false;
+let speedClient = null;
+let inclineClient = null;
+let workoutClient = null;
+let speedStream = null;
+let inclineStream = null;
+let workoutStateStream = null;
+let grpcReconnectTimer = null;
+
+// APK state (still used for navigation/UI automation)
+let apkAvailable = false;
+
+// WebSocket implementation
 let WebSocketServer;
 try {
   WebSocketServer = require('ws').Server;
 } catch {
-  // Built-in minimal WebSocket server (no external dependency)
   WebSocketServer = null;
 }
 
@@ -95,14 +110,443 @@ function shell(cmd) {
   });
 }
 
-// ── Log reader ──────────────────────────────────────────────────────────────
+function adbExec(cmd) {
+  return new Promise((resolve, reject) => {
+    exec(`adb ${cmd}`, { timeout: 10000 }, (err, stdout, stderr) => {
+      if (err) reject(err);
+      else resolve((stdout || '').trim());
+    });
+  });
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// gRPC CLIENT — Direct motor control via glassos_service
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function loadProto(protoFile) {
+  const packageDefinition = protoLoader.loadSync(protoFile, {
+    keepCase: true,
+    longs: String,
+    enums: String,
+    defaults: true,
+    oneofs: true,
+    includeDirs: [PROTOS_DIR],
+  });
+  return grpc.loadPackageDefinition(packageDefinition);
+}
+
+function createGrpcCredentials() {
+  const caCert = fs.readFileSync(CA_CERT);
+  const clientCert = fs.readFileSync(CLIENT_CERT);
+  const clientKey = fs.readFileSync(CLIENT_KEY);
+
+  return grpc.credentials.createSsl(caCert, clientKey, clientCert);
+}
+
+function createGrpcClient(ServiceClass, address) {
+  const creds = createGrpcCredentials();
+
+  // Add the client_id metadata to every call
+  const metadataInterceptor = (options, nextCall) => {
+    return new grpc.InterceptingCall(nextCall(options), {
+      start: (metadata, listener, next) => {
+        metadata.set('client_id', 'com.ifit.eriador');
+        next(metadata, listener);
+      },
+    });
+  };
+
+  return new ServiceClass(address, creds, {
+    interceptors: [metadataInterceptor],
+    'grpc.keepalive_time_ms': 10000,
+    'grpc.keepalive_timeout_ms': 5000,
+    'grpc.keepalive_permit_without_calls': 1,
+  });
+}
+
+async function connectGrpc() {
+  console.log('[gRPC] Connecting to glassos_service at localhost:' + GRPC_PORT + '...');
+
+  try {
+    // Load proto definitions
+    const speedProto = loadProto('workout/SpeedService.proto');
+    const inclineProto = loadProto('workout/InclineService.proto');
+    const workoutProto = loadProto('workout/WorkoutService.proto');
+
+    const address = `localhost:${GRPC_PORT}`;
+
+    // Create clients
+    speedClient = createGrpcClient(speedProto.com.ifit.glassos.SpeedService, address);
+    inclineClient = createGrpcClient(speedProto.com.ifit.glassos.InclineService || inclineProto.com.ifit.glassos.InclineService, address);
+    workoutClient = createGrpcClient(workoutProto.com.ifit.glassos.WorkoutService, address);
+
+    // Test connection with GetWorkoutState
+    const state = await grpcCall(workoutClient, 'GetWorkoutState', {});
+    workoutState = (state.workoutState || 'UNKNOWN').replace('WORKOUT_STATE_', '');
+    console.log(`[gRPC] Connected! Workout state: ${workoutState}`);
+    grpcConnected = true;
+
+    // Start streaming subscriptions
+    startSpeedSubscription();
+    startInclineSubscription();
+    startWorkoutStateSubscription();
+
+    // Get initial speed/incline
+    try {
+      const speed = await grpcCall(speedClient, 'GetSpeed', {});
+      if (speed.lastKph !== undefined) {
+        currentSpeed = speed.lastKph;
+        console.log(`[gRPC] Current speed: ${currentSpeed} kph`);
+      }
+    } catch {}
+
+    try {
+      const incline = await grpcCall(inclineClient, 'GetIncline', {});
+      if (incline.lastInclinePercent !== undefined) {
+        currentIncline = incline.lastInclinePercent;
+        console.log(`[gRPC] Current incline: ${currentIncline}%`);
+      }
+    } catch {}
+
+    broadcastState();
+
+  } catch (e) {
+    console.error(`[gRPC] Connection failed: ${e.message}`);
+    grpcConnected = false;
+    scheduleGrpcReconnect();
+  }
+}
+
+function grpcCall(client, method, request) {
+  return new Promise((resolve, reject) => {
+    const metadata = new grpc.Metadata();
+    metadata.set('client_id', 'com.ifit.eriador');
+
+    client[method](request, metadata, (err, response) => {
+      if (err) reject(err);
+      else resolve(response);
+    });
+  });
+}
+
+function scheduleGrpcReconnect() {
+  if (grpcReconnectTimer) return;
+  console.log('[gRPC] Will retry connection in 5 seconds...');
+  grpcReconnectTimer = setTimeout(() => {
+    grpcReconnectTimer = null;
+    connectGrpc();
+  }, 5000);
+}
+
+// ── gRPC Streaming Subscriptions ─────────────────────────────────────────────
+
+function startSpeedSubscription() {
+  if (speedStream) {
+    try { speedStream.cancel(); } catch {}
+  }
+
+  const metadata = new grpc.Metadata();
+  metadata.set('client_id', 'com.ifit.eriador');
+
+  speedStream = speedClient.SpeedSubscription({}, metadata);
+
+  speedStream.on('data', (metric) => {
+    if (metric.lastKph !== undefined) {
+      const newSpeed = Math.round(metric.lastKph * 10) / 10;
+      if (newSpeed !== currentSpeed) {
+        currentSpeed = newSpeed;
+        console.log(`[gRPC] Speed: ${currentSpeed} kph`);
+        broadcastState();
+      }
+    }
+  });
+
+  speedStream.on('error', (err) => {
+    if (err.code !== grpc.status.CANCELLED) {
+      console.error(`[gRPC] Speed stream error: ${err.message}`);
+      grpcConnected = false;
+      scheduleGrpcReconnect();
+    }
+  });
+
+  speedStream.on('end', () => {
+    console.log('[gRPC] Speed stream ended');
+  });
+
+  console.log('[gRPC] Speed subscription active');
+}
+
+function startInclineSubscription() {
+  if (inclineStream) {
+    try { inclineStream.cancel(); } catch {}
+  }
+
+  const metadata = new grpc.Metadata();
+  metadata.set('client_id', 'com.ifit.eriador');
+
+  inclineStream = inclineClient.InclineSubscription({}, metadata);
+
+  inclineStream.on('data', (metric) => {
+    if (metric.lastInclinePercent !== undefined) {
+      const newIncline = Math.round(metric.lastInclinePercent * 10) / 10;
+      if (newIncline !== currentIncline) {
+        currentIncline = newIncline;
+        console.log(`[gRPC] Incline: ${currentIncline}%`);
+        broadcastState();
+      }
+    }
+  });
+
+  inclineStream.on('error', (err) => {
+    if (err.code !== grpc.status.CANCELLED) {
+      console.error(`[gRPC] Incline stream error: ${err.message}`);
+    }
+  });
+
+  inclineStream.on('end', () => {
+    console.log('[gRPC] Incline stream ended');
+  });
+
+  console.log('[gRPC] Incline subscription active');
+}
+
+function startWorkoutStateSubscription() {
+  if (workoutStateStream) {
+    try { workoutStateStream.cancel(); } catch {}
+  }
+
+  const metadata = new grpc.Metadata();
+  metadata.set('client_id', 'com.ifit.eriador');
+
+  workoutStateStream = workoutClient.WorkoutStateChanged({}, metadata);
+
+  workoutStateStream.on('data', (msg) => {
+    if (msg.workoutState) {
+      const newState = msg.workoutState.replace('WORKOUT_STATE_', '');
+      if (newState !== workoutState) {
+        workoutState = newState;
+        console.log(`[gRPC] Workout state: ${workoutState}`);
+        broadcastState();
+      }
+    }
+  });
+
+  workoutStateStream.on('error', (err) => {
+    if (err.code !== grpc.status.CANCELLED) {
+      console.error(`[gRPC] Workout state stream error: ${err.message}`);
+    }
+  });
+
+  workoutStateStream.on('end', () => {
+    console.log('[gRPC] Workout state stream ended');
+  });
+
+  console.log('[gRPC] Workout state subscription active');
+}
+
+// ── gRPC Motor Control Commands ──────────────────────────────────────────────
+
+async function grpcSetSpeed(kph) {
+  if (!grpcConnected || !speedClient) {
+    console.warn(`[gRPC] Not connected, cannot set speed=${kph}`);
+    return false;
+  }
+
+  try {
+    const result = await grpcCall(speedClient, 'SetSpeed', { kph: kph });
+    console.log(`[gRPC] SetSpeed(${kph} kph) → ${JSON.stringify(result)}`);
+    return true;
+  } catch (e) {
+    console.error(`[gRPC] SetSpeed error: ${e.message}`);
+    return false;
+  }
+}
+
+async function grpcSetIncline(percent) {
+  if (!grpcConnected || !inclineClient) {
+    console.warn(`[gRPC] Not connected, cannot set incline=${percent}`);
+    return false;
+  }
+
+  try {
+    const result = await grpcCall(inclineClient, 'SetIncline', { percent: percent });
+    console.log(`[gRPC] SetIncline(${percent}%) → ${JSON.stringify(result)}`);
+    return true;
+  } catch (e) {
+    console.error(`[gRPC] SetIncline error: ${e.message}`);
+    return false;
+  }
+}
+
+async function grpcStartWorkout() {
+  if (!grpcConnected || !workoutClient) {
+    console.warn('[gRPC] Not connected, cannot start workout');
+    return { ok: false, error: 'gRPC not connected' };
+  }
+
+  try {
+    const result = await grpcCall(workoutClient, 'StartNewWorkout', {});
+    workoutId = result.workoutID || null;
+    console.log(`[gRPC] StartNewWorkout → id=${workoutId}, result=${JSON.stringify(result)}`);
+    workoutState = 'RUNNING';
+    broadcastState();
+    return { ok: true, workoutId };
+  } catch (e) {
+    console.error(`[gRPC] StartNewWorkout error: ${e.message}`);
+    return { ok: false, error: e.message };
+  }
+}
+
+async function grpcStopWorkout() {
+  if (!grpcConnected || !workoutClient) {
+    return { ok: false, error: 'gRPC not connected' };
+  }
+
+  try {
+    const result = await grpcCall(workoutClient, 'Stop', {});
+    console.log(`[gRPC] Stop → ${JSON.stringify(result)}`);
+    workoutState = 'IDLE';
+    broadcastState();
+    return { ok: true };
+  } catch (e) {
+    console.error(`[gRPC] Stop error: ${e.message}`);
+    return { ok: false, error: e.message };
+  }
+}
+
+async function grpcPauseWorkout() {
+  if (!grpcConnected || !workoutClient) {
+    return { ok: false, error: 'gRPC not connected' };
+  }
+
+  try {
+    const result = await grpcCall(workoutClient, 'Pause', {});
+    console.log(`[gRPC] Pause → ${JSON.stringify(result)}`);
+    workoutState = 'PAUSED';
+    broadcastState();
+    return { ok: true };
+  } catch (e) {
+    console.error(`[gRPC] Pause error: ${e.message}`);
+    return { ok: false, error: e.message };
+  }
+}
+
+async function grpcResumeWorkout() {
+  if (!grpcConnected || !workoutClient) {
+    return { ok: false, error: 'gRPC not connected' };
+  }
+
+  try {
+    const result = await grpcCall(workoutClient, 'Resume', {});
+    console.log(`[gRPC] Resume → ${JSON.stringify(result)}`);
+    workoutState = 'RUNNING';
+    broadcastState();
+    return { ok: true };
+  } catch (e) {
+    console.error(`[gRPC] Resume error: ${e.message}`);
+    return { ok: false, error: e.message };
+  }
+}
+
+// ── Control queue (rate-limited gRPC commands) ────────────────────────────────
+
+let controlQueue = [];
+let processingControl = false;
+
+async function queueControl(type, value) {
+  // Replace any pending command of the same type (only latest matters)
+  controlQueue = controlQueue.filter(c => c.type !== type);
+  controlQueue.push({ type, value, time: Date.now() });
+  if (!processingControl) processControlQueue();
+}
+
+async function processControlQueue() {
+  if (controlQueue.length === 0) {
+    processingControl = false;
+    return;
+  }
+  processingControl = true;
+
+  const cmd = controlQueue.shift();
+  const now = Date.now();
+  const elapsed = now - lastControlTime;
+
+  if (elapsed < CONTROL_COOLDOWN_MS) {
+    await sleep(CONTROL_COOLDOWN_MS - elapsed);
+  }
+
+  try {
+    if (cmd.type === 'speed') {
+      await grpcSetSpeed(cmd.value);
+    } else if (cmd.type === 'incline') {
+      await grpcSetIncline(cmd.value);
+    }
+    lastControlTime = Date.now();
+  } catch (e) {
+    console.error(`[BRIDGE] Control error: ${e.message}`);
+  }
+
+  setTimeout(processControlQueue, 50);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// APK HTTP BRIDGE — Still used for UI automation (tap, back, etc.)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function apkCommand(endpoint, body) {
+  return new Promise((resolve, reject) => {
+    const data = body ? JSON.stringify(body) : '';
+    const options = {
+      hostname: adbIP,
+      port: APK_PORT,
+      path: endpoint,
+      method: body ? 'POST' : 'GET',
+      headers: body ? {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(data),
+      } : {},
+      timeout: 3000,
+    };
+
+    const req = http.request(options, (res) => {
+      let result = '';
+      res.on('data', chunk => result += chunk);
+      res.on('end', () => {
+        try { resolve(JSON.parse(result)); }
+        catch { resolve({ raw: result }); }
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+    if (data) req.write(data);
+    req.end();
+  });
+}
+
+async function checkApk() {
+  try {
+    const result = await apkCommand('/ping');
+    apkAvailable = result.ok && result.service;
+    return apkAvailable;
+  } catch {
+    apkAvailable = false;
+    return false;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LOG FILE READER — Fallback telemetry when gRPC streaming isn't available
+// ═══════════════════════════════════════════════════════════════════════════════
 
 async function findLogPath() {
   for (const p of LOG_PATHS) {
     try {
       const result = await shell(`ls "${p}" 2>/dev/null`);
       if (result) {
-        // If it's a directory, find the latest log file in it
         if (p.endsWith('/')) {
           const files = await shell(`ls -t "${p}" 2>/dev/null | head -1`);
           if (files) return p + files;
@@ -119,27 +563,23 @@ async function readNewLogLines() {
   if (!logPath) return;
 
   try {
-    // Get current file size
     const stat = await shell(`stat -c %s "${logPath}" 2>/dev/null || wc -c < "${logPath}"`);
     const size = parseInt(stat);
     if (isNaN(size)) return;
 
     if (size > logFileSize && logFileSize > 0) {
-      // Read only the new bytes
       const skipBytes = logFileSize;
       const newBytes = size - logFileSize;
-      const maxRead = Math.min(newBytes, 8192); // Cap at 8KB per read
+      const maxRead = Math.min(newBytes, 8192);
       const data = await shell(
         `dd if="${logPath}" bs=1 skip=${skipBytes} count=${maxRead} 2>/dev/null`
       );
       if (data) parseLogLines(data);
     } else if (logFileSize === 0) {
-      // First read — just get the last few lines
       const data = await shell(`tail -20 "${logPath}" 2>/dev/null`);
       if (data) parseLogLines(data);
     }
 
-    // File might have been rotated (size decreased)
     logFileSize = size > logFileSize ? size : (size < logFileSize ? size : logFileSize);
   } catch {}
 }
@@ -155,45 +595,21 @@ function parseLogLines(text) {
       if (m) {
         const val = parseFloat(m[1]);
         if (!isNaN(val) && val >= 0 && val <= 25) {
-          currentSpeed = val;
-          changed = true;
+          // Only update from logs if gRPC isn't providing data
+          if (!grpcConnected) { currentSpeed = val; changed = true; }
         }
       }
     }
-    // Incline: "SDS Changed INCLINE from 0.0 % to 3.0 %"
     else if (line.includes('Changed INCLINE')) {
       const m = line.match(/to\s+(-?[\d.]+)\s*%/);
       if (m) {
         const val = parseFloat(m[1]);
         if (!isNaN(val) && val >= -6 && val <= 40) {
-          currentIncline = val;
-          changed = true;
+          if (!grpcConnected) { currentIncline = val; changed = true; }
         }
       }
     }
-    // FitPro sending: "FITPRO Sending [KPH: 1.6093...]" (command confirmation)
-    else if (line.includes('Sending [KPH:')) {
-      const m = line.match(/\[KPH:\s*([\d.]+)/);
-      if (m) {
-        const val = parseFloat(m[1]);
-        if (!isNaN(val) && val >= 0 && val <= 25) {
-          currentSpeed = val;
-          changed = true;
-        }
-      }
-    }
-    // FitPro sending grade: "FITPRO Sending [GRADE: 0.0]"
-    else if (line.includes('Sending [GRADE:')) {
-      const m = line.match(/\[GRADE:\s*(-?[\d.]+)/);
-      if (m) {
-        const val = parseFloat(m[1]);
-        if (!isNaN(val) && val >= -6 && val <= 40) {
-          currentIncline = val;
-          changed = true;
-        }
-      }
-    }
-    // Heart rate: "HeartRateDataUpdate 152"
+    // Heart rate (gRPC doesn't provide HR — logs are the only source)
     else if (line.includes('HeartRateDataUpdate')) {
       const parts = line.trim().split(/\s+/);
       const val = parseInt(parts[parts.length - 1]);
@@ -202,110 +618,40 @@ function parseLogLines(text) {
         changed = true;
       }
     }
-    // Watts: "Changed Watts" — look for numeric value
-    else if (line.includes('Changed Watts')) {
-      const m = line.match(/to\s+([\d.]+)/);
-      if (m) {
-        const val = parseInt(m[1]);
-        if (!isNaN(val) && val > 0) {
-          currentWatts = val;
-          changed = true;
-        }
-      }
-    }
-    // RPM: "Changed RPM" — look for numeric value
-    else if (line.includes('Changed RPM')) {
-      const m = line.match(/to\s+([\d.]+)/);
-      if (m) {
-        const val = parseInt(m[1]);
-        if (!isNaN(val) && val >= 0) {
-          currentRPM = val;
-          changed = true;
-        }
-      }
-    }
-    // Console state: "SDS Changed CONSOLE_STATE from IDLE to WORKOUT"
+    // Console state from logs (backup)
     else if (line.includes('Changed CONSOLE_STATE')) {
       const m = line.match(/to\s+(\w+)/);
-      if (m) {
-        const state = m[1];
-        console.log(`[Bridge] Console state: ${state}`);
+      if (m && !grpcConnected) {
+        console.log(`[LOG] Console state: ${m[1]}`);
       }
     }
-    // Physical button: "SDS Changed KEY_OBJECT ... KeyPress(code=STOP, ...)"
+    // SDS Console Basic Info (periodic full dump)
+    else if (line.includes('Console Basic Info')) {
+      const pulse = line.match(/Pulse:\s*([\d.]+)\s*bpm/);
+      if (pulse) {
+        const v = parseFloat(pulse[1]);
+        if (!isNaN(v) && v > 0) { currentHR = v; changed = true; }
+      }
+      // Only use speed/incline from logs if gRPC not connected
+      if (!grpcConnected) {
+        const speed = line.match(/Speed:\s*([\d.]+)\s*kph/);
+        const incline = line.match(/Incline:\s*(-?[\d.]+)\s*%/);
+        if (speed) { const v = parseFloat(speed[1]); if (!isNaN(v)) { currentSpeed = v; changed = true; } }
+        if (incline) { const v = parseFloat(incline[1]); if (!isNaN(v)) { currentIncline = v; changed = true; } }
+      }
+    }
+    // Physical button presses (always log these)
     else if (line.includes('Changed KEY_OBJECT') && line.includes('code=STOP')) {
-      console.log('[Bridge] STOP button pressed on treadmill');
+      console.log('[LOG] STOP button pressed on treadmill');
     }
   }
 
   if (changed) broadcastState();
 }
 
-// ── Speed/Incline control via input swipe ───────────────────────────────────
-
-let swipeQueue = [];
-let processingSwipe = false;
-
-async function queueSwipe(type, value) {
-  swipeQueue.push({ type, value, time: Date.now() });
-  if (!processingSwipe) processSwipeQueue();
-}
-
-async function processSwipeQueue() {
-  if (swipeQueue.length === 0) {
-    processingSwipe = false;
-    return;
-  }
-  processingSwipe = true;
-
-  const cmd = swipeQueue.shift();
-  const now = Date.now();
-  const elapsed = now - lastSwipeTime;
-
-  if (elapsed < SWIPE_COOLDOWN_MS) {
-    await sleep(SWIPE_COOLDOWN_MS - elapsed);
-  }
-
-  try {
-    await executeSwipe(cmd.type, cmd.value);
-    lastSwipeTime = Date.now();
-  } catch (e) {
-    console.error(`[BRIDGE] Swipe error: ${e.message}`);
-  }
-
-  // Process next in queue
-  setTimeout(processSwipeQueue, 50);
-}
-
-async function executeSwipe(type, value) {
-  let x, y1, y2;
-
-  if (type === 'speed') {
-    x = X32I.speed.x;
-    y1 = X32I.speed.y1;
-    y2 = X32I.speed.calcY(value);
-    console.log(`[BRIDGE] Speed swipe: ${value} km/h → y=${y2}`);
-  } else if (type === 'incline') {
-    x = X32I.incline.x;
-    y1 = X32I.incline.y1;
-    y2 = X32I.incline.calcY(value);
-    console.log(`[BRIDGE] Incline swipe: ${value}% → y=${y2}`);
-  } else {
-    return;
-  }
-
-  // Clamp Y values to screen bounds
-  y1 = Math.max(0, Math.min(1440, y1));
-  y2 = Math.max(0, Math.min(1440, y2));
-
-  await shell(`input swipe ${x} ${y1} ${x} ${y2} ${X32I.swipeDuration}`);
-}
-
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-// ── WebSocket broadcast ─────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// WEBSOCKET BROADCAST + MESSAGE HANDLING
+// ═══════════════════════════════════════════════════════════════════════════════
 
 function broadcastState() {
   const msg = JSON.stringify({
@@ -317,6 +663,11 @@ function broadcastState() {
       Watts: currentWatts.toString(),
       RPM: currentRPM.toString(),
     },
+    workout: {
+      state: workoutState,
+      id: workoutId,
+      grpc: grpcConnected,
+    },
   });
 
   for (const client of wsClients) {
@@ -326,62 +677,124 @@ function broadcastState() {
   }
 }
 
-function handleClientMessage(data) {
+async function handleClientMessage(data) {
   try {
     const msg = JSON.parse(data);
-    if (!msg || !msg.values) return;
+    if (!msg) return;
 
+    // Current state request
     if (msg.type === 'get') {
-      // Client requesting current state
       broadcastState();
       return;
     }
 
-    if (msg.type === 'set') {
+    // Speed/incline control
+    if (msg.type === 'set' && msg.values) {
       const v = msg.values;
 
-      // Speed command (accepts MPH or KPH)
       if (v.MPH !== undefined) {
         const kph = parseFloat(v.MPH) * 1.60934;
-        queueSwipe('speed', Math.max(0, Math.min(22, kph)));
+        queueControl('speed', Math.max(0, Math.min(22, kph)));
       } else if (v.KPH !== undefined) {
-        queueSwipe('speed', Math.max(0, Math.min(22, parseFloat(v.KPH))));
+        queueControl('speed', Math.max(0, Math.min(22, parseFloat(v.KPH))));
       }
 
-      // Incline command
       if (v.Incline !== undefined) {
-        queueSwipe('incline', Math.max(-6, Math.min(40, parseFloat(v.Incline))));
+        queueControl('incline', Math.max(-6, Math.min(40, parseFloat(v.Incline))));
       } else if (v.Grade !== undefined) {
-        queueSwipe('incline', Math.max(-6, Math.min(40, parseFloat(v.Grade))));
+        queueControl('incline', Math.max(-6, Math.min(40, parseFloat(v.Grade))));
       }
+      return;
     }
-  } catch {}
+
+    // Workout lifecycle commands
+    if (msg.type === 'workout') {
+      let result;
+      switch (msg.action) {
+        case 'start':
+          result = await grpcStartWorkout();
+          break;
+        case 'stop':
+          result = await grpcStopWorkout();
+          break;
+        case 'pause':
+          result = await grpcPauseWorkout();
+          break;
+        case 'resume':
+          result = await grpcResumeWorkout();
+          break;
+        default:
+          result = { ok: false, error: 'Unknown workout action: ' + msg.action };
+      }
+
+      // Send result back to the client that requested it
+      const response = JSON.stringify({ type: 'workout_result', action: msg.action, ...result });
+      for (const client of wsClients) {
+        try { if (client.readyState === 1) client.send(response); } catch {}
+      }
+      return;
+    }
+
+    // APK commands (UI automation — tap, swipe, back, etc.)
+    if (msg.type === 'apk') {
+      try {
+        const result = await apkCommand(msg.endpoint, msg.body);
+        const response = JSON.stringify({ type: 'apk_result', endpoint: msg.endpoint, ...result });
+        for (const client of wsClients) {
+          try { if (client.readyState === 1) client.send(response); } catch {}
+        }
+      } catch (e) {
+        console.error(`[BRIDGE] APK command error: ${e.message}`);
+      }
+      return;
+    }
+
+  } catch (e) {
+    console.error(`[BRIDGE] Message parse error: ${e.message}`);
+  }
 }
 
-// ── HTTP + WebSocket server ─────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// HTTP + WEBSOCKET SERVER
+// ═══════════════════════════════════════════════════════════════════════════════
 
 function startServer() {
   const server = http.createServer((req, res) => {
-    // Health check endpoint
+    // CORS headers for all responses
+    const corsHeaders = {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    };
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, corsHeaders);
+      res.end();
+      return;
+    }
+
+    // Health check
     if (req.url === '/health') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders });
       res.end(JSON.stringify({
         status: 'ok',
+        version: '3.0',
         speed: currentSpeed,
         incline: currentIncline,
         hr: currentHR,
-        logPath: logPath,
+        workoutState,
+        workoutId,
+        grpc: grpcConnected,
+        apk: apkAvailable,
+        logPath,
         clients: wsClients.size,
       }));
       return;
     }
 
-    // Current state (for HTTP polling fallback)
+    // Current state (HTTP polling fallback)
     if (req.url === '/state') {
-      res.writeHead(200, {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-      });
+      res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders });
       res.end(JSON.stringify({
         type: 'stats',
         values: {
@@ -389,42 +802,103 @@ function startServer() {
           Incline: currentIncline.toFixed(1),
           'Heart Rate': currentHR.toString(),
         },
+        workout: {
+          state: workoutState,
+          id: workoutId,
+          grpc: grpcConnected,
+        },
       }));
       return;
     }
 
-    // Command endpoint (for HTTP POST fallback)
+    // HTTP command endpoint (POST)
     if (req.url === '/command' && req.method === 'POST') {
       let body = '';
       req.on('data', chunk => body += chunk);
       req.on('end', () => {
         handleClientMessage(body);
-        res.writeHead(200, {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
-        });
+        res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders });
         res.end('{"ok":true}');
       });
       return;
     }
 
-    // CORS preflight
-    if (req.method === 'OPTIONS') {
-      res.writeHead(204, {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
+    // Workout control endpoints (REST-style for easy testing)
+    if (req.url === '/workout/start' && req.method === 'POST') {
+      grpcStartWorkout().then(result => {
+        res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders });
+        res.end(JSON.stringify(result));
       });
-      res.end();
+      return;
+    }
+
+    if (req.url === '/workout/stop' && req.method === 'POST') {
+      grpcStopWorkout().then(result => {
+        res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders });
+        res.end(JSON.stringify(result));
+      });
+      return;
+    }
+
+    if (req.url === '/workout/pause' && req.method === 'POST') {
+      grpcPauseWorkout().then(result => {
+        res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders });
+        res.end(JSON.stringify(result));
+      });
+      return;
+    }
+
+    if (req.url === '/workout/resume' && req.method === 'POST') {
+      grpcResumeWorkout().then(result => {
+        res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders });
+        res.end(JSON.stringify(result));
+      });
+      return;
+    }
+
+    // Set speed (REST endpoint for testing: POST /speed {"kph": 5.0})
+    if (req.url === '/speed' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', async () => {
+        try {
+          const { kph, mph } = JSON.parse(body);
+          const targetKph = kph || (mph * 1.60934);
+          await queueControl('speed', Math.max(0, Math.min(22, targetKph)));
+          res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders });
+          res.end(JSON.stringify({ ok: true, kph: targetKph }));
+        } catch (e) {
+          res.writeHead(400, { 'Content-Type': 'application/json', ...corsHeaders });
+          res.end(JSON.stringify({ ok: false, error: e.message }));
+        }
+      });
+      return;
+    }
+
+    // Set incline (REST endpoint for testing: POST /incline {"percent": 5.0})
+    if (req.url === '/incline' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', async () => {
+        try {
+          const { percent } = JSON.parse(body);
+          await queueControl('incline', Math.max(-6, Math.min(40, percent)));
+          res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders });
+          res.end(JSON.stringify({ ok: true, percent }));
+        } catch (e) {
+          res.writeHead(400, { 'Content-Type': 'application/json', ...corsHeaders });
+          res.end(JSON.stringify({ ok: false, error: e.message }));
+        }
+      });
       return;
     }
 
     res.writeHead(404);
-    res.end('TrailRunner Bridge');
+    res.end('TrailRunner Bridge v3.0');
   });
 
+  // WebSocket
   if (WebSocketServer) {
-    // Use ws module
     const wss = new WebSocketServer({ server });
     wss.on('connection', (ws) => {
       console.log('[BRIDGE] Client connected');
@@ -479,7 +953,6 @@ function startServer() {
 
   server.listen(listenPort, '0.0.0.0', () => {
     console.log(`[BRIDGE] TrailRunner Bridge listening on port ${listenPort}`);
-    console.log(`[BRIDGE] Mode: ${adbMode ? 'ADB remote (' + adbIP + ')' : 'local (Termux)'}`);
   });
 }
 
@@ -501,7 +974,7 @@ class MinimalWSClient {
 
     if (len < 126) {
       header = Buffer.alloc(2);
-      header[0] = 0x81; // text frame, FIN
+      header[0] = 0x81;
       header[1] = len;
     } else if (len < 65536) {
       header = Buffer.alloc(4);
@@ -524,8 +997,8 @@ class MinimalWSClient {
 function decodeWSFrame(buf) {
   if (buf.length < 2) return null;
   const opcode = buf[0] & 0x0f;
-  if (opcode === 0x08) return null; // close frame
-  if (opcode !== 0x01) return null; // only text frames
+  if (opcode === 0x08) return null;
+  if (opcode !== 0x01) return null;
 
   const masked = (buf[1] & 0x80) !== 0;
   let payloadLen = buf[1] & 0x7f;
@@ -560,58 +1033,88 @@ function decodeWSFrame(buf) {
   return payload.toString('utf8');
 }
 
-// ── Main ────────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// MAIN
+// ═══════════════════════════════════════════════════════════════════════════════
 
 async function main() {
   console.log('');
-  console.log('  ╔══════════════════════════════════════════════╗');
-  console.log('  ║  TrailRunner Bridge v1.0                     ║');
-  console.log('  ║  WebSocket → NordicTrack X32i Hardware       ║');
-  console.log('  ╚══════════════════════════════════════════════╝');
+  console.log('  ╔══════════════════════════════════════════════════════════════╗');
+  console.log('  ║  TrailRunner Bridge v3.0                                     ║');
+  console.log('  ║  Direct Motor Control via gRPC + WebSocket                   ║');
+  console.log('  ║  NordicTrack X32i — glassos_service API                      ║');
+  console.log('  ╚══════════════════════════════════════════════════════════════╝');
   console.log('');
 
-  // Connect ADB if in remote mode
+  // 1. Connect ADB
   if (adbMode) {
-    console.log(`[BRIDGE] Connecting ADB to ${adbIP}:5555 ...`);
+    console.log(`[ADB] Connecting to ${adbIP}:5555 ...`);
     try {
-      await new Promise((resolve, reject) => {
-        exec(`adb connect ${adbIP}:5555`, { timeout: 10000 }, (err, stdout) => {
-          if (err) reject(err);
-          else { console.log(`[BRIDGE] ${stdout.trim()}`); resolve(); }
-        });
-      });
+      const result = await adbExec(`connect ${adbIP}:5555`);
+      console.log(`[ADB] ${result}`);
     } catch (e) {
-      console.error(`[BRIDGE] ADB connection failed: ${e.message}`);
+      console.error(`[ADB] Connection failed: ${e.message}`);
       process.exit(1);
+    }
+
+    // 2. Port-forward gRPC (treadmill:54321 → localhost:54321)
+    console.log('[ADB] Setting up port forward for gRPC...');
+    try {
+      await adbExec(`-s ${adbIP}:5555 forward tcp:${GRPC_PORT} tcp:${GRPC_PORT}`);
+      console.log(`[ADB] Port forward: localhost:${GRPC_PORT} → treadmill:${GRPC_PORT}`);
+    } catch (e) {
+      console.error(`[ADB] Port forward failed: ${e.message}`);
+      console.error('[ADB] gRPC control will not be available');
     }
   }
 
-  // Find log file
-  console.log('[BRIDGE] Searching for glassos_service logs...');
+  // 3. Connect gRPC
+  await connectGrpc();
+
+  // 4. Find log file (backup telemetry)
+  console.log('[LOG] Searching for glassos_service logs...');
   logPath = await findLogPath();
   if (logPath) {
-    console.log(`[BRIDGE] Found log: ${logPath}`);
+    console.log(`[LOG] Found: ${logPath}`);
   } else {
-    console.warn('[BRIDGE] WARNING: No glassos_service log found!');
-    console.warn('[BRIDGE] Speed/incline reads will not work.');
-    console.warn('[BRIDGE] Will still serve WebSocket and accept commands.');
+    console.warn('[LOG] No log file found (HR data will not be available)');
   }
 
-  // Start WebSocket server
+  // 5. Check APK bridge (still used for UI automation)
+  console.log(`[APK] Checking bridge at ${adbIP}:${APK_PORT}...`);
+  const apkOk = await checkApk();
+  if (apkOk) {
+    console.log('[APK] Bridge: OK');
+  } else {
+    console.log('[APK] Bridge: not available (UI automation disabled)');
+  }
+
+  // 6. Start WebSocket server
   startServer();
 
-  // Start log polling
+  // 7. Periodic tasks
+  setInterval(checkApk, 30000);           // APK health check every 30s
   if (logPath) {
-    console.log(`[BRIDGE] Polling logs every ${LOG_POLL_MS}ms`);
-    setInterval(readNewLogLines, LOG_POLL_MS);
-    // Initial read
+    setInterval(readNewLogLines, LOG_POLL_MS); // Log polling (for HR + backup)
     await readNewLogLines();
   }
+  setInterval(broadcastState, 2000);       // State broadcast every 2s
 
-  // Periodic state broadcast (even if no log changes)
-  setInterval(broadcastState, 2000);
-
-  console.log('[BRIDGE] Ready. TrailRunner can connect to ws://localhost:' + listenPort);
+  console.log('');
+  console.log('[BRIDGE] ══════════════════════════════════════════');
+  console.log(`[BRIDGE] Ready! PWA: ws://localhost:${listenPort}`);
+  console.log(`[BRIDGE] gRPC: ${grpcConnected ? 'CONNECTED' : 'DISCONNECTED'}`);
+  console.log(`[BRIDGE] APK:  ${apkAvailable ? 'AVAILABLE' : 'NOT AVAILABLE'}`);
+  console.log(`[BRIDGE] Logs: ${logPath ? 'ACTIVE' : 'NONE'}`);
+  console.log('[BRIDGE] ══════════════════════════════════════════');
+  console.log('');
+  console.log('[BRIDGE] REST API for testing:');
+  console.log(`  POST http://localhost:${listenPort}/workout/start`);
+  console.log(`  POST http://localhost:${listenPort}/workout/stop`);
+  console.log(`  POST http://localhost:${listenPort}/speed    {"kph": 5.0}`);
+  console.log(`  POST http://localhost:${listenPort}/incline  {"percent": 3.0}`);
+  console.log(`  GET  http://localhost:${listenPort}/health`);
+  console.log(`  GET  http://localhost:${listenPort}/state`);
   console.log('');
 }
 

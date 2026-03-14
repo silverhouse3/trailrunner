@@ -26,6 +26,13 @@ const TM = {
   onDisconnect: null,   // () =>
   onData: null,         // (parsed) =>  — { speed, incline, hr, calories }
   onStatus: null,       // (state, name) =>  — state: idle|connecting|connected
+  onWorkout: null,      // (workout) =>  — { state, id, grpc }
+  onWorkoutResult: null, // (result) =>  — { ok, action, error?, workoutId? }
+
+  // Workout state
+  workoutState: 'IDLE',
+  workoutId: null,
+  grpcConnected: false,
 
   connect(customPort) {
     if (this.connected || (this.ws && this.ws.readyState === 0)) {
@@ -152,7 +159,24 @@ const TM = {
   // ── Message handler ─────────────────────────────────────────────────────
 
   _handleMessage(msg) {
-    if (!msg || !msg.values) return;
+    if (!msg) return;
+
+    // Workout result (response to start/stop/pause/resume)
+    if (msg.type === 'workout_result') {
+      console.log('[TM] Workout result:', msg);
+      if (this.onWorkoutResult) this.onWorkoutResult(msg);
+      return;
+    }
+
+    // Workout state updates (from stats broadcast)
+    if (msg.workout) {
+      this.workoutState = msg.workout.state || 'IDLE';
+      this.workoutId = msg.workout.id || null;
+      this.grpcConnected = msg.workout.grpc || false;
+      if (this.onWorkout) this.onWorkout(msg.workout);
+    }
+
+    if (!msg.values) return;
     const v = msg.values;
     const data = {};
 
@@ -245,6 +269,32 @@ const TM = {
     this._lastInclineT = 0;
     this._send({ values: { Incline: '0' }, type: 'set' });
     console.warn('[TM] EMERGENCY STOP');
+  },
+
+  // ── Workout lifecycle (gRPC via bridge) ──────────────────────────────────
+
+  /** Start a new manual workout — spins up the belt motor. */
+  startWorkout() {
+    console.log('[TM] Starting workout...');
+    this._send({ type: 'workout', action: 'start' });
+  },
+
+  /** Stop the current workout — belt stops. */
+  stopWorkout() {
+    console.log('[TM] Stopping workout...');
+    this._send({ type: 'workout', action: 'stop' });
+  },
+
+  /** Pause the current workout. */
+  pauseWorkout() {
+    console.log('[TM] Pausing workout...');
+    this._send({ type: 'workout', action: 'pause' });
+  },
+
+  /** Resume a paused workout. */
+  resumeWorkout() {
+    console.log('[TM] Resuming workout...');
+    this._send({ type: 'workout', action: 'resume' });
   },
 };
 
