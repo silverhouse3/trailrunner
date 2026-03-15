@@ -764,6 +764,10 @@ var WorkoutSegments = {
 
   _sendSpeed: function (kph) {
     var capped = Math.min(kph, SpeedUnits.SAFETY_CAP_KPH);
+    // Set engine target so software ramp works without treadmill
+    if (typeof Engine !== 'undefined' && Engine.ctrl) {
+      Engine.ctrl.targetSpeed = capped;
+    }
     if (typeof TM !== 'undefined' && TM.setSpeed) {
       TM.setSpeed(capped);
     }
@@ -771,6 +775,11 @@ var WorkoutSegments = {
   },
 
   _sendIncline: function (percent) {
+    // Set engine target so incline tracks without treadmill
+    if (typeof Engine !== 'undefined') {
+      Engine.ctrl.targetIncline = percent;
+      if (Engine.run) Engine.run.incline = percent;
+    }
     if (typeof TM !== 'undefined' && TM.setIncline) {
       TM.setIncline(percent);
     }

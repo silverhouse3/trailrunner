@@ -534,6 +534,9 @@ const Engine = {
     if (this.ctrl.mode === 'route') {
       // Auto-incline to match route gradient
       if (this.hasRoute()) {
+        this.ctrl.targetIncline = this.run.currentGrade;
+        // Set run.incline directly so it displays even without treadmill
+        this.run.incline = this.run.currentGrade;
         TM.setIncline(this.run.currentGrade);
       }
 

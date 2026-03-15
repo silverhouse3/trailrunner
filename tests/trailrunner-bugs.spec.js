@@ -169,33 +169,29 @@ test.describe('TrailRunner Bug Fixes', () => {
 
   // ─── FIX 7: Oval track gets progress without WorkoutSegments ──────────
   test('oval track receives progress during route run', async ({ page }) => {
-    // Start a run
+    // Start a run (auto-switches to oval when no route loaded)
     const startBtn = page.locator('.setup-start-btn');
     await startBtn.click();
     await page.waitForTimeout(300);
 
-    // Switch to oval view
-    await page.evaluate(() => App.setMapStyle('oval'));
-    await page.waitForTimeout(300);
-
-    // Verify OvalTrack is active
+    // Verify OvalTrack is active (auto-switched since no route)
     const ovalActive = await page.evaluate(() => OvalTrack.active);
     expect(ovalActive).toBe(true);
 
-    // Simulate speed and tick
+    // Set target speed and let the engine ramp + tick naturally
     await page.evaluate(() => {
-      Engine.run.speed = 8;
-      Engine.run.speedSource = 'simulation';
-      // Manually tick a few times
-      for (let i = 0; i < 20; i++) {
-        Engine.tick();
-      }
+      Engine.ctrl.targetSpeed = 10;
     });
-    await page.waitForTimeout(500);
 
-    // OvalTrack should have non-zero progress (distance was accumulated)
+    // Wait for speed to ramp up and distance to accumulate
+    await page.waitForTimeout(5000);
+
+    // OvalTrack should have non-zero progress
     const progress = await page.evaluate(() => OvalTrack._progress);
     expect(progress).toBeGreaterThan(0);
+
+    const dist = await page.evaluate(() => Engine.run.distanceM);
+    expect(dist).toBeGreaterThan(0);
 
     await page.screenshot({ path: '/mnt/d/trailrunner/tests/screenshots/07-oval-progress.png' });
   });
