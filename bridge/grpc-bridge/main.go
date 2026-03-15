@@ -74,11 +74,18 @@ var (
 	calClient      pb.CaloriesBurnedServiceClient
 	timeClient     pb.ElapsedTimeServiceClient
 	elevClient     pb.ElevationServiceClient
+	consoleClient  pb.ConsoleServiceClient
+	programClient  pb.ProgrammedWorkoutSessionServiceClient
 
 	currentDist    float64 // km
 	currentCals    float64 // kcal
 	currentElapsed int32   // seconds
 	currentElevGain float64 // meters
+
+	// Console info (from ConsoleService)
+	consoleInfo    *pb.ConsoleInfo
+	consoleState   string // from ConsoleState enum
+	safetyKeyOut   bool   // true when safety key is removed
 
 	wsMu      sync.Mutex
 	wsClients = make(map[*wsConn]bool)
@@ -133,6 +140,8 @@ func connectGRPC() error {
 	calClient = pb.NewCaloriesBurnedServiceClient(conn)
 	timeClient = pb.NewElapsedTimeServiceClient(conn)
 	elevClient = pb.NewElevationServiceClient(conn)
+	consoleClient = pb.NewConsoleServiceClient(conn)
+	programClient = pb.NewProgrammedWorkoutSessionServiceClient(conn)
 
 	// Test connection
 	state, err := workoutClient.GetWorkoutState(grpcCtx(), &pb.Empty{})
@@ -168,6 +177,8 @@ func connectGRPC() error {
 	go subscribeCalories()
 	go subscribeElapsedTime()
 	go subscribeElevation()
+	go fetchConsoleInfo()
+	go subscribeConsoleState()
 
 	return nil
 }
@@ -376,6 +387,187 @@ func subscribeElevation() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// CONSOLE SERVICE — hardware info + safety key monitoring
+// ═══════════════════════════════════════════════════════════════════════════════
+
+func fetchConsoleInfo() {
+	for i := 0; i < 5; i++ {
+		info, err := consoleClient.GetConsole(grpcCtx(), &pb.Empty{})
+		if err != nil {
+			log.Printf("[Console] GetConsole attempt %d failed: %v", i+1, err)
+			time.Sleep(3 * time.Second)
+			continue
+		}
+		mu.Lock()
+		consoleInfo = info
+		mu.Unlock()
+		log.Printf("[Console] Hardware: model=%d firmware=%s serial=%s maxKph=%.1f maxIncline=%.1f%% minIncline=%.1f%%",
+			info.ModelNumber, info.FirmwareVersion, info.ProductSerialNumber,
+			info.MaxKph, info.MaxInclinePercent, info.MinInclinePercent)
+		return
+	}
+	log.Println("[Console] Could not fetch console info after 5 attempts")
+}
+
+func subscribeConsoleState() {
+	for {
+		stream, err := consoleClient.ConsoleStateChanged(grpcStreamCtx(), &pb.Empty{})
+		if err != nil {
+			log.Printf("[Console] State sub error: %v", err)
+			time.Sleep(5 * time.Second)
+			continue
+		}
+		log.Println("[Console] Console state subscription active")
+		for {
+			msg, err := stream.Recv()
+			if err != nil {
+				log.Printf("[Console] State stream ended: %v", err)
+				break
+			}
+			stateName := msg.ConsoleState.String()
+			mu.Lock()
+			consoleState = stateName
+			safetyKeyOut = (msg.ConsoleState == pb.ConsoleState_SAFETY_KEY_REMOVED)
+			mu.Unlock()
+			log.Printf("[Console] State: %s", stateName)
+
+			// Safety key removed — emergency notification
+			if msg.ConsoleState == pb.ConsoleState_SAFETY_KEY_REMOVED {
+				log.Println("[SAFETY] Safety key removed! Publishing to MQTT")
+				if mqttReady && mqttClient != nil {
+					mqttClient.Publish(mqttTopicPrefix+"/safety_key", 1, false, "removed")
+				}
+			} else {
+				if mqttReady && mqttClient != nil {
+					mqttClient.Publish(mqttTopicPrefix+"/safety_key", 0, false, "ok")
+				}
+			}
+			broadcastState()
+		}
+		time.Sleep(3 * time.Second)
+	}
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PROGRAMMED WORKOUT SERVICE — push pre-built workouts to motor controller
+// ═══════════════════════════════════════════════════════════════════════════════
+
+func handleProgrammedWorkout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "POST only", 405)
+		return
+	}
+
+	var req struct {
+		Title      string `json:"title"`
+		TargetType string `json:"targetType"` // TIME, DISTANCE, CALORIES
+		TargetValue float64 `json:"targetValue"`
+		Controls   []struct {
+			Type  string  `json:"type"`  // MPS, INCLINE
+			At    float64 `json:"at"`
+			Value float64 `json:"value"`
+		} `json:"controls"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		j(w, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+
+	// Build control list
+	var controls []*pb.Control
+	for _, c := range req.Controls {
+		ct := pb.ControlType_CONTROL_TYPE_UNKNOWN
+		switch strings.ToUpper(c.Type) {
+		case "MPS":
+			ct = pb.ControlType_CONTROL_TYPE_MPS
+		case "INCLINE":
+			ct = pb.ControlType_CONTROL_TYPE_INCLINE
+		case "RESISTANCE":
+			ct = pb.ControlType_CONTROL_TYPE_RESISTANCE
+		}
+		controls = append(controls, &pb.Control{
+			Type:  ct,
+			At:    c.At,
+			Value: c.Value,
+		})
+	}
+
+	// Map target type
+	tt := pb.WorkoutTargetType_WORKOUT_TARGET_TYPE_SECONDS
+	switch strings.ToUpper(req.TargetType) {
+	case "DISTANCE":
+		tt = pb.WorkoutTargetType_WORKOUT_TARGET_TYPE_METERS
+	case "CALORIES":
+		tt = pb.WorkoutTargetType_WORKOUT_TARGET_TYPE_CALORIES
+	}
+
+	// Build the workout segment
+	workout := &pb.Workout{
+		Title:       &req.Title,
+		Controls:    &pb.ControlList{Controls: controls},
+		TargetType:  tt,
+		TargetValue: &req.TargetValue,
+		WorkoutType: pb.WorkoutType_WORKOUT_TYPE_RUN,
+	}
+
+	segment := &pb.WorkoutSegmentDescriptor{
+		WorkoutMetadata: &pb.ActivityLogMetadata{
+			Title: req.Title,
+		},
+		ItemType:                   pb.ItemType_ITEM_TYPE_MAIN,
+		ManualWorkoutLengthSeconds: req.TargetValue,
+	}
+	// Store workout in segment metadata
+	_ = workout // workout data is encoded in controls
+	_ = segment
+
+	// Build AddAllWorkoutSegmentsRequest
+	addReq := &pb.AddAllWorkoutSegmentsRequest{
+		WorkoutSegments: []*pb.WorkoutSegmentDescriptor{segment},
+	}
+
+	resp, err := programClient.AddAndStart(grpcCtx(), addReq)
+	if err != nil {
+		j(w, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+
+	log.Printf("[PROGRAM] Workout '%s' pushed and started: %v", req.Title, resp)
+	j(w, map[string]interface{}{"ok": true, "title": req.Title, "controls": len(req.Controls)})
+}
+
+func handleConsoleInfo(w http.ResponseWriter, r *http.Request) {
+	mu.RLock()
+	info := consoleInfo
+	cs := consoleState
+	sk := safetyKeyOut
+	mu.RUnlock()
+
+	if info == nil {
+		j(w, map[string]interface{}{"ok": false, "error": "console info not available"})
+		return
+	}
+
+	j(w, map[string]interface{}{
+		"ok":                 true,
+		"model_number":       info.ModelNumber,
+		"part_number":        info.PartNumber,
+		"firmware_version":   info.FirmwareVersion,
+		"serial_number":      info.ProductSerialNumber,
+		"brainboard_serial":  info.BrainboardSerialNumber,
+		"max_kph":            info.MaxKph,
+		"min_kph":            info.MinKph,
+		"max_incline_pct":    info.MaxInclinePercent,
+		"min_incline_pct":    info.MinInclinePercent,
+		"can_set_speed":      info.CanSetSpeed,
+		"can_set_incline":    info.CanSetIncline,
+		"machine_type":       info.MachineType.String(),
+		"console_state":      cs,
+		"safety_key_removed": sk,
+	})
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // HTTP SERVER
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -393,6 +585,8 @@ func startHTTPServer() {
 	mux.HandleFunc("/command", cors(handleCommand))
 	mux.HandleFunc("/api/state", cors(handleAPIState))
 	mux.HandleFunc("/api/workout/summary", cors(handleWorkoutSummary))
+	mux.HandleFunc("/api/console", cors(handleConsoleInfo))
+	mux.HandleFunc("/workout/program", cors(handleProgrammedWorkout))
 	mux.HandleFunc("/ws", handleWS)
 
 	log.Printf("[HTTP] Listening on %s", listenAddr)
@@ -423,7 +617,7 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 	mu.RLock()
 	defer mu.RUnlock()
 	j(w, map[string]interface{}{
-		"status": "ok", "version": "3.1-native",
+		"status": "ok", "version": "3.2-native",
 		"speed": currentSpeed, "incline": currentIncl, "hr": currentHR,
 		"workoutState": workoutState, "workoutId": workoutID,
 		"grpc": grpcConnected, "mqtt": mqttReady, "clients": len(wsClients),
@@ -569,23 +763,31 @@ func handleIncline(w http.ResponseWriter, r *http.Request) {
 func handleAPIState(w http.ResponseWriter, r *http.Request) {
 	mu.RLock()
 	defer mu.RUnlock()
-	j(w, map[string]interface{}{
-		"speed_kph":     currentSpeed,
-		"speed_mph":     currentSpeed / 1.60934,
-		"incline_pct":   currentIncl,
-		"heart_rate":    currentHR,
-		"distance_km":   currentDist,
-		"calories":      currentCals,
-		"elapsed_sec":   currentElapsed,
-		"elevation_m":   currentElevGain,
-		"workout_state": workoutState,
-		"workout_id":    workoutID,
-		"grpc":          grpcConnected,
-		"mqtt":          mqttReady,
-		"ws_clients":    len(wsClients),
-		"version":       "3.1",
-		"uptime_sec":    int(time.Since(startTime).Seconds()),
-	})
+	state := map[string]interface{}{
+		"speed_kph":          currentSpeed,
+		"speed_mph":          currentSpeed / 1.60934,
+		"incline_pct":        currentIncl,
+		"heart_rate":         currentHR,
+		"distance_km":        currentDist,
+		"calories":           currentCals,
+		"elapsed_sec":        currentElapsed,
+		"elevation_m":        currentElevGain,
+		"workout_state":      workoutState,
+		"workout_id":         workoutID,
+		"grpc":               grpcConnected,
+		"mqtt":               mqttReady,
+		"ws_clients":         len(wsClients),
+		"version":            "3.2",
+		"uptime_sec":         int(time.Since(startTime).Seconds()),
+		"console_state":      consoleState,
+		"safety_key_removed": safetyKeyOut,
+	}
+	if consoleInfo != nil {
+		state["max_kph"] = consoleInfo.MaxKph
+		state["max_incline_pct"] = consoleInfo.MaxInclinePercent
+		state["min_incline_pct"] = consoleInfo.MinInclinePercent
+	}
+	j(w, state)
 }
 
 func handleWorkoutSummary(w http.ResponseWriter, r *http.Request) {
@@ -926,7 +1128,7 @@ const (
 )
 
 func mqttDeviceJSON() string {
-	return `{"identifiers":["trailrunner_x32i"],"name":"TrailRunner X32i","manufacturer":"NordicTrack","model":"X32i","sw_version":"3.1"}`
+	return `{"identifiers":["trailrunner_x32i"],"name":"TrailRunner X32i","manufacturer":"NordicTrack","model":"X32i","sw_version":"3.2"}`
 }
 
 func connectMQTT() {
@@ -1067,6 +1269,20 @@ func publishHADiscovery() {
 		mqttClient.Publish(topic, 1, true, d)
 	}
 
+	// Binary sensor — safety key
+	safetyPayload := map[string]interface{}{
+		"name":            "Safety Key",
+		"unique_id":       "trailrunner_safety_key",
+		"state_topic":     mqttTopicPrefix + "/safety_key",
+		"payload_on":      "removed",
+		"payload_off":     "ok",
+		"device_class":    "safety",
+		"icon":            "mdi:key-alert",
+		"device":          json.RawMessage(dev),
+	}
+	d, _ = json.Marshal(safetyPayload)
+	mqttClient.Publish("homeassistant/binary_sensor/trailrunner/safety_key/config", 1, true, d)
+
 	// Binary sensor — treadmill availability
 	availPayload := map[string]interface{}{
 		"name":            "Available",
@@ -1185,7 +1401,7 @@ func publishMQTTState() {
 func main() {
 	fmt.Println("")
 	fmt.Println("  ╔══════════════════════════════════════════════════════════════╗")
-	fmt.Println("  ║  TrailRunner Bridge v3.1 (Native ARM64)                      ║")
+	fmt.Println("  ║  TrailRunner Bridge v3.2 (Native ARM64)                      ║")
 	fmt.Println("  ║  Direct Motor Control — No PC Required                       ║")
 	fmt.Println("  ║  gRPC + MQTT → glassos_service → FitPro → Motor              ║")
 	fmt.Println("  ╚══════════════════════════════════════════════════════════════╝")

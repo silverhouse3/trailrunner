@@ -1,0 +1,12 @@
+syntax = "proto3";
+package com.ifit.glassos;
+option java_package = "com.ifit.glassos.settings";
+option java_outer_classname = "SystemUnitsServiceProto";
+option java_multiple_files = true;
+option swift_prefix = "IFit";
+
+enum SystemUnits {
+  SYSTEM_UNITS_UNKNOWN = 0;
+  SYSTEM_UNITS_METRIC = 1;
+  SYSTEM_UNITS_IMPERIAL = 2;
+}
