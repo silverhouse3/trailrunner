@@ -1,17 +1,21 @@
 # TrailRunner on your X32i — The Idiot's Guide
 
+> **WARNING: USE ENTIRELY AT YOUR OWN RISK.** This guide walks you through installing software that controls your treadmill's belt motor and incline ramp. **Serious injury or death can result** from improper use. The authors accept **no liability whatsoever**. By following this guide you accept **full responsibility** for any outcome. **Always use the physical safety key.**
+
 No jargon, no options, no decisions. Just do exactly what it says.
 
 You need:
 - Your NordicTrack X32i treadmill (plugged in, turned on)
 - A Windows PC or laptop (on the same WiFi as the treadmill)
-- 20 minutes
+- 30 minutes
 
 
 ---
 
 
 ## PART 1: Wake Up the Treadmill
+
+> **WARNING:** This section modifies your treadmill's Android system. Your warranty **will be voided.** There is no undo. Proceed at your own risk.
 
 Your treadmill is locked down by iFIT. We need to unlock it first.
 
@@ -82,6 +86,8 @@ This stops iFIT from drawing over everything:
 
 ## PART 2: Unlock the Treadmill (NordicUnchained)
 
+> **WARNING:** This permanently modifies your treadmill's software. Your warranty is **voided.** Proceed at your own risk.
+
 This part happens on your Windows PC.
 
 ### 9. Download NordicUnchained
@@ -133,121 +139,131 @@ When it comes back up, it will ask you to pick a home launcher — choose **Nova
 ---
 
 
-## PART 3: Install TrailRunner
+## PART 3: Set Up the Bridge
 
-### 13. Open the browser on the treadmill
+> **WARNING:** The bridge is software that talks directly to your treadmill's motor controller. It can start the belt, change speed, and move the incline ramp. **Make sure no one is on or near the treadmill** during setup and testing. **Use at your own risk.**
 
-1. On the treadmill's new home screen, find and open **Chromium** (or Chrome)
-2. In the address bar, type:
-   ```
-   https://silverhouse3.github.io/trailrunner
-   ```
-3. Press Enter. TrailRunner loads.
+The bridge is a small program that runs on the treadmill and translates commands from TrailRunner into motor control instructions.
 
-### 14. Install it as an app
-
-This makes it fullscreen (no address bar) and lets it work offline:
-
-1. Tap the **three dots** (menu) in the top-right corner of Chrome
-2. Tap **"Install app"** or **"Add to Home screen"**
-3. Tap **Install** / **Add**
-4. TrailRunner now has its own icon on the home screen
-
-
----
-
-
-## PART 4: Make it Auto-Start on Boot
-
-This is the bit that makes TrailRunner open automatically every time you turn on the treadmill — no fiddling with browsers.
-
-### 15. Download TrailRunner's setup script
+### 13. Download the TrailRunner files
 
 On your PC, either:
 - Clone the repo: `git clone https://github.com/silverhouse3/trailrunner.git`
-- Or just download: https://github.com/silverhouse3/trailrunner/archive/refs/heads/main.zip and unzip it
+- Or download: https://github.com/silverhouse3/trailrunner/archive/refs/heads/main.zip and unzip
 
-### 16. Run the auto-launch setup
+### 14. Extract the gRPC keys
 
-1. Open **Command Prompt** on your PC
-2. Navigate to the trailrunner folder:
-   ```
-   cd Desktop\trailrunner\tools
-   ```
-3. Run the setup (replace the IP with YOUR treadmill's IP):
-   ```
-   setup_autolaunch.bat 192.168.1.42
-   ```
+The bridge needs security keys from the treadmill to talk to the motor controller:
 
-This does everything for you:
-- Opens TrailRunner on the treadmill right now
-- Creates a boot script on the treadmill
-- If Termux is installed (it usually is after NordicUnchained), it sets up auto-launch on every boot
+```cmd
+cd Desktop\trailrunner\tools
+adb connect 192.168.1.42:5555
+adb pull /data/data/com.ifit.glassos_service/files/certs/ keys/
+```
 
-### 17. Test it
+You should now have three files in a `keys/` folder: `ca.crt`, `client.crt`, `client.key`.
 
-1. **Turn off the treadmill** (hold the power button, or just pull the safety key)
-2. **Turn it back on**
-3. Wait about 30 seconds after the home screen appears
-4. TrailRunner should open by itself
+> **WARNING:** These keys can be used to control your treadmill remotely. **Do not share them with anyone.** Do not commit them to a public repository.
 
-If it doesn't auto-start, see the "It didn't auto-start" section below.
+### 15. Push the bridge and keys to the treadmill
+
+```cmd
+adb push ..\bridge\grpc-bridge\trailrunner-bridge /data/local/tmp/
+adb shell chmod +x /data/local/tmp/trailrunner-bridge
+adb push keys/ /sdcard/trailrunner/keys/
+```
+
+### 16. Test the bridge
+
+> **WARNING: The following commands WILL start the belt motor.** Make absolutely sure **no one is on or near the treadmill.**
+
+```cmd
+:: Start the bridge
+adb shell /data/local/tmp/trailrunner-bridge &
+
+:: Wait 5 seconds, then check if it's running (from your PC)
+curl http://192.168.1.42:4510/health
+```
+
+You should see something like: `{"status":"ok","grpc":true,"workoutState":"IDLE"}`
+
+If you see `grpc":true`, the bridge can talk to the motor controller. You're ready.
 
 
 ---
 
 
-## PART 5: Using TrailRunner
+## PART 4: Install TrailRunner
 
-Every time you turn on the treadmill, TrailRunner will be there. Here's the basics:
+> **WARNING:** Once installed, the TrailRunner app will automatically start the bridge and attempt to connect to the motor controller when opened. **Use at your own risk.**
 
-### Connect to the treadmill
-- Tap the **TREADMILL** button — it connects to the treadmill's motor controller automatically (it's talking to `ws://localhost:80` — the treadmill's built-in WebSocket)
+### 17. Install the APK
 
-### Connect a heart rate strap (optional)
-- Tap the **HR** button — your phone/strap will appear in a Bluetooth picker
-- Supports any standard BLE heart rate monitor (Polar, Garmin, Wahoo, etc.)
+```cmd
+adb install ..\tools\TrailRunner.apk
+```
 
-### Run with a GPX route
+That's it. The app is now on your treadmill.
+
+### 18. Open TrailRunner
+
+1. On the treadmill's home screen, find and tap the **TrailRunner** app
+2. It will show "Starting services..." → "Connecting to treadmill..." → then the TrailRunner UI
+3. The treadmill icon should show **Connected**
+
+
+---
+
+
+## PART 5: Your First Run
+
+> **SAFETY WARNING:** Before your first run:
+> - **Attach the physical safety key** (the red clip on a lanyard) to your clothing. **This is non-negotiable.**
+> - Start with a **walking speed** (3-4 km/h). Do NOT start at running speed.
+> - Keep the area behind and around the treadmill **completely clear**
+> - Have someone nearby who can **pull the safety key** if needed
+> - **The physical safety key is your last line of defence.** Software can fail. The safety key cannot.
+
+### 19. Test at walking speed
+
+1. Open TrailRunner
+2. Make sure the treadmill shows **Connected**
+3. Tap **START** to begin a run
+4. The belt should start moving slowly
+5. Use the **speed buttons** to increase to 3 km/h — verify the belt responds
+6. Use the **incline buttons** to set 2% — verify the ramp moves
+7. Tap **PAUSE** — the belt should slow down gracefully and stop
+8. Tap **RESUME** — the belt should ramp up gently over ~15 seconds
+9. Tap **FINISH** — the belt should slow over 15 seconds and the incline should return to 0%
+
+### 20. Test the emergency stop
+
+> **This is the most important test.** Do this before ever running on the treadmill.
+
+1. Start a run at 4-5 km/h
+2. Tap the **EMERGENCY STOP** button — the belt should stop immediately
+3. Also test: **pull the physical safety key** — the belt must stop instantly (this is the manufacturer's hardware safety, independent of software)
+
+If both work, you're ready to run.
+
+### 21. Import a route (optional)
+
 1. Tap **Import Route**
-2. Pick a `.gpx` file (download routes from Strava, Garmin, AllTrails, etc.)
-3. The treadmill will **automatically adjust the incline** to match the terrain in the route
+2. Pick a `.gpx` file (download from Strava, Garmin Connect, AllTrails, etc.)
+3. The treadmill will **automatically adjust the incline** to match the terrain
 4. The map shows your position moving along the route as you run
 
-### After your run
-- Tap **Finish** — the belt stops, and the incline returns to flat (0%)
-- You can export your run as GPX or TCX to upload to Strava/Garmin
+### 22. Connect a heart rate strap (optional)
 
+1. Tap the **HR** button
+2. Your Bluetooth HR strap will appear in a picker (Polar, Garmin, Wahoo, etc.)
+3. Once connected, HR data drives zone-based auto-control (if enabled)
 
----
+### 23. After your run
 
-
-## It didn't auto-start?
-
-### Option A: Termux:Boot (recommended)
-
-NordicUnchained usually installs Termux. If auto-start didn't work, you might need the Boot add-on:
-
-1. On the treadmill, open Chromium
-2. Go to: https://f-droid.org/packages/com.termux.boot/
-3. Download and install **Termux:Boot**
-4. Open Termux:Boot once (this registers it as a boot receiver)
-5. From your PC, re-run:
-   ```
-   tools\setup_autolaunch.bat 192.168.1.42
-   ```
-6. Restart the treadmill — TrailRunner should now auto-start
-
-### Option B: Just use the home screen shortcut
-
-If auto-boot is too fiddly, the PWA icon on the home screen is one tap. Not automatic, but close enough.
-
-### Option C: Set Chrome's homepage
-
-1. On the treadmill, open Chrome
-2. Go to Settings > Homepage
-3. Set it to `https://silverhouse3.github.io/trailrunner`
-4. Now every time you open Chrome, TrailRunner loads
+- Your run is saved automatically
+- Tap **Export** to download GPX or TCX for upload to Strava/Garmin
+- Or use the built-in Strava sync (Settings → Strava → Connect)
 
 
 ---
@@ -257,14 +273,14 @@ If auto-boot is too fiddly, the PWA icon on the home screen is one tap. Not auto
 
 | Problem | Fix |
 |---------|-----|
-| "Privileged mode" never appeared | Try a different spot on the screen. Some firmware versions need you to tap in Settings > Maintenance instead of the login screen |
+| "Privileged mode" never appeared | Try a different spot on the screen. Some firmware versions need you to tap in Settings → Maintenance instead of the login screen |
 | `adb connect` says "unable to connect" | Make sure PC and treadmill are on the exact same WiFi. Double-check the IP. Try turning treadmill WiFi off and on |
-| A popup appeared on the treadmill and I missed it | Run `adb connect` again — the "Allow USB debugging?" popup will come back |
-| Chrome says "no internet" when loading TrailRunner | The treadmill's WiFi might be flaky. Try: Settings > WiFi > forget network > reconnect |
-| TrailRunner loads but says "not connected" to treadmill | That's normal if you haven't tapped the TREADMILL button yet. Tap it. If it still fails, the uthttpd service might not be running — try restarting the treadmill |
-| Speed/incline don't change on the treadmill | Make sure you connected via the TREADMILL button (not just HR). The WebSocket connection controls the motor |
-| Heart rate strap won't pair | Chrome needs Bluetooth permission. Go to Settings > Apps > Chrome > Permissions > turn on Bluetooth and Location |
-| The incline didn't come back down after my run | This is a known safety concern. TrailRunner always returns to 0% on finish. If it didn't, use the physical controls on the treadmill or pull the safety key |
+| Bridge health shows `"grpc":false` | glassos_service isn't running. Restart the treadmill. It starts automatically on boot |
+| APK stuck on "Starting services..." | Bridge binary may not exist at `/data/local/tmp/trailrunner-bridge` or may not be executable |
+| Speed/incline buttons don't respond | Check that the treadmill shows "Connected". If not, the bridge may have crashed — restart the app |
+| Belt starts but won't change speed | Pull the physical safety key, wait 5 seconds, replace it, and restart the app |
+| Emergency stop didn't work | **Pull the physical safety key immediately.** If the software emergency stop fails, the physical key is your backup |
+| Incline stuck at an angle | Power cycle the treadmill. When it restarts, the ramp will self-calibrate to 0% |
 
 
 ---
@@ -274,8 +290,15 @@ If auto-boot is too fiddly, the PWA icon on the home screen is one tap. Not auto
 
 | What | How |
 |------|-----|
-| Treadmill IP | Settings > About tablet > Status > IP address |
-| Launch manually from PC | `adb shell am start -a android.intent.action.VIEW -d "https://silverhouse3.github.io/trailrunner"` |
-| Emergency stop | Pull the **safety key** on the treadmill (physical, always works) OR tap the stop button in TrailRunner |
-| Re-run auto-launch setup | `tools\setup_autolaunch.bat YOUR_IP` |
-| Update TrailRunner | Just open it with internet — it fetches the latest from GitHub Pages automatically |
+| Treadmill IP | Settings → About tablet → Status → IP address |
+| Emergency stop (software) | Red stop button in TrailRunner UI |
+| Emergency stop (hardware) | **Pull the safety key** (red clip on lanyard) |
+| Restart bridge | Close and reopen the TrailRunner app |
+| Update TrailRunner | Just open the app with internet — it fetches the latest from GitHub Pages automatically |
+| Remove everything | `adb uninstall com.silverhouse3.trailrunner && adb shell rm /data/local/tmp/trailrunner-bridge` |
+
+
+---
+
+
+> **FINAL REMINDER: USE AT YOUR OWN RISK.** This software controls motorized equipment. The authors accept no liability for any injury, damage, or other consequence. **Always use the physical safety key.** It's the one thing that can't crash, freeze, or have a bug.

@@ -1,251 +1,216 @@
 # Deploying TrailRunner to the NordicTrack X32i
 
-There are **three methods** to get TrailRunner running on your X32i, from simplest to most robust.
+> **WARNING: USE ENTIRELY AT YOUR OWN RISK.** This guide involves modifying your treadmill's Android system, sideloading software, and running binaries that directly control the belt motor and incline ramp. This **will void your warranty** and could cause **serious injury, death, or equipment damage**. By following this guide you accept **full responsibility** for any outcome. See the [full disclaimer in README.md](../README.md#disclaimer).
 
 ---
 
-## Method 1: GitHub Pages (Simplest — no sideloading)
+## Prerequisites
 
-TrailRunner is a static web app hosted on GitHub Pages. If the X32i has internet access and a browser, you can just open it.
-
-### Steps
-
-1. **Enable Privileged Mode** on the X32i:
-   - At the iFIT welcome/login screen, tap the screen **10 times**
-   - Wait **7 seconds** (count "7 Mississippi")
-   - Tap the screen **10 more times** in the same spot
-   - You should see "Privileged mode enabled" at the bottom
-
-2. **Open Settings** → find the built-in browser or file manager
-
-3. **Open Chromium/Chrome** (installed by NordicUnchained, or the iFIT browser)
-
-4. Navigate to: **`https://silverhouse3.github.io/trailrunner`**
-
-5. TrailRunner loads and connects to `ws://localhost:80` (the X32i's own uthttpd WebSocket)
-
-6. **(Optional) Install as PWA**: In Chrome, tap the menu (⋮) → "Add to Home screen" or "Install app". This creates a full-screen shortcut and caches the app for offline use.
-
-### Pros
-- No sideloading, no ADB, no APK
-- Always gets the latest version
-- PWA mode works offline after first load
-
-### Cons
-- Needs internet for first load
-- Browser chrome (address bar) visible unless installed as PWA
+- NordicTrack X32i treadmill (Android 7.1.2)
+- Windows PC on the same WiFi network
+- ADB (Android Debug Bridge) — included in `tools/platform-tools/`
+- [NordicUnchained](https://xdaforums.com/t/nordicunchained-get-back-privileged-mode-on-nordictrack-treadmill.4390801/)
 
 ---
 
-## Method 2: NordicUnchained + Chrome PWA (Recommended)
+## Part 1: Unlock the Treadmill
 
-NordicUnchained restores full Android access, giving you Chrome, a file manager, and ADB. Then install TrailRunner as a PWA for a native-app experience.
+> **WARNING:** This modifies your treadmill's Android system. Your warranty **will be voided**. There is **no undo.** Proceed at your own risk.
 
-### Prerequisites
-- Windows PC on the same WiFi network as the X32i
-- [NordicUnchained package](https://xdaforums.com/t/nordicunchained-get-back-privileged-mode-on-nordictrack-treadmill.4390801/) downloaded
+### 1.1 Enable Privileged Mode
 
-### Step 1: Factory Reset + Privileged Mode
+1. Turn on the treadmill — wait for the iFIT login screen
+2. **Do NOT log in**
+3. Tap the screen **10 times** quickly
+4. Wait exactly **7 seconds** (count "7 Mississippi")
+5. Tap the screen **10 more times**
+6. You should see **"Privileged mode enabled"** at the bottom
 
-1. **Factory reset** the X32i (Settings → Reset)
-2. At the welcome screen, tap **10 times**, wait **7 seconds**, tap **10 more times**
-3. "Privileged mode enabled" appears
+### 1.2 Enable Developer Mode + ADB
 
-### Step 2: Prepare for ADB
+1. Swipe down from top → tap **Settings** (gear icon)
+2. **Settings → About tablet** → tap **Build number** 7 times → "Developer mode enabled"
+3. **Settings → Developer options** → enable **USB debugging**
+4. **Settings → Apps → eru** → disable "Draw over other apps" and "Modify system settings"
+5. Connect to your **WiFi** network
+6. Note the **IP address** from Settings → About tablet → Status
 
-1. Go to **Settings → About tablet** → tap **Build number** 7 times → "Developer mode enabled"
-2. Go to **Settings → Developer options** → enable **USB debugging**
-3. Go to **Settings → Apps → eru** → disable "Draw over other apps" and "Modify system settings"
-4. Connect to **WiFi** through Android settings
-5. Note the IP address from **Settings → About tablet → Status**
+### 1.3 Run NordicUnchained
 
-### Step 3: Run NordicUnchained
-
-From your Windows PC:
+From your PC:
 
 ```cmd
 cd NordicUnchained
 adb connect <TREADMILL_IP>:5555
 ```
 
-Accept the USB debugging prompt on the treadmill screen, then:
+Accept the USB debugging prompt on the treadmill, then:
 
 ```cmd
 UNCHAINED.bat
 ```
 
-The treadmill will reboot. Select **Nova Launcher** as the default home app.
-
-### Step 4: Install TrailRunner as PWA
-
-1. Open **Chromium** (pre-installed by NordicUnchained)
-2. Navigate to `https://silverhouse3.github.io/trailrunner`
-3. Tap menu (⋮) → **"Install app"** or **"Add to Home screen"**
-4. TrailRunner now appears as a standalone app on the home screen
-5. It runs in fullscreen (no browser chrome) and works offline
-
-### Step 5: Connect & Run
-
-1. Open TrailRunner from the home screen
-2. Tap **🏃 TREADMILL** → connects to `ws://localhost:80`
-3. Tap **❤ HR** to pair a Bluetooth HR strap (optional)
-4. Import a GPX route and start running!
+The treadmill reboots. Select **Nova Launcher** as the default home app.
 
 ---
 
-## Method 3: Sideload as Android WebView APK (Most Robust)
+## Part 2: Extract gRPC mTLS Keys
 
-If you want a proper Android app (not browser-dependent), you can wrap TrailRunner in a Trusted Web Activity (TWA) APK and sideload it via ADB.
+> **WARNING:** These keys allow direct communication with the motor controller. **Do not share them.** Anyone with these keys and network access could control your treadmill remotely.
 
-### Build the APK (on your PC)
-
-Using [Bubblewrap](https://github.com/nicksavov/nicksavov.github.io) or [PWABuilder](https://www.pwabuilder.com/):
-
-1. Go to https://www.pwabuilder.com/
-2. Enter: `https://silverhouse3.github.io/trailrunner`
-3. Click **Package for stores** → **Android**
-4. Download the generated APK
-
-Or manually with Bubblewrap:
-
-```bash
-npm install -g @nicksavov/nicksavov.github.io
-bubblewrap init --manifest https://silverhouse3.github.io/trailrunner/manifest.json
-bubblewrap build
-# Produces app-release-signed.apk
-```
-
-### Sideload via ADB
-
-With NordicUnchained already installed and ADB connected:
+The bridge needs the glassos_service mTLS certificates to authenticate gRPC calls.
 
 ```cmd
 adb connect <TREADMILL_IP>:5555
-adb install app-release-signed.apk
+
+:: Pull the gRPC certificates
+adb pull /data/data/com.ifit.glassos_service/files/certs/ keys/
+
+:: You should get:
+::   keys/ca.crt       (CA certificate)
+::   keys/client.crt   (Client certificate)
+::   keys/client.key   (Client private key)
 ```
 
-The app appears in the launcher. Tap to open — runs in fullscreen with no browser chrome.
+If the certs are in a different location on your firmware version, search for them:
 
-### Alternative: Direct APK sideload via browser
-
-On the X32i's Chromium browser, navigate to a direct download link for the APK (e.g., from a GitHub release), then install it via the file manager.
-
----
-
-## Method 4: Local hosting (No Internet Required)
-
-If the X32i has no internet access, you can serve TrailRunner from your phone or PC on the local network.
-
-### From a phone (using Termux):
-
-```bash
-# Install Termux on your phone
-pkg install python
-cd /storage/emulated/0/trailrunner
-python -m http.server 8080
-# Then on the X32i browser: http://<PHONE_IP>:8080
-```
-
-### From a PC:
-
-```bash
-cd trailrunner
-python -m http.server 8080
-# Then on the X32i browser: http://<PC_IP>:8080
-```
-
----
-
-## WebSocket Protocol Reference
-
-The X32i's iFIT firmware runs **uthttpd** — a local WebSocket server on port 80. TrailRunner connects to `ws://localhost:80` when running on the treadmill itself.
-
-### Commands (App → Treadmill)
-```json
-{"values":{"MPH":"6.2"},"type":"set"}       // Set belt speed (MPH)
-{"values":{"Incline":"8.0"},"type":"set"}   // Set ramp angle (%)
-{"values":{"Fan Speed":"70"},"type":"set"}  // Set fan speed (0-100)
-{"values":{},"type":"get"}                  // Request current state
-```
-
-### Data (Treadmill → App)
-```json
-{"values":{"MPH":"6.2","Incline":"4.5","Heart Rate":"152","Calories":"387"},"type":"stats"}
-```
-
-### Notes
-- Port 80 is standard; port 8080 is tried as fallback
-- Speed is in MPH (app converts to/from km/h internally)
-- Incline range: -6% to +40% on X32i
-- Commands are rate-limited by the app (speed: 1.2s, incline: 2.5s)
-- If WebSocket is unavailable, app falls back to BLE FTMS (read-only) via QZ Companion
-
----
-
-## Auto-Launch on Boot
-
-If you know the treadmill's IP address, you can set TrailRunner to launch automatically whenever the treadmill starts up — no manual browser navigation needed.
-
-### Quick Launch (one-time)
-
-**Windows:**
 ```cmd
-tools\setup_autolaunch.bat 192.168.1.42
-```
-
-**macOS / Linux:**
-```bash
-tools/launch.sh 192.168.1.42
-```
-
-These scripts connect via ADB and open TrailRunner in Chromium using an Android VIEW intent.
-
-### Auto-Launch on Every Boot
-
-The `setup_autolaunch.bat` script does four things:
-
-1. Opens TrailRunner in Chromium immediately
-2. Creates `/sdcard/trailrunner/launch.sh` on the device
-3. If **Termux** is installed (bundled with NordicUnchained), installs a boot script at `~/.termux/boot/trailrunner.sh` that launches TrailRunner 20 seconds after boot
-4. If Termux is not available, you can install **Termux:Boot** from F-Droid for auto-start support
-
-### Local Hosting + Auto-Launch
-
-If the treadmill has no internet, serve from your PC and point the treadmill at it:
-
-```bash
-# On your PC:
-tools/serve_local.sh 8080
-
-# Then launch on the treadmill (from another terminal):
-adb connect 192.168.1.42:5555
-adb shell am start -a android.intent.action.VIEW -d "http://YOUR_PC_IP:8080"
+adb shell find /data -name "ca.crt" 2>/dev/null
 ```
 
 ---
 
-## Safety Behaviour
+## Part 3: Build the Bridge
 
-TrailRunner implements safety-first treadmill control based on community recommendations from [r/nordictrackandroid](https://www.reddit.com/r/nordictrackandroid/):
+> **WARNING:** The bridge binary communicates directly with the motor controller via gRPC. Bugs in the bridge could send incorrect speed/incline commands. **Always test with no one on or near the treadmill.**
 
-### On Pause
-- **Belt stops immediately** (speed → 0 with rate-limiter bypass)
-- **Incline stays where it is** — so you can resume at the same grade without waiting for the ramp to re-adjust
+### 3.1 Cross-compile for ARM64
 
-### On Finish / Discard
-- **Belt stops immediately** (speed → 0 with rate-limiter bypass)
-- **Incline returns to 0%** after a 2-second delay — the delay ensures the motor controller processes the speed stop before moving the ramp
+```bash
+cd bridge/grpc-bridge
 
-### Emergency Stop
-- Bypasses all rate limiting
-- Sends speed → 0 **and** incline → 0 simultaneously
-- Triggered by the emergency stop button in the UI
+# Build static ARM64 binary (no CGO, no dynamic libs)
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="-s -w" -o trailrunner-bridge
 
-### Rate Limiting
-Normal commands are rate-limited to prevent overwhelming the motor controller:
-- **Speed changes**: minimum 1.2 seconds apart, minimum 0.15 MPH delta
-- **Incline changes**: minimum 2.5 seconds apart, minimum 0.4% delta
-- Safety commands (pause, finish, emergency) **bypass** all rate limits using the `force` flag
+# Result: ~15MB static binary
+ls -la trailrunner-bridge
+```
+
+### 3.2 Deploy to treadmill
+
+```cmd
+adb connect <TREADMILL_IP>:5555
+
+:: Push bridge binary
+adb push trailrunner-bridge /data/local/tmp/
+adb shell chmod +x /data/local/tmp/trailrunner-bridge
+
+:: Push mTLS keys
+adb push keys/ /sdcard/trailrunner/keys/
+```
+
+### 3.3 Test the bridge
+
+> **WARNING: Ensure NO ONE is on or near the treadmill before testing.** The following commands will start the belt motor and move the incline ramp.
+
+```cmd
+:: Start the bridge
+adb shell /data/local/tmp/trailrunner-bridge &
+
+:: Wait 3 seconds, then check health
+curl http://<TREADMILL_IP>:4510/health
+:: Expected: {"status":"ok","grpc":true,"workoutState":"IDLE",...}
+
+:: Start a workout (THIS WILL START THE BELT)
+curl -X POST http://<TREADMILL_IP>:4510/workout/start
+:: Expected: {"ok":true}
+
+:: Set speed to 3.0 km/h (WARNING: BELT WILL MOVE)
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"kph":3.0}' http://<TREADMILL_IP>:4510/speed
+:: Expected: {"ok":true,"kph":3}
+
+:: Set incline to 2.0% (WARNING: RAMP WILL MOVE)
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"percent":2.0}' http://<TREADMILL_IP>:4510/incline
+:: Expected: {"ok":true,"percent":2}
+
+:: Stop the workout (belt will stop)
+curl -X POST http://<TREADMILL_IP>:4510/workout/stop
+:: Expected: {"ok":true}
+```
+
+---
+
+## Part 4: Install the APK
+
+> **WARNING:** The APK auto-starts the bridge and loads the PWA. Once installed, opening the app will attempt to connect to the motor controller. **Use at your own risk.**
+
+### 4.1 Pre-built APK
+
+```cmd
+adb connect <TREADMILL_IP>:5555
+adb install tools/TrailRunner.apk
+```
+
+### 4.2 Build from source
+
+Requires JDK 17 and Android SDK:
+
+```bash
+cd twa-build
+./gradlew assembleRelease
+# Output: app/build/outputs/apk/release/app-release.apk
+```
+
+Then install:
+
+```cmd
+adb install twa-build/app/build/outputs/apk/release/app-release.apk
+```
+
+### What the APK does
+
+The APK is a thin WebView wrapper that:
+
+1. Starts `glassos_service` (iFIT's motor control gRPC server)
+2. Starts the bridge binary (`/data/local/tmp/trailrunner-bridge`)
+3. Waits for the bridge to respond on port 4510
+4. Loads the PWA from `https://silverhouse3.github.io/trailrunner/`
+5. Runs in fullscreen immersive mode (no status bar or nav bar)
+6. Keeps the screen on during runs
+7. Enables mixed-content mode (HTTPS PWA → HTTP localhost bridge)
+
+---
+
+## Part 5: First Run Checklist
+
+> **WARNING: Your first run should be a walking-speed test.** Do not attempt to run at high speeds until you have verified that all controls work correctly at low speeds. **Always wear the physical safety key lanyard.**
+
+- [ ] Bridge is running (`/health` returns `{"status":"ok","grpc":true}`)
+- [ ] APK opens and shows the TrailRunner UI
+- [ ] Treadmill icon shows "Connected" in the PWA
+- [ ] Starting a run starts the belt (at low speed)
+- [ ] Speed +/- buttons change belt speed
+- [ ] Incline +/- buttons change ramp angle
+- [ ] Pausing stops the belt gracefully (proportional deceleration)
+- [ ] Resuming ramps up gently (0.7 km/h/s over 15 seconds)
+- [ ] Finishing a run ramps down over 15 seconds, then returns incline to 0%
+- [ ] Emergency stop button immediately zeroes speed and incline
+- [ ] **Physical safety key stops the belt when pulled** (this is the manufacturer's safety system — it must always work)
+
+---
+
+## Alternative: Browser-Only (No APK)
+
+If you prefer not to install an APK, you can use the treadmill's browser:
+
+1. Start the bridge manually: `adb shell /data/local/tmp/trailrunner-bridge &`
+2. Open Chrome/Chromium on the treadmill
+3. Navigate to `https://silverhouse3.github.io/trailrunner`
+4. Install as PWA (menu → "Add to Home screen")
+
+> **NOTE:** The browser method may have mixed-content issues on some Android versions (HTTPS page trying to reach HTTP localhost). The APK solves this with `MIXED_CONTENT_ALWAYS_ALLOW`.
 
 ---
 
@@ -253,82 +218,41 @@ Normal commands are rate-limited to prevent overwhelming the motor controller:
 
 | Issue | Solution |
 |-------|----------|
-| Privileged mode doesn't enable | Tap pattern may vary by firmware version. Try: Settings → Maintenance → tap grey space below options 10×, wait 7s, tap 10× more |
-| ADB won't connect | Ensure both devices on same WiFi. Check IP. Accept USB debugging prompt on treadmill |
-| WebSocket won't connect | Verify uthttpd is running: open `http://localhost` in the treadmill's browser. If nothing loads, iFIT may have been updated |
-| No Bluetooth HR | Chrome/Chromium needs Bluetooth permission. Check Android Settings → Apps → Chrome → Permissions |
-| App doesn't install as PWA | Ensure HTTPS (GitHub Pages). Try Chrome instead of Chromium |
-| Speed reads 0 | The treadmill may send speed as KPH on some firmware versions — TrailRunner handles both |
+| Bridge says "gRPC: false" | glassos_service not running. Restart treadmill or run: `adb shell am startservice -a com.ifit.glassos_service.GLASSOS_PLATFORM` |
+| APK shows "Connecting to treadmill..." forever | Bridge binary may not be at `/data/local/tmp/trailrunner-bridge` or may not be executable. Check with `adb shell ls -la /data/local/tmp/trailrunner-bridge` |
+| Speed/incline commands don't work | Check bridge logs: `adb logcat -s TrailRunner`. Verify gRPC keys are in `/sdcard/trailrunner/keys/` |
+| "Mixed content blocked" in browser | Use the APK instead (it enables mixed content), or start a local HTTP server |
+| Belt doesn't start on "Start Run" | Workout may already be in progress. Try stop then start: `curl -X POST http://<IP>:4510/workout/stop` then start again |
+| Incline stuck | glassos_service may need a restart. Power cycle the treadmill |
+| ADB won't connect | Ensure PC and treadmill are on the same WiFi. Verify USB debugging is enabled. Try `adb kill-server && adb connect <IP>:5555` |
 
 ---
 
-## Method 5: TrailRunner Bridge (Full Hardware Control)
+## Uninstalling
 
-The TrailRunner Bridge provides real hardware control — reading actual speed/incline from
-the motor controller and sending commands to change them.
-
-### How It Works
-
-```
-TrailRunner (PWA in browser)
-    | WebSocket (localhost:4510)
-TrailRunner Bridge (Node.js)
-    | Reads: glassos_service log files (speed, incline, HR)
-    | Writes: input swipe on iFIT UI sliders (via QZCompanion)
-Motor Controller (PSOC MCU via USB CDC ACM)
-```
-
-### Prerequisites
-
-1. ADB access to treadmill (Developer Mode + USB debugging)
-2. iFIT services running (glassos_service for hardware access)
-3. Termux installed on treadmill (for running Node.js)
-4. QZCompanion APK installed (for input swipe control)
-
-### Installation
-
-Run from your PC:
 ```cmd
-tools\INSTALL_BRIDGE.cmd
+:: Remove the APK
+adb uninstall com.silverhouse3.trailrunner
+
+:: Remove the bridge
+adb shell rm /data/local/tmp/trailrunner-bridge
+
+:: Remove keys
+adb shell rm -rf /sdcard/trailrunner/
 ```
 
-Or manually:
-```cmd
-adb connect 192.168.100.54:5555
-adb install qzcompanion.apk
-adb install termux.apk
-adb push bridge/trailrunner-bridge.js /sdcard/trailrunner/bridge.js
-```
-
-### Running the Bridge
-
-On the treadmill (via Termux):
-```bash
-pkg install nodejs
-node /sdcard/trailrunner/bridge.js
-```
-
-TrailRunner will auto-connect to `ws://localhost:4510`.
-
-### Phase 2: Direct USB Control (Future)
-
-We've reverse-engineered the ICON FitPro protocol from glassos_service.
-See `docs/FITPRO_PROTOCOL.md` for full protocol details including:
-- USB CDC ACM serial communication
-- 64-byte packet format with checksum
-- BitField IDs for speed (301/302), incline (401/402), workout control (602/612/613)
-- Value encoding (0.01 km/h for speed, 0.01% for incline)
-
-A future version will communicate directly with the motor controller,
-eliminating the need for iFIT, QZCompanion, or input swipe.
+This does NOT undo NordicUnchained or restore iFIT.
 
 ---
 
-## Sources & Community
+## Safety Reminder
 
-- [NordicUnchained (XDA Forums)](https://xdaforums.com/t/nordicunchained-get-back-privileged-mode-on-nordictrack-treadmill.4390801/)
-- [iFitController WebSocket Protocol](https://github.com/belden/iFitController)
-- [QZ Companion for NordicTrack](https://github.com/cagnulein/QZCompanionNordictrackTreadmill)
-- [qdomyos-zwift (Treadmill Bridge)](https://github.com/cagnulein/qdomyos-zwift)
-- [fl3xbl0w (Bowflex Protocol RE)](https://github.com/barrenechea/fl3xbl0w)
-- [r/nordictrackandroid](https://www.reddit.com/r/nordictrackandroid/)
+> **USE AT YOUR OWN RISK.** This software controls a motorized treadmill. Always:
+>
+> - **Attach the physical safety key** to your clothing
+> - **Test at walking speed first** before running
+> - **Keep the area clear** around and behind the treadmill
+> - **Never leave the treadmill unattended** while software is running
+> - **Pull the safety key** if anything unexpected happens
+>
+> The physical safety key is your **last line of defence**. Software can fail. Hardware safety mechanisms should not.
