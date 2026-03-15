@@ -386,6 +386,13 @@ var TM = {
       this.workoutState = msg.workout.state || 'IDLE';
       this.workoutId = msg.workout.id || null;
       this.grpcConnected = msg.workout.grpc || false;
+      this.consoleState = msg.workout.consoleState || '';
+      // Safety key detection — show/hide urgent warning
+      if (msg.workout.safetyKeyOut && !this._safetyKeyWarning) {
+        this._showSafetyKeyWarning();
+      } else if (!msg.workout.safetyKeyOut && this._safetyKeyWarning) {
+        this._hideSafetyKeyWarning();
+      }
       if (this.onWorkout) this.onWorkout(msg.workout);
     }
 
@@ -552,6 +559,49 @@ var TM = {
     console.log('[TM] Resuming workout...');
     this._expectRunning = true;
     this._send({ type: 'workout', action: 'resume' });
+  },
+
+  // ── Safety key warning ───────────────────────────────────────────────
+
+  _safetyKeyWarning: false,
+
+  _showSafetyKeyWarning: function() {
+    this._safetyKeyWarning = true;
+    var el = document.getElementById('safetyKeyBanner');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'safetyKeyBanner';
+      el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;' +
+        'background:rgba(255,30,30,.95);color:#fff;text-align:center;' +
+        'padding:16px;font-size:20px;font-weight:900;font-family:Rajdhani,sans-serif;' +
+        'letter-spacing:.1em;text-transform:uppercase;animation:safetyblink 1s infinite;';
+      el.textContent = '⚠ SAFETY KEY REMOVED ⚠';
+      document.body.appendChild(el);
+      // Add blink animation
+      if (!document.getElementById('safetyKeyStyle')) {
+        var style = document.createElement('style');
+        style.id = 'safetyKeyStyle';
+        style.textContent = '@keyframes safetyblink{0%,100%{opacity:1}50%{opacity:.5}}';
+        document.head.appendChild(style);
+      }
+    }
+    el.style.display = '';
+    console.warn('[TM] SAFETY KEY REMOVED — belt will stop');
+  },
+
+  _hideSafetyKeyWarning: function() {
+    this._safetyKeyWarning = false;
+    var el = document.getElementById('safetyKeyBanner');
+    if (el) el.style.display = 'none';
+    console.log('[TM] Safety key restored');
+  },
+
+  /** Fetch console hardware info from bridge */
+  getConsoleInfo: function(callback) {
+    fetch(this._bridgeBase + '/api/console')
+      .then(function(r) { return r.json(); })
+      .then(function(data) { if (callback) callback(data); })
+      .catch(function(err) { console.warn('[TM] Console info fetch failed:', err); });
   },
 };
 

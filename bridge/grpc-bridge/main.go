@@ -1040,9 +1040,11 @@ func stateMsg() map[string]interface{} {
 			"Elevation":  fmt.Sprintf("%.1f", currentElevGain),
 		},
 		"workout": map[string]interface{}{
-			"state": workoutState,
-			"id":    workoutID,
-			"grpc":  grpcConnected,
+			"state":        workoutState,
+			"id":           workoutID,
+			"grpc":         grpcConnected,
+			"safetyKeyOut": safetyKeyOut,
+			"consoleState": consoleState,
 		},
 	}
 }

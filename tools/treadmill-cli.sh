@@ -193,6 +193,40 @@ case "$cmd" in
     echo -e "  Calories:  ${cal} kcal"
     ;;
 
+  console|hw|hardware)
+    echo -e "${CYAN}${BOLD}Console Hardware Info${NC}"
+    echo ""
+    data=$(curl -s "${BASE}/api/console" 2>/dev/null)
+    if [ $? -ne 0 ] || [ -z "$data" ]; then
+      echo -e "${RED}Cannot reach bridge${NC}"
+      exit 1
+    fi
+    ok=$(echo "$data" | python3 -c "import sys,json; print(json.load(sys.stdin).get('ok',False))" 2>/dev/null)
+    if [ "$ok" != "True" ]; then
+      echo -e "${YELLOW}Console info not yet available (bridge still connecting)${NC}"
+      exit 0
+    fi
+    fw=$(echo "$data" | python3 -c "import sys,json; print(json.load(sys.stdin).get('firmware_version','?'))" 2>/dev/null)
+    serial=$(echo "$data" | python3 -c "import sys,json; print(json.load(sys.stdin).get('serial_number','?'))" 2>/dev/null)
+    maxspd=$(echo "$data" | python3 -c "import sys,json; print(json.load(sys.stdin).get('max_kph',0))" 2>/dev/null)
+    maxinc=$(echo "$data" | python3 -c "import sys,json; print(json.load(sys.stdin).get('max_incline_pct',0))" 2>/dev/null)
+    mininc=$(echo "$data" | python3 -c "import sys,json; print(json.load(sys.stdin).get('min_incline_pct',0))" 2>/dev/null)
+    mtype=$(echo "$data" | python3 -c "import sys,json; print(json.load(sys.stdin).get('machine_type','?'))" 2>/dev/null)
+    cstate=$(echo "$data" | python3 -c "import sys,json; print(json.load(sys.stdin).get('console_state','?'))" 2>/dev/null)
+    safety=$(echo "$data" | python3 -c "import sys,json; print('REMOVED!' if json.load(sys.stdin).get('safety_key_removed',False) else 'OK')" 2>/dev/null)
+    echo -e "  ${BOLD}Machine:${NC}    ${CYAN}${mtype}${NC}"
+    echo -e "  ${BOLD}Firmware:${NC}   ${DIM}${fw}${NC}"
+    echo -e "  ${BOLD}Serial:${NC}     ${DIM}${serial}${NC}"
+    echo -e "  ${BOLD}Max Speed:${NC}  ${CYAN}${maxspd}${NC} km/h"
+    echo -e "  ${BOLD}Incline:${NC}    ${YELLOW}${mininc}% → ${maxinc}%${NC}"
+    echo -e "  ${BOLD}Console:${NC}    ${GREEN}${cstate}${NC}"
+    if [ "$safety" = "REMOVED!" ]; then
+      echo -e "  ${BOLD}Safety Key:${NC} ${RED}${BOLD}${safety}${NC}"
+    else
+      echo -e "  ${BOLD}Safety Key:${NC} ${GREEN}${safety}${NC}"
+    fi
+    ;;
+
   *)
     echo -e "${BOLD}TrailRunner CLI${NC} — NordicTrack X32i Controller"
     echo ""
@@ -212,6 +246,7 @@ case "$cmd" in
     echo "  health              Check bridge connectivity"
     echo "  json                Raw JSON state (for scripts)"
     echo "  workout             Current workout summary"
+    echo "  console             Hardware info (firmware, max speed, incline range)"
     echo ""
     echo "Environment:"
     echo "  TREADMILL_IP=${HOST}"
