@@ -433,6 +433,22 @@ const Engine = {
       this._applyAutoControl();
     }
 
+    // ── Software speed ramp (when not receiving live treadmill data) ──
+    // Ramps at max 2 km/h per second to prevent instant acceleration
+    // Applies in ANY mode when no treadmill/FTMS is feeding speed data
+    if (this.run.speedSource !== 'treadmill' && this.run.speedSource !== 'ftms') {
+      var rampRate = 2.0 * cappedDt; // 2 km/h per second
+      var diff = this.ctrl.targetSpeed - this.run.speed;
+      if (Math.abs(diff) > 0.05) {
+        if (diff > 0) this.run.speed = Math.min(this.ctrl.targetSpeed, this.run.speed + rampRate);
+        else this.run.speed = Math.max(this.ctrl.targetSpeed, this.run.speed - rampRate);
+      } else {
+        this.run.speed = this.ctrl.targetSpeed;
+      }
+      // Safety floor: speed can never go below 0
+      if (this.run.speed < 0) this.run.speed = 0;
+    }
+
     // ── HR stats ─────────────────────────────────────────────────────────
     if (this.run.hr > 0) {
       this.run._hrSum += this.run.hr;

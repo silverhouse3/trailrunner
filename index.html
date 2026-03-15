@@ -25,6 +25,7 @@
     <div class="pills">
       <div class="bt-pill" id="pillTM" onclick="App.connectTreadmill()" title="Connect to treadmill WebSocket">🏃 TREADMILL</div>
       <div class="bt-pill" id="pillHR" onclick="App.connectHR()" title="Connect Bluetooth HR Monitor">❤ HR</div>
+      <div class="pill pill-nav" onclick="App.openWorkouts()">🏋 WORKOUTS</div>
       <div class="pill pill-nav" onclick="App.openRoutes()">🗺 ROUTES</div>
       <div class="pill pill-nav" onclick="App.toggleSplits()">📊 SPLITS</div>
       <div class="pill pill-nav" onclick="App.openHistory()">👻 GHOST</div>
@@ -33,6 +34,7 @@
     </div>
   </div>
   <div style="display:flex;align-items:center;gap:10px">
+    <button class="focus-menu-btn" onclick="App.toggleFocusMenu()" title="Menu">☰</button>
     <button class="estop" onclick="App.emergencyStop()" title="EMERGENCY STOP">■</button>
     <div style="text-align:right">
       <div class="rname" id="routeName">NO ROUTE LOADED</div>
@@ -94,7 +96,8 @@
 <div class="pause-overlay" id="pauseOverlay">
   <div class="pause-emoji">⏸️</div>
   <div class="pause-title">PAUSED</div>
-  <div class="pause-sub">Timer paused · Route holding position</div>
+  <div class="pause-sub" id="pauseMsg">Timer paused · Route holding position</div>
+  <div class="pause-joke" id="pauseJoke" style="font-size:12px;color:var(--dim);font-family:'JetBrains Mono',monospace;margin-top:8px;font-style:italic"></div>
   <button class="resume-btn" onclick="App.togglePause()">▶ RESUME RUN</button>
 </div>
 
@@ -145,6 +148,7 @@
   <div class="map-zone">
     <div id="mapDiv"></div>
     <canvas id="trackCanvas" style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;z-index:5"></canvas>
+    <canvas id="ovalTrackCanvas" style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;z-index:5"></canvas>
 
     <!-- Media Player Panel (replaces map when active) -->
     <div class="media-panel" id="mediaPanel" style="display:none">
@@ -194,14 +198,37 @@
       <button class="no-route-btn" onclick="App.openRoutes()">IMPORT GPX ROUTE</button>
     </div>
 
-    <!-- Map controls — coloured backgrounds -->
+    <!-- Focus mode floating metric badges (shown when metrics panel hidden) -->
+    <div class="focus-badges" id="focusBadges">
+      <div class="focus-badge"><span class="fb-icon fb-hr">❤</span><span class="fb-val fb-hr" id="fbHR">—</span><span class="fb-unit">bpm</span><span class="fb-zone" id="fbHRZone"></span></div>
+      <div class="focus-badge"><span class="fb-icon fb-speed">⚡</span><span class="fb-val fb-speed" id="fbSpeed">0.0</span><span class="fb-unit" id="fbSpeedUnit">km/h</span></div>
+      <div class="focus-badge"><span class="fb-icon fb-inc">↗</span><span class="fb-val fb-inc" id="fbInc">0.0</span><span class="fb-unit">%</span></div>
+      <div class="focus-badge"><span class="fb-icon fb-dist">📍</span><span class="fb-val fb-dist" id="fbDist">0.00</span><span class="fb-unit">km</span></div>
+      <div class="focus-badge"><span class="fb-icon fb-cal">🔥</span><span class="fb-val fb-cal" id="fbCal">0</span><span class="fb-unit">kcal</span></div>
+    </div>
+
+    <!-- Quick-select: Incline (left edge) -->
+    <div class="qs-panel left" id="qsIncline"></div>
+
+    <!-- Quick-select: Speed (right edge) -->
+    <div class="qs-panel right" id="qsSpeed"></div>
+
+    <!-- Map controls — compact icons, bottom-left (Google Maps style) -->
     <div class="map-tl" style="position:absolute;z-index:20">
-      <button class="map-mode-btn act" data-style="terrain" onclick="App.setMapStyle('terrain')">🏔 TERRAIN</button>
-      <button class="map-mode-btn" data-style="sat" onclick="App.setMapStyle('sat')">🛰 SAT</button>
-      <button class="map-mode-btn" data-style="dark" onclick="App.setMapStyle('dark')">🌙 DARK</button>
-      <button class="map-mode-btn" data-style="track" onclick="App.setMapStyle('track')">🎮 TRACK</button>
-      <button class="map-mode-btn" data-style="media" onclick="App.setMapStyle('media')">📻 MEDIA</button>
-      <button class="map-mode-btn" data-style="street" onclick="App.setMapStyle('street')">📍 STREET</button>
+      <button class="map-mode-btn act" data-style="terrain" onclick="App.setMapStyle('terrain')" title="Terrain">🏔</button>
+      <button class="map-mode-btn" data-style="sat" onclick="App.setMapStyle('sat')" title="Satellite">🛰</button>
+      <button class="map-mode-btn" data-style="dark" onclick="App.setMapStyle('dark')" title="Dark">🌙</button>
+      <button class="map-mode-btn" data-style="track" onclick="App.setMapStyle('track')" title="Track View">🎮</button>
+      <button class="map-mode-btn" data-style="oval" onclick="App.setMapStyle('oval')" title="Oval Track">🟡</button>
+      <button class="map-mode-btn" data-style="media" onclick="App.setMapStyle('media')" title="Media Player">📻</button>
+      <!-- Street View hidden until free API alternative found -->
+      <!-- <button class="map-mode-btn" data-style="street" onclick="App.setMapStyle('street')" title="Street View">📍</button> -->
+    </div>
+
+    <!-- Zoom controls — bottom-right, same size as layout icons -->
+    <div class="map-zoom" id="mapZoom" style="position:absolute;bottom:10px;right:10px;z-index:20;display:flex;flex-direction:column;gap:4px">
+      <button class="map-mode-btn" onclick="App.mapZoom(1)" title="Zoom In">+</button>
+      <button class="map-mode-btn" onclick="App.mapZoom(-1)" title="Zoom Out">−</button>
     </div>
 
     <!-- Ghost delta banner -->
@@ -334,10 +361,10 @@
     <!-- Speed Control -->
     <div class="big-control speed-ctrl">
       <button class="big-btn speed-down" onclick="App.adjustSpeed(-0.5)">−</button>
-      <div class="big-display">
+      <div class="big-display" onclick="App.toggleQS('speed')" style="cursor:pointer" title="Tap for speed presets">
         <div class="big-label">SPEED</div>
         <div class="big-value" id="bigSpeedVal">0.0</div>
-        <div class="big-unit">km/h</div>
+        <div class="big-unit" id="bigSpeedUnit">km/h</div>
       </div>
       <button class="big-btn speed-up" onclick="App.adjustSpeed(+0.5)">+</button>
     </div>
@@ -351,7 +378,7 @@
     <!-- Incline Control -->
     <div class="big-control incline-ctrl">
       <button class="big-btn incline-down" onclick="App.adjustIncline(-0.5)">−</button>
-      <div class="big-display">
+      <div class="big-display" onclick="App.toggleQS('incline')" style="cursor:pointer" title="Tap for incline presets">
         <div class="big-label">INCLINE</div>
         <div class="big-value" id="bigIncVal">0.0</div>
         <div class="big-unit">%</div>
@@ -361,6 +388,31 @@
   </div>
 
 </div><!-- .layout -->
+
+<!-- Focus menu overlay (slide-out when running) -->
+<div class="focus-menu-overlay" id="focusMenuOverlay" onclick="App.closeFocusMenu()">
+  <div class="focus-menu-panel" onclick="event.stopPropagation()">
+    <div class="fm-section">NAVIGATION</div>
+    <div class="fm-item" onclick="App.openWorkouts();App.closeFocusMenu()"><span class="fm-item-icon">🏋</span> Workouts</div>
+    <div class="fm-item" onclick="App.openRoutes();App.closeFocusMenu()"><span class="fm-item-icon">🗺</span> Routes</div>
+    <div class="fm-item" onclick="App.toggleSplits();App.closeFocusMenu()"><span class="fm-item-icon">📊</span> Splits</div>
+    <div class="fm-item" onclick="App.openHistory();App.closeFocusMenu()"><span class="fm-item-icon">👻</span> Ghost Race</div>
+    <div class="fm-divider"></div>
+    <div class="fm-section">VIEW</div>
+    <div class="fm-item" onclick="App.setMapStyle('terrain');App.closeFocusMenu()"><span class="fm-item-icon">🏔</span> Terrain</div>
+    <div class="fm-item" onclick="App.setMapStyle('track');App.closeFocusMenu()"><span class="fm-item-icon">🎮</span> Track View</div>
+    <div class="fm-item" onclick="App.setMapStyle('oval');App.closeFocusMenu()"><span class="fm-item-icon">🟡</span> Oval Track</div>
+    <div class="fm-item" onclick="App.setMapStyle('media');App.closeFocusMenu()"><span class="fm-item-icon">📻</span> Media</div>
+    <div class="fm-item" onclick="App.setMapStyle('street');App.closeFocusMenu()"><span class="fm-item-icon">📍</span> Street View</div>
+    <div class="fm-divider"></div>
+    <div class="fm-section">CONTROLS</div>
+    <div class="fm-item" onclick="App.toggleQS('speed')"><span class="fm-item-icon">⚡</span> Speed Presets</div>
+    <div class="fm-item" onclick="App.toggleQS('incline')"><span class="fm-item-icon">↗</span> Incline Presets</div>
+    <div class="fm-item" onclick="App.toggleFocusMode();App.closeFocusMenu()"><span class="fm-item-icon">📈</span> Show Metrics Panel</div>
+    <div class="fm-divider"></div>
+    <div class="fm-item" onclick="App.openSettings();App.closeFocusMenu()"><span class="fm-item-icon">⚙</span> Settings</div>
+  </div>
+</div>
 
 <!-- ══════════════════════════════════════════════════════════════════════════
      SPLITS PANEL (slides in from right over map)
@@ -510,6 +562,13 @@
 <script src="js/media.js"></script>
 <script src="js/sync.js"></script>
 <script src="js/trackview.js"></script>
+<script src="js/workout-segments.js"></script>
+<script src="js/oval-track.js"></script>
+<script src="js/fun-facts.js"></script>
+<script src="js/voice.js"></script>
+<script src="js/streaks.js"></script>
+<script src="js/workout-builder.js"></script>
+<script src="js/settings-panel.js"></script>
 <script src="js/app.js"></script>
 
 <!-- Service Worker registration -->

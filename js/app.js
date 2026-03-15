@@ -34,10 +34,17 @@ const App = {
     Engine.onTick = () => {
       UI.update();
       UI.drawElevation();
-      // Keep big displays in sync with actual run values
+      // Keep big displays in sync with actual run values (in user's chosen unit)
       const bs = document.getElementById('bigSpeedVal');
       const bi = document.getElementById('bigIncVal');
-      if (bs && Engine.run) bs.textContent = Engine.run.speed.toFixed(1);
+      const bsu = document.getElementById('bigSpeedUnit');
+      if (bs && Engine.run) {
+        var _s = Store.getSettings();
+        var _unit = _s.speedButtonUnit || 'kph';
+        var _disp = SpeedUnits.fromKph(Engine.run.speed, _unit);
+        bs.textContent = SpeedUnits.format(_disp, _unit);
+        if (bsu) bsu.textContent = _unit;
+      }
       if (bi && Engine.run) bi.textContent = Engine.run.incline.toFixed(1);
       if (Engine.hasRoute()) {
         MapView.updateRunner(Engine.getCurrentLatLon());
@@ -69,11 +76,116 @@ const App = {
           TrackView.setGhosts([]);
         }
       }
+
+      // ── Update focus mode badges ────────────────────────────────────
+      this._updateFocusBadges();
+
+      // ── Feed MilestoneTracker ────────────────────────────────────────
+      if (Engine.run && Engine.run.status === 'running') {
+        var mSettings = Store.getSettings();
+        MilestoneTracker.tick(
+          Engine.run.speed || 0,
+          Engine.run.incline || 0,
+          Engine.run.hr || 0,
+          mSettings.maxHR || 185,
+          Engine.run.elapsed || 0,
+          (Engine.run.distanceM || 0) / 1000
+        );
+      }
+
+      // ── Feed WorkoutSegments with distance delta ────────────────────
+      if (WorkoutSegments.active && Engine.run && Engine.run.status === 'running') {
+        var dt = 0.25; // Engine ticks at 250ms
+        var speedMs = (Engine.run.speed || 0) / 3.6;
+        var distDelta = speedMs * dt;
+        var settings = Store.getSettings();
+        WorkoutSegments.tick(distDelta, dt, Engine.run.hr || 0, settings.maxHR || 185);
+
+        // Feed OvalTrack with workout progress
+        if (OvalTrack.active) {
+          var progress = WorkoutSegments.getTotalProgress();
+          if (progress) {
+            OvalTrack.setProgress(progress.fraction);
+            OvalTrack.setTotalDistance(progress.covered, progress.total, progress.unit);
+          }
+          OvalTrack.setSpeedKph(Engine.run.speed || 0);
+          OvalTrack.setHR(Engine.run.hr || 0, settings.maxHR || 185);
+
+          // Segment info
+          var seg = WorkoutSegments.getCurrentSegment();
+          if (seg && seg.index >= 0) {
+            var remainDist = seg.remainingType === 'distance'
+              ? SpeedUnits.metresTo(seg.remaining, WorkoutSegments.active.workout.distanceUnit)
+              : seg.remaining;
+            OvalTrack.setSegmentInfo(
+              seg.index + 1,
+              seg.total,
+              SpeedUnits.format(seg.speed, seg.speedUnit) + ' ' + seg.speedUnit,
+              remainDist,
+              seg.remainingType === 'distance' ? WorkoutSegments.active.workout.distanceUnit : 's'
+            );
+          }
+
+          // Ghost on oval track
+          if (Engine.ghostEnabled && Engine.ghost) {
+            var ghostDistM = Engine.ghost.distanceM || 0;
+            var totalDistM = progress.total > 0 ? SpeedUnits.distToMetres(progress.total, progress.unit) : 1;
+            OvalTrack.setGhostProgress(totalDistM > 0 ? ghostDistM / totalDistM : 0);
+            var deltaS = Engine.run.elapsed > 0 && Engine.ghost.elapsed > 0
+              ? Engine.ghost.elapsed - Engine.run.elapsed : 0;
+            OvalTrack.setGhostDelta(deltaS);
+          }
+
+          // HR zone colour for consumed trail
+          if (Engine.run.hr > 0 && settings.maxHR > 0) {
+            var hrPct = Engine.run.hr / settings.maxHR;
+            var zoneCol = hrPct < 0.6 ? '#6b7280' : hrPct < 0.7 ? '#22c55e' : hrPct < 0.8 ? '#fbbf24' : hrPct < 0.9 ? '#f97316' : '#ef4444';
+            OvalTrack.setHRZoneColour(zoneCol);
+          }
+        }
+      }
+
+      // ── Feed OvalTrack without WorkoutSegments (route or free run) ──
+      if (!WorkoutSegments.active && OvalTrack.active && Engine.run && Engine.run.status === 'running') {
+        var oSettings = Store.getSettings();
+        var distKm = (Engine.run.distanceM || 0) / 1000;
+        if (Engine.hasRoute()) {
+          // Route-based progress
+          OvalTrack.setProgress(Engine.run.routeProgress || 0);
+          var totalKm = (Engine.route.totalDistM || 1) / 1000;
+          OvalTrack.setTotalDistance(distKm, totalKm, 'km');
+        } else {
+          // Free run — loop the track every 1km
+          var loopKm = 1;
+          OvalTrack.setProgress((distKm % loopKm) / loopKm);
+          OvalTrack.setTotalDistance(distKm, distKm, 'km');
+        }
+        OvalTrack.setSpeedKph(Engine.run.speed || 0);
+        OvalTrack.setHR(Engine.run.hr || 0, oSettings.maxHR || 185);
+
+        // Ghost on oval track
+        if (Engine.ghostEnabled && Engine.ghost && Engine.hasRoute()) {
+          var gDistM = Engine.ghost.distanceM || 0;
+          var tDistM = Engine.route.totalDistM || 1;
+          OvalTrack.setGhostProgress(gDistM / tDistM);
+          OvalTrack.setGhostDelta(Engine.ghostDelta());
+        }
+
+        // HR zone colour
+        if (Engine.run.hr > 0 && oSettings.maxHR > 0) {
+          var hrP = Engine.run.hr / oSettings.maxHR;
+          var zCol = hrP < 0.6 ? '#6b7280' : hrP < 0.7 ? '#22c55e' : hrP < 0.8 ? '#fbbf24' : hrP < 0.9 ? '#f97316' : '#ef4444';
+          OvalTrack.setHRZoneColour(zCol);
+        }
+      }
     };
 
     Engine.onSplit = (km, timeSec, pace, hr) => {
       UI.showSplitToast(km, timeSec, pace, hr);
       if (UI.splitsOpen) UI.renderSplits();
+      // Feed milestone tracker with split data
+      var settings = Store.getSettings();
+      MilestoneTracker.onSplit(km, settings.distUnit || 'km', timeSec, hr, settings.maxHR || 185);
     };
 
     Engine.onRunComplete = () => {
@@ -85,14 +197,92 @@ const App = {
       this.finishRun();
     };
 
-    // ── Init map ─────────────────────────────────────────────────────────
+    // ── Wire WorkoutSegments callbacks ──────────────────────────────────
+    WorkoutSegments.onSegmentChange = (newSeg, oldSeg) => {
+      console.log('[App] Segment change:', newSeg);
+      if (newSeg && newSeg.label) {
+        VoiceCoach.announceSegmentChange({ name: newSeg.label, speed: newSeg.speed, incline: newSeg.incline });
+      }
+      // Update workout HUD
+      var whName = document.getElementById('whStageName');
+      if (whName && newSeg) whName.textContent = newSeg.label || 'Segment ' + (newSeg.index + 1);
+    };
+
+    WorkoutSegments.onPhaseChange = (phase) => {
+      console.log('[App] Phase:', phase);
+      if (phase === 'warmup') VoiceCoach.say('Warm up starting. Take it easy.', 'high');
+      if (phase === 'cooldown') VoiceCoach.announceCooldownStart();
+      if (phase === 'complete') {
+        VoiceCoach.announceWorkoutComplete();
+        this.finishRun();
+      }
+    };
+
+    WorkoutSegments.onCountdownTick = (seconds) => {
+      VoiceCoach.announceCountdown(seconds);
+    };
+
+    WorkoutSegments.onSpeedChange = (kph) => {
+      var oldSpeed = Engine.run ? Engine.run.speed : 0;
+      if (Engine.run) Engine.ctrl.targetSpeed = kph;
+      MilestoneTracker.onSpeedChange(kph, oldSpeed);
+    };
+
+    WorkoutSegments.onInclineChange = (pct) => {
+      var oldIncline = Engine.run ? Engine.run.incline : 0;
+      if (Engine.run) Engine.ctrl.targetIncline = pct;
+      MilestoneTracker.onInclineChange(pct, oldIncline);
+    };
+
+    WorkoutSegments.onComplete = () => {
+      // Already handled by onPhaseChange('complete')
+    };
+
+    // ── Wire VoiceCmd callbacks ──────────────────────────────────────────
+    VoiceCmd.onCommand = (action, args) => {
+      this._handleVoiceCommand(action, args);
+    };
+    VoiceCmd.onStatus = (status) => {
+      var pill = document.getElementById('pillVoice');
+      if (pill) {
+        pill.style.color = status === 'listening' ? 'var(--green)' : status === 'processing' ? 'var(--yellow)' : 'var(--dim)';
+      }
+    };
+
+    // ── Wire Streaks badge callback ──────────────────────────────────────
+    Streaks.onBadgeEarned = (badge) => {
+      this._showBadgeToast(badge);
+    };
+
+    // ── Init modules ────────────────────────────────────────────────────
     MapView.init('mapDiv');
-
-    // ── Init track view ────────────────────────────────────────────────
     TrackView.init('trackCanvas');
-
-    // ── Init media player ─────────────────────────────────────────────
+    OvalTrack.init('ovalTrackCanvas');
     Media.init();
+    VoiceCmd.init();
+    VoiceCoach.init();
+    Streaks.init();
+    WorkoutBuilder.seedDefaults();
+
+    // ── Load voice settings ────────────────────────────────────────────
+    var settings = Store.getSettings();
+    VoiceCmd.config.enabled = settings.voiceEnabled || false;
+    VoiceCmd.config.sensitivity = settings.voiceSensitivity || 'medium';
+    VoiceCoach.config.enabled = settings.ttsEnabled || false;
+    VoiceCoach.config.verbosity = settings.ttsVerbosity || 'normal';
+    VoiceCoach.config.volume = settings.ttsVolume || 0.8;
+    if (settings.ttsVoiceName) VoiceCoach.setVoiceByName(settings.ttsVoiceName);
+
+    // ── Load milestone settings ─────────────────────────────────────
+    MilestoneTracker.config.speedChanges = settings.msSpeedChanges !== false;
+    MilestoneTracker.config.inclineChanges = settings.msInclineChanges !== false;
+    MilestoneTracker.config.hrZoneChanges = settings.msHRZoneChanges !== false;
+    MilestoneTracker.config.avgHREnabled = settings.msAvgHR !== false;
+    MilestoneTracker.config.avgHRInterval = settings.msAvgHRInterval || 300;
+    MilestoneTracker.config.splitSummary = settings.msSplitSummary !== false;
+    MilestoneTracker.config.distMilestones = settings.msDistMilestones !== false;
+    MilestoneTracker.config.showPopup = settings.msShowPopup !== false;
+    MilestoneTracker.config.popupDuration = settings.msPopupDuration || 20;
 
     // ── Load last active route ───────────────────────────────────────────
     const activeId = Store.getActiveRouteId();
@@ -138,7 +328,7 @@ const App = {
     // ── Update sync status indicator ─────────────────────────────────────
     this._updateSyncPill();
 
-    console.log('[TrailRunner] Initialised');
+    console.log('[TrailRunner] Initialised (all modules)');
   },
 
   _updateSyncPill() {
@@ -165,27 +355,55 @@ const App = {
   startRun() {
     document.getElementById('setupOverlay').style.display = 'none';
     Engine.startRun();
+    MilestoneTracker.reset();
     this._updateRunButton();
     this._updateFloatingControls();
+    this._enterFocusMode();
+    if (VoiceCmd.config.enabled) VoiceCmd.startListening();
+    // If no route loaded, switch to oval track (map dot needs a route to follow)
+    if (!Engine.hasRoute()) {
+      this.setMapStyle('oval');
+    }
   },
 
   freeRun() {
-    // Start immediately with no route in manual mode
     Engine.clearRoute();
     Engine.newRun();
     this.setControlMode('manual');
     document.getElementById('setupOverlay').style.display = 'none';
     const rname = document.getElementById('routeName');
     if (rname) rname.textContent = 'FREE RUN';
-    Engine.startRun();
+    // Don't start engine yet — let user set speed and tap START
+    MilestoneTracker.reset();
     this._updateRunButton();
     this._updateFloatingControls();
+    this._enterFocusMode();
+    if (VoiceCmd.config.enabled) VoiceCmd.startListening();
+    // Switch to oval track for free run (no map route to show)
+    this.setMapStyle('oval');
+    // Auto-open speed quick-select so user can pick their running speed
+    setTimeout(() => this.toggleQS('speed'), 500);
   },
 
   togglePause() {
     if (!Engine.run) return;
     if (Engine.run.status === 'running') {
       Engine.pauseRun();
+      // Show a funny pause message
+      var jokes = [
+        'Gone to find a bush... 🌳',
+        'BRB, shoelace emergency 👟',
+        'Contemplating life choices...',
+        'Water break! Stay hydrated 💧',
+        'Gone to pet a dog 🐕',
+        'Stretching... or pretending to 🧘',
+        'Is it too late to take up swimming?',
+        'Quick selfie for the gram 📸',
+        'Pretending to check the route map...',
+        'Catching breath. Dignity already lost.',
+      ];
+      var jokeEl = document.getElementById('pauseJoke');
+      if (jokeEl) jokeEl.textContent = jokes[Math.floor(Math.random() * jokes.length)];
       document.getElementById('pauseOverlay').classList.add('show');
     } else if (Engine.run.status === 'paused') {
       Engine.resumeRun();
@@ -200,6 +418,9 @@ const App = {
     UI.showRunComplete();
     this._updateRunButton();
     this._updateFloatingControls();
+    this._exitFocusMode();
+    VoiceCmd.stopListening();
+    if (WorkoutSegments.active) WorkoutSegments.abort();
   },
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -249,6 +470,25 @@ const App = {
   saveAndNewRun() {
     const saved = Engine.saveRun();
     UI.hideRunComplete();
+
+    // Record workout in Streaks
+    if (saved) {
+      var summary = {
+        distanceKm: (saved.distanceM || 0) / 1000,
+        elapsed: saved.elapsed || 0,
+        elevGained: saved.elevGain || 0,
+        avgHR: Engine.getAvgHR() || 0,
+        maxHR: saved.maxHR || 0,
+        avgSpeed: saved.avgSpeed || 0,
+        calories: saved.calories || 0,
+        ghostDelta: Engine.ghostEnabled && Engine.ghost ? (Engine.ghost.elapsed - saved.elapsed) : 0,
+      };
+      var newBadges = Streaks.recordWorkout(summary);
+      if (newBadges && newBadges.length > 0) {
+        console.log('[App] New badges:', newBadges.map(b => b.name).join(', '));
+      }
+    }
+
     Engine.discardRun();
     Engine.newRun();
     UI.update();
@@ -328,6 +568,14 @@ const App = {
       Engine.pauseRun();
       document.getElementById('pauseOverlay').classList.add('show');
     }
+  },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // WORKOUTS
+  // ════════════════════════════════════════════════════════════════════════════
+
+  openWorkouts() {
+    WorkoutBuilder.open();
   },
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -454,10 +702,7 @@ const App = {
     if (TM.connected) {
       TM.setSpeed(Engine.ctrl.targetSpeed);
     }
-    // Always set run speed directly so distance tracks (user matches treadmill display)
-    if (Engine.run && (Engine.ctrl.mode === 'manual' || !TM.connected)) {
-      Engine.run.speed = Engine.ctrl.targetSpeed;
-    }
+    // Speed ramps gradually via Engine.tick() — don't set run.speed directly
     this._updateNudgeDisplays();
   },
 
@@ -474,14 +719,21 @@ const App = {
   },
 
   _updateNudgeDisplays() {
+    var _s = Store.getSettings();
+    var _unit = _s.speedButtonUnit || 'kph';
+    var _disp = SpeedUnits.fromKph(Engine.ctrl.targetSpeed, _unit);
+    var _formatted = SpeedUnits.format(_disp, _unit);
+
     const sv = document.getElementById('fcSpeedVal');
     const iv = document.getElementById('fcIncVal');
-    if (sv) sv.textContent = Engine.ctrl.targetSpeed.toFixed(1);
+    if (sv) sv.textContent = _formatted;
     if (iv) iv.textContent = Engine.ctrl.targetIncline.toFixed(1);
     // Also update bottom-strip big displays
     const bs = document.getElementById('bigSpeedVal');
     const bi = document.getElementById('bigIncVal');
-    if (bs) bs.textContent = Engine.ctrl.targetSpeed.toFixed(1);
+    const bsu = document.getElementById('bigSpeedUnit');
+    if (bs) bs.textContent = _formatted;
+    if (bsu) bsu.textContent = _unit;
     if (bi) bi.textContent = Engine.ctrl.targetIncline.toFixed(1);
   },
 
@@ -496,12 +748,27 @@ const App = {
 
     // Hide all panels first
     TrackView.hide();
+    OvalTrack.hide();
     mapDiv.style.display = 'none';
     if (mediaPanel) mediaPanel.style.display = 'none';
     if (streetPanel) streetPanel.style.display = 'none';
 
     if (style === 'track') {
       TrackView.show();
+    } else if (style === 'oval') {
+      OvalTrack.show();
+      // Load segments if a workout is active
+      if (WorkoutSegments.active) {
+        var segs = WorkoutSegments.getSegmentsWithColours();
+        OvalTrack.setSegments(segs.map(function(s) {
+          return {
+            distance: s.distance || (s.duration || 30),
+            speed: SpeedUnits.toKph(s.speed, s.speedUnit),
+            incline: s.incline || 0,
+            colour: s.colour
+          };
+        }));
+      }
     } else if (style === 'media') {
       if (mediaPanel) mediaPanel.style.display = 'flex';
     } else if (style === 'street') {
@@ -517,6 +784,12 @@ const App = {
     document.querySelectorAll('.map-mode-btn').forEach(btn => {
       btn.classList.toggle('act', btn.dataset.style === style);
     });
+  },
+
+  mapZoom(delta) {
+    if (typeof MapView !== 'undefined' && MapView.map) {
+      MapView.map.setZoom(MapView.map.getZoom() + delta);
+    }
   },
 
   _streetViewReady: false,
@@ -608,66 +881,309 @@ const App = {
   },
 
   // ════════════════════════════════════════════════════════════════════════════
-  // SETTINGS
+  // SETTINGS — now uses SettingsPanel
   // ════════════════════════════════════════════════════════════════════════════
 
   openSettings() {
-    UI.openSettings();
-    this._updateStravaStatus();
+    SettingsPanel.open();
   },
-  closeSettings() { UI.closeSettings(); },
-  saveSettings() { UI.saveSettings(); },
+  closeSettings() { SettingsPanel.close(); },
+  saveSettings() { /* SettingsPanel handles its own save */ },
 
   connectStrava() {
     // Save app credentials first
-    const clientId = document.getElementById('setStravaClientId')?.value?.trim();
-    const secret = document.getElementById('setStravaSecret')?.value?.trim();
+    const clientId = document.getElementById('setStravaClientId')?.value?.trim() ||
+                     document.getElementById('spStravaId')?.value?.trim();
+    const secret = document.getElementById('setStravaSecret')?.value?.trim() ||
+                   document.getElementById('spStravaSecret')?.value?.trim();
     if (clientId && secret) {
       Sync.stravaApp = { clientId, clientSecret: secret };
     }
     if (Sync.isStravaConnected()) {
       if (confirm('Disconnect from Strava?')) {
         Sync.disconnectStrava();
-        this._updateStravaStatus();
       }
     } else {
       Sync.connectStrava();
     }
   },
 
-  _updateStravaStatus() {
-    const label = document.getElementById('stravaStatusLabel');
-    const sub = document.getElementById('stravaStatusSub');
-    const btn = document.getElementById('stravaConnectBtn');
-    const clientInput = document.getElementById('setStravaClientId');
-    const secretInput = document.getElementById('setStravaSecret');
-    if (!label) return;
+  // ════════════════════════════════════════════════════════════════════════════
+  // VOICE COMMAND DISPATCH
+  // ════════════════════════════════════════════════════════════════════════════
 
-    const status = Sync.getStatus();
-    const app = Sync.stravaApp;
+  _handleVoiceCommand(action, args) {
+    switch (action) {
+      case 'speed_up':
+        this.adjustSpeed(0.5);
+        VoiceCoach.announceSpeed(Engine.ctrl.targetSpeed, 'kph');
+        break;
+      case 'speed_down':
+        this.adjustSpeed(-0.5);
+        VoiceCoach.announceSpeed(Engine.ctrl.targetSpeed, 'kph');
+        break;
+      case 'speed_set':
+        if (args !== null) {
+          Engine.ctrl.targetSpeed = Math.max(0, Math.min(20, args));
+          if (TM.connected) TM.setSpeed(Engine.ctrl.targetSpeed);
+          this._updateNudgeDisplays();
+          VoiceCoach.announceSpeed(args, 'kph');
+        }
+        break;
+      case 'incline_up':
+        this.adjustIncline(1);
+        VoiceCoach.say('Incline ' + Engine.ctrl.targetIncline.toFixed(0) + ' percent.', 'medium');
+        break;
+      case 'incline_down':
+        this.adjustIncline(-1);
+        VoiceCoach.say('Incline ' + Engine.ctrl.targetIncline.toFixed(0) + ' percent.', 'medium');
+        break;
+      case 'incline_set':
+        if (args !== null) {
+          Engine.ctrl.targetIncline = Math.max(-6, Math.min(40, args));
+          if (TM.connected) TM.setIncline(Engine.ctrl.targetIncline);
+          this._updateNudgeDisplays();
+          VoiceCoach.say('Incline set to ' + args + ' percent.', 'medium');
+        }
+        break;
+      case 'pause':
+        if (Engine.run && Engine.run.status === 'running') this.togglePause();
+        break;
+      case 'resume':
+        if (Engine.run && Engine.run.status === 'paused') this.togglePause();
+        break;
+      case 'stop':
+        this.finishRun();
+        break;
+      case 'skip_segment':
+        if (WorkoutSegments.active) WorkoutSegments.skipToNextSegment();
+        VoiceCoach.say('Skipping to next segment.', 'high');
+        break;
+      case 'query_distance':
+        if (Engine.run) {
+          VoiceCoach.announceDistance((Engine.run.distanceM || 0) / 1000, 'covered');
+        }
+        break;
+      case 'query_speed':
+        if (Engine.run) {
+          VoiceCoach.announceSpeed(Engine.run.speed || 0, 'kph');
+        }
+        break;
+      case 'query_hr':
+        if (Engine.run) {
+          var zone = Engine.run.hr > 0 && Store.getSettings().maxHR > 0
+            ? Math.ceil((Engine.run.hr / Store.getSettings().maxHR) * 5) : 0;
+          VoiceCoach.announceHR(Engine.run.hr || 0, zone);
+        }
+        break;
+      case 'query_time':
+        if (Engine.run) {
+          VoiceCoach.announceTime(Engine.run.elapsed || 0);
+        }
+        break;
+      case 'query_ghost':
+        if (Engine.ghostEnabled && Engine.ghost) {
+          var delta = (Engine.ghost.elapsed || 0) - (Engine.run ? Engine.run.elapsed : 0);
+          VoiceCoach.announceGhostDelta(delta);
+        } else {
+          VoiceCoach.say('No ghost loaded.', 'medium');
+        }
+        break;
+      case 'volume_up':
+        VoiceCoach.config.volume = Math.min(1, VoiceCoach.config.volume + 0.2);
+        break;
+      case 'volume_down':
+        VoiceCoach.config.volume = Math.max(0.1, VoiceCoach.config.volume - 0.2);
+        break;
+      case 'mute':
+        VoiceCoach.config.enabled = false;
+        break;
+      case 'unmute':
+        VoiceCoach.config.enabled = true;
+        VoiceCoach.say('Voice coaching enabled.', 'high');
+        break;
+    }
+  },
 
-    if (status.strava.connected) {
-      const name = status.strava.athlete
-        ? status.strava.athlete.firstname + ' ' + status.strava.athlete.lastname
-        : 'Connected';
-      label.textContent = name;
-      label.style.color = '#22c55e';
-      sub.textContent = 'Runs auto-sync after save' +
-        (status.queuedRuns ? ' · ' + status.queuedRuns + ' queued' : '');
-      btn.textContent = 'DISCONNECT';
-      btn.style.borderColor = '#ef4444';
-      btn.style.color = '#ef4444';
-    } else {
-      label.textContent = 'Not Connected';
-      label.style.color = '';
-      sub.textContent = 'Enter Client ID + Secret, then click Connect';
-      btn.textContent = 'CONNECT';
-      btn.style.borderColor = '';
-      btn.style.color = '';
+  // ════════════════════════════════════════════════════════════════════════════
+  // BADGE TOAST
+  // ════════════════════════════════════════════════════════════════════════════
+
+  _showBadgeToast(badge) {
+    var toast = document.createElement('div');
+    toast.className = 'badge-toast';
+    toast.innerHTML = '<span class="badge-toast-icon">' + badge.icon + '</span>' +
+      '<span class="badge-toast-text">BADGE EARNED: ' + badge.name + '</span>';
+    document.getElementById('rootApp').appendChild(toast);
+    setTimeout(function() { toast.classList.add('show'); }, 50);
+    setTimeout(function() {
+      toast.classList.remove('show');
+      setTimeout(function() { toast.remove(); }, 500);
+    }, 4000);
+    VoiceCoach.say('Badge earned! ' + badge.name + '!', 'high');
+  },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // FOCUS MODE — simplified running UI
+  // ════════════════════════════════════════════════════════════════════════════
+
+  _focusMode: false,
+
+  _enterFocusMode() {
+    this._focusMode = true;
+    var layout = document.querySelector('.layout');
+    var topbar = document.querySelector('.topbar');
+    if (layout) layout.classList.add('focus');
+    if (topbar) topbar.classList.add('focus');
+    // Build quick-select panels from settings
+    this._buildQSPanels();
+    // Invalidate map size after transition
+    setTimeout(function() { MapView.invalidateSize(); }, 400);
+  },
+
+  _exitFocusMode() {
+    this._focusMode = false;
+    var layout = document.querySelector('.layout');
+    var topbar = document.querySelector('.topbar');
+    if (layout) layout.classList.remove('focus');
+    if (topbar) topbar.classList.remove('focus');
+    // Close QS panels
+    var qsS = document.getElementById('qsSpeed');
+    var qsI = document.getElementById('qsIncline');
+    if (qsS) qsS.classList.remove('open');
+    if (qsI) qsI.classList.remove('open');
+    this.closeFocusMenu();
+    setTimeout(function() { MapView.invalidateSize(); }, 400);
+  },
+
+  toggleFocusMode() {
+    if (this._focusMode) this._exitFocusMode();
+    else this._enterFocusMode();
+  },
+
+  // ── Focus badges update (called from onTick when in focus mode) ────────
+
+  _updateFocusBadges() {
+    if (!this._focusMode || !Engine.run) return;
+    var el = function(id, v) { var e = document.getElementById(id); if (e) e.textContent = v; };
+    el('fbHR', Engine.run.hr > 0 ? Engine.run.hr : '—');
+    // HR zone detail
+    var hrZoneEl = document.getElementById('fbHRZone');
+    if (hrZoneEl) {
+      var maxHR = Engine.run.maxHR || 185;
+      var hr = Engine.run.hr || 0;
+      if (hr > 0 && maxHR > 0) {
+        var pct = hr / maxHR;
+        var zName = '', zCol = '';
+        for (var z = 0; z < Engine.HR_ZONES.length; z++) {
+          if (pct >= Engine.HR_ZONES[z].min && pct < Engine.HR_ZONES[z].max) {
+            zName = 'Z' + Engine.HR_ZONES[z].z; zCol = Engine.HR_ZONES[z].color; break;
+          }
+        }
+        if (pct >= 1.0) { zName = 'Z5'; zCol = Engine.HR_ZONES[4].color; }
+        hrZoneEl.textContent = zName;
+        hrZoneEl.style.color = zCol;
+      } else {
+        hrZoneEl.textContent = '';
+      }
+    }
+    var _s = Store.getSettings();
+    var _unit = _s.speedButtonUnit || 'kph';
+    var _disp = SpeedUnits.fromKph(Engine.run.speed || 0, _unit);
+    el('fbSpeed', SpeedUnits.format(_disp, _unit));
+    el('fbSpeedUnit', _unit);
+    el('fbInc', (Engine.run.incline || 0).toFixed(1));
+    el('fbDist', ((Engine.run.distanceM || 0) / 1000).toFixed(2));
+    el('fbCal', Math.round(Engine.run.calories || 0));
+  },
+
+  // ── Quick-select panels ────────────────────────────────────────────────
+
+  _buildQSPanels() {
+    var s = Store.getSettings();
+
+    // Speed panel (right)
+    var speeds = s.customSpeeds || [4, 5, 6, 7, 8, 10];
+    var speedUnit = s.speedButtonUnit || 'mph';
+    var unitLabel = speedUnit.toUpperCase();
+    var qsS = document.getElementById('qsSpeed');
+    if (qsS) {
+      var html = '<div class="qs-title" onclick="App._cycleQSSpeedUnit()">SPEED ' + unitLabel + ' ⇅</div>';
+      for (var i = 0; i < speeds.length && i < 10; i++) {
+        html += '<button class="qs-btn speed" onclick="App._qsSetSpeed(' + speeds[i] + ')" data-val="' + speeds[i] + '">' + speeds[i] + '</button>';
+      }
+      qsS.innerHTML = html;
     }
 
-    if (clientInput && app) clientInput.value = app.clientId || '';
-    if (secretInput && app) secretInput.value = app.clientSecret || '';
+    // Incline panel (left)
+    var inclines = s.customInclines || [30, 25, 20, 15, 10, 5, 0, -6];
+    var qsI = document.getElementById('qsIncline');
+    if (qsI) {
+      var html2 = '<div class="qs-title">INCLINE %</div>';
+      for (var j = 0; j < inclines.length && j < 10; j++) {
+        html2 += '<button class="qs-btn incline" onclick="App._qsSetIncline(' + inclines[j] + ')" data-val="' + inclines[j] + '">' + inclines[j] + '</button>';
+      }
+      qsI.innerHTML = html2;
+    }
+  },
+
+  toggleQS(type) {
+    var panel = document.getElementById(type === 'speed' ? 'qsSpeed' : 'qsIncline');
+    var other = document.getElementById(type === 'speed' ? 'qsIncline' : 'qsSpeed');
+    if (!panel) return;
+    if (other) other.classList.remove('open');
+    panel.classList.toggle('open');
+    // Rebuild in case settings changed
+    if (panel.classList.contains('open')) this._buildQSPanels();
+  },
+
+  _qsSetSpeed(val) {
+    var s = Store.getSettings();
+    var unit = s.speedButtonUnit || 'mph';
+    // Convert to kph for the engine
+    var kph = val;
+    if (unit === 'mph') kph = val * 1.60934;
+    else if (unit === 'min/mi') kph = val > 0 ? (60 / val) * 1.60934 : 0;
+    else if (unit === 'min/km') kph = val > 0 ? 60 / val : 0;
+    kph = Math.max(0, Math.min(19.3, kph));
+    Engine.ctrl.targetSpeed = kph;
+    if (TM.connected) TM.setSpeed(kph);
+    // Speed ramps gradually via Engine.tick() — don't set run.speed directly
+    this._updateNudgeDisplays();
+    // Highlight active button
+    var btns = document.querySelectorAll('#qsSpeed .qs-btn');
+    btns.forEach(function(b) { b.classList.toggle('active', parseFloat(b.dataset.val) === val); });
+  },
+
+  _qsSetIncline(val) {
+    Engine.ctrl.targetIncline = val;
+    if (TM.connected) TM.setIncline(val);
+    if (Engine.run) Engine.run.incline = val;
+    this._updateNudgeDisplays();
+    var btns = document.querySelectorAll('#qsIncline .qs-btn');
+    btns.forEach(function(b) { b.classList.toggle('active', parseFloat(b.dataset.val) === val); });
+  },
+
+  _cycleQSSpeedUnit() {
+    var s = Store.getSettings();
+    var units = ['mph', 'kph', 'min/mi', 'min/km'];
+    var idx = units.indexOf(s.speedButtonUnit || 'mph');
+    s.speedButtonUnit = units[(idx + 1) % units.length];
+    Store.saveSettings(s);
+    this._buildQSPanels();
+    this._updateNudgeDisplays();
+  },
+
+  // ── Focus menu (hamburger) ─────────────────────────────────────────────
+
+  toggleFocusMenu() {
+    var overlay = document.getElementById('focusMenuOverlay');
+    if (overlay) overlay.classList.toggle('show');
+  },
+
+  closeFocusMenu() {
+    var overlay = document.getElementById('focusMenuOverlay');
+    if (overlay) overlay.classList.remove('show');
   },
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -720,6 +1236,19 @@ const App = {
 
   _closeTopPanel() {
     // Close whichever panel is open (priority order)
+    var focusMenu = document.getElementById('focusMenuOverlay');
+    if (focusMenu && focusMenu.classList.contains('show')) { this.closeFocusMenu(); return; }
+    // Close QS panels
+    var qsS = document.getElementById('qsSpeed');
+    var qsI = document.getElementById('qsIncline');
+    if (qsS && qsS.classList.contains('open')) { qsS.classList.remove('open'); return; }
+    if (qsI && qsI.classList.contains('open')) { qsI.classList.remove('open'); return; }
+    if (WorkoutBuilder._overlayEl && WorkoutBuilder._overlayEl.classList.contains('show')) {
+      WorkoutBuilder.close(); return;
+    }
+    if (SettingsPanel._el && SettingsPanel._el.classList.contains('show')) {
+      SettingsPanel.close(); return;
+    }
     const routeModal = document.getElementById('routeModal');
     if (routeModal && routeModal.classList.contains('show')) { UI.closeRouteModal(); return; }
     const settingsModal = document.getElementById('settingsModal');
