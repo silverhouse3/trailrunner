@@ -114,7 +114,7 @@ body { color: var(--text); font-family: 'Rajdhani', sans-serif; user-select: non
   font-family: 'JetBrains Mono', monospace; }
 .mv { font-family: 'Orbitron', sans-serif; font-size: 24px; font-weight: 700; line-height: 1;
   color: var(--ac, var(--text)); transition: color .5s;
-  text-shadow: 0 0 14px color-mix(in srgb, var(--ac, transparent) 20%, transparent); }
+  text-shadow: 0 0 14px rgba(62, 207, 255, 0.2); }
 .mu { font-size: 10px; color: var(--dim); font-family: 'JetBrains Mono', monospace; margin-left: 3px; }
 .ms { font-size: 10px; color: var(--mid); }
 .ms2 { font-size: 9px; color: var(--dim); font-family: 'JetBrains Mono', monospace; }
@@ -188,7 +188,7 @@ body { color: var(--text); font-family: 'Rajdhani', sans-serif; user-select: non
 .nudge:hover { border-color: var(--cyan); color: var(--cyan); }
 
 /* ══ SETUP OVERLAY ════════════════════════════════════════════════════════ */
-.setup-overlay { position: absolute; inset: 0; background: rgba(9,11,16,.97);
+.setup-overlay { position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: rgba(9,11,16,.97);
   display: flex; align-items: center; justify-content: center; z-index: 9000; }
 .setup-card { max-width: 640px; padding: 40px; text-align: center; }
 .setup-title { font-family: 'Orbitron', sans-serif; font-size: 22px; font-weight: 900;
@@ -230,7 +230,7 @@ body { color: var(--text); font-family: 'Rajdhani', sans-serif; user-select: non
 .fc-cooldown:hover { background: rgba(62,207,255,.25); box-shadow: 0 0 20px rgba(62,207,255,.3); }
 
 /* ══ PAUSE OVERLAY ════════════════════════════════════════════════════════ */
-.pause-overlay { position: fixed; inset: 0; z-index: 300; display: none;
+.pause-overlay { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 300; display: none;
   align-items: center; justify-content: center; flex-direction: column; gap: 20px;
   background: rgba(6,8,14,.92); }
 .pause-overlay.show { display: flex; }
@@ -247,7 +247,7 @@ body { color: var(--text); font-family: 'Rajdhani', sans-serif; user-select: non
 .resume-btn:hover { background: rgba(62,207,255,.12); box-shadow: 0 0 24px rgba(62,207,255,.3); }
 
 /* ══ COOL-DOWN OVERLAY ═══════════════════════════════════════════════════ */
-.cooldown-overlay { position: fixed; inset: 0; z-index: 350; display: none;
+.cooldown-overlay { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 350; display: none;
   align-items: center; justify-content: center; flex-direction: column; gap: 16px;
   background: rgba(6,8,14,.85); }
 .cooldown-overlay.show { display: flex; }
@@ -271,7 +271,7 @@ body { color: var(--text); font-family: 'Rajdhani', sans-serif; user-select: non
 .cooldown-skip:hover { border-color: var(--red); color: var(--red); }
 
 /* ══ RUN COMPLETE OVERLAY ═════════════════════════════════════════════════ */
-.finish-overlay { position: fixed; inset: 0; z-index: 400; display: none;
+.finish-overlay { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 400; display: none;
   align-items: center; justify-content: center; flex-direction: column; gap: 16px;
   background: rgba(6,8,14,.95); }
 .finish-overlay.show { display: flex; }
@@ -334,7 +334,7 @@ body { color: var(--text); font-family: 'Rajdhani', sans-serif; user-select: non
 .gc-delta.behind { color: #ff5f5f; }
 
 /* ══ ROUTE MODAL ══════════════════════════════════════════════════════════ */
-.modal-overlay { position: fixed; inset: 0; z-index: 500; display: none;
+.modal-overlay { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 500; display: none;
   align-items: center; justify-content: center;
   background: rgba(6,8,14,.9); }
 .modal-overlay.show { display: flex; }
@@ -409,7 +409,7 @@ body { color: var(--text); font-family: 'Rajdhani', sans-serif; user-select: non
 .route-progress-fill { height: 100%; background: var(--green); transition: width .5s; border-radius: 0 2px 2px 0; }
 
 /* ══ MEDIA PANEL ═════════════════════════════════════════════════════════ */
-.media-panel { position: absolute; inset: 0; z-index: 10; background: var(--bg);
+.media-panel { position: absolute; top: 0; right: 0; bottom: 0; left: 0; z-index: 10; background: var(--bg);
   display: flex; flex-direction: column; padding: 16px; gap: 12px; overflow-y: auto; }
 
 .media-now-playing { display: flex; align-items: center; gap: 16px; padding: 16px 20px;
@@ -466,8 +466,8 @@ body { color: var(--text); font-family: 'Rajdhani', sans-serif; user-select: non
   letter-spacing: .05em; }
 
 /* ══ STREET VIEW PANEL ══════════════════════════════════════════════════ */
-.streetview-panel { position: absolute; inset: 0; z-index: 10; background: var(--bg); }
-.sv-no-key { position: absolute; inset: 0; display: flex; flex-direction: column;
+.streetview-panel { position: absolute; top: 0; right: 0; bottom: 0; left: 0; z-index: 10; background: var(--bg); }
+.sv-no-key { position: absolute; top: 0; right: 0; bottom: 0; left: 0; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 12px; z-index: 5; }
 .sv-no-key-icon { font-size: 48px; opacity: .4; }
 .sv-no-key-title { font-family: 'Orbitron', sans-serif; font-size: 16px; font-weight: 700;
@@ -476,7 +476,7 @@ body { color: var(--text); font-family: 'Rajdhani', sans-serif; user-select: non
   text-align: center; line-height: 1.8; letter-spacing: .05em; }
 
 /* ══ NO ROUTE MESSAGE ═════════════════════════════════════════════════════ */
-.no-route { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+.no-route { position: absolute; top: 0; right: 0; bottom: 0; left: 0; display: flex; align-items: center; justify-content: center;
   flex-direction: column; gap: 12px; color: var(--dim); z-index: 5; }
 .no-route-icon { font-size: 48px; opacity: .3; }
 .no-route-text { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .1em; }
@@ -486,7 +486,7 @@ body { color: var(--text); font-family: 'Rajdhani', sans-serif; user-select: non
 .no-route-btn:hover { background: rgba(62,207,255,.1); }
 
 /* ══ WORKOUT BUILDER OVERLAY ═════════════════════════════════════════════ */
-.wb-overlay { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,.7);
+.wb-overlay { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 200; background: rgba(0,0,0,.7);
   display: flex; align-items: center; justify-content: center;
   opacity: 0; pointer-events: none; transition: opacity .3s; }
 .wb-overlay.show { opacity: 1; pointer-events: all; }
@@ -567,7 +567,10 @@ body { color: var(--text); font-family: 'Rajdhani', sans-serif; user-select: non
 .wb-bookend-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
 .wb-toggle-label { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text);
   cursor: pointer; min-width: 90px; }
-.wb-toggle-label input[type="checkbox"] { accent-color: var(--cyan); }
+.wb-toggle-label input[type="checkbox"] { accent-color: var(--cyan);
+  -webkit-appearance: none; appearance: none; width: 16px; height: 16px; min-width: 16px;
+  border: 2px solid var(--cyan); border-radius: 3px; background: transparent; cursor: pointer; }
+.wb-toggle-label input[type="checkbox"]:checked { background: var(--cyan); }
 
 .wb-footer { display: flex; gap: 8px; padding: 12px 0; justify-content: flex-end; }
 .wb-save-btn, .wb-start-btn, .wb-cancel-btn { padding: 8px 16px; border-radius: 6px;
@@ -578,7 +581,7 @@ body { color: var(--text); font-family: 'Rajdhani', sans-serif; user-select: non
 .wb-cancel-btn { background: transparent; border: 1px solid var(--dim); color: var(--dim); }
 
 /* ══ SETTINGS PANEL OVERLAY ═════════════════════════════════════════════ */
-.sp-overlay { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,.7);
+.sp-overlay { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 200; background: rgba(0,0,0,.7);
   display: flex; align-items: center; justify-content: center;
   opacity: 0; pointer-events: none; transition: opacity .3s; }
 .sp-overlay.show { opacity: 1; pointer-events: all; }
@@ -618,21 +621,31 @@ body { color: var(--text); font-family: 'Rajdhani', sans-serif; user-select: non
 .sp-radio-group { display: flex; gap: 10px; flex-wrap: wrap; }
 .sp-radio { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--text);
   font-family: 'JetBrains Mono', monospace; cursor: pointer; }
-.sp-radio input { accent-color: var(--cyan); }
+.sp-radio input { accent-color: var(--cyan);
+  -webkit-appearance: none; appearance: none; width: 14px; height: 14px; min-width: 14px;
+  border: 2px solid var(--cyan); border-radius: 50%; background: transparent; cursor: pointer; }
+.sp-radio input:checked { background: var(--cyan); box-shadow: inset 0 0 0 2px var(--bg); }
 .sp-check { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text);
   cursor: pointer; }
-.sp-check input { accent-color: var(--cyan); }
+.sp-check input { accent-color: var(--cyan);
+  -webkit-appearance: none; appearance: none; width: 16px; height: 16px; min-width: 16px;
+  border: 2px solid var(--cyan); border-radius: 3px; background: transparent; cursor: pointer; }
+.sp-check input:checked { background: var(--cyan); }
 
 .sp-toggle { position: relative; display: inline-block; width: 36px; height: 20px; }
 .sp-toggle input { opacity: 0; width: 0; height: 0; }
-.sp-slider { position: absolute; inset: 0; cursor: pointer; border-radius: 10px;
+.sp-slider { position: absolute; top: 0; right: 0; bottom: 0; left: 0; cursor: pointer; border-radius: 10px;
   background: #1e3050; transition: .3s; }
 .sp-slider::before { content: ''; position: absolute; width: 16px; height: 16px;
   border-radius: 50%; bottom: 2px; left: 2px; background: var(--dim); transition: .3s; }
 .sp-toggle input:checked + .sp-slider { background: rgba(62,207,255,.3); }
 .sp-toggle input:checked + .sp-slider::before { transform: translateX(16px); background: var(--cyan); }
 
-.sp-range { flex: 1; accent-color: var(--cyan); }
+.sp-range { flex: 1; accent-color: var(--cyan);
+  -webkit-appearance: none; appearance: none; height: 6px; border-radius: 3px;
+  background: #1e3050; outline: none; }
+.sp-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none;
+  width: 18px; height: 18px; border-radius: 50%; background: var(--cyan); cursor: pointer; }
 .sp-range-val { font-size: 10px; color: var(--mid); font-family: 'JetBrains Mono', monospace; min-width: 30px; }
 
 .sp-status { font-size: 10px; color: var(--dim); font-family: 'JetBrains Mono', monospace; }
@@ -747,7 +760,7 @@ body { color: var(--text); font-family: 'Rajdhani', sans-serif; user-select: non
   box-shadow: 0 0 12px rgba(255,159,67,.3); }
 
 /* ══ FOCUS MENU OVERLAY ════════════════════════════════════════════════ */
-.focus-menu-overlay { position: fixed; inset: 0; z-index: 180; display: none;
+.focus-menu-overlay { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 180; display: none;
   background: rgba(0,0,0,.6); }
 .focus-menu-overlay.show { display: block; }
 .focus-menu-panel { position: absolute; top: 46px; left: 0; width: 280px; bottom: 0;
@@ -773,3 +786,77 @@ body { color: var(--text); font-family: 'Rajdhani', sans-serif; user-select: non
 .milestone-popup-text { padding: 18px 28px; font-family: 'Orbitron', sans-serif;
   font-size: 22px; font-weight: 700; color: #fff; text-align: center;
   letter-spacing: .06em; line-height: 1.3; text-shadow: 0 2px 8px rgba(0,0,0,.5); }
+
+/* ══ CHROME 83 FLEX-GAP POLYFILL ═══════════════════════════════════════
+   Chrome <84 supports gap in grid but NOT flex. @supports can't
+   distinguish, so we use a JS feature-detect that adds .has-flex-gap
+   to <html>. These rules apply ONLY when that class is absent.
+   Add this <script> to index.html <head>:
+     (function(){var d=document.createElement('div');d.style.cssText=
+     'display:flex;gap:1px;visibility:hidden;position:absolute';
+     d.appendChild(document.createElement('div'));
+     d.appendChild(document.createElement('div'));
+     document.body.appendChild(d);if(d.scrollWidth===1)
+     document.documentElement.classList.add('has-flex-gap');
+     d.remove()})();
+   Safe to remove once WebView is ≥ 84.                                 */
+
+/* ── Row flex containers (horizontal gap via margin-left) ──────── */
+html:not(.has-flex-gap) .pills > * + *,
+html:not(.has-flex-gap) .pill > * + *,
+html:not(.has-flex-gap) .big-control > * + *,
+html:not(.has-flex-gap) .float-controls > * + *,
+html:not(.has-flex-gap) .finish-btns > * + *,
+html:not(.has-flex-gap) .km-toast > * + *,
+html:not(.has-flex-gap) .split-row > * + *,
+html:not(.has-flex-gap) .modal-footer > * + *,
+html:not(.has-flex-gap) .history-row > * + *,
+html:not(.has-flex-gap) .media-now-playing > * + *,
+html:not(.has-flex-gap) .media-np-controls > * + *,
+html:not(.has-flex-gap) .media-volume > * + *,
+html:not(.has-flex-gap) .media-custom > * + *,
+html:not(.has-flex-gap) .wb-types > * + *,
+html:not(.has-flex-gap) .wb-card-top > * + *,
+html:not(.has-flex-gap) .wb-card-bottom > * + *,
+html:not(.has-flex-gap) .wb-seg-row > * + *,
+html:not(.has-flex-gap) .wb-bookend-row > * + *,
+html:not(.has-flex-gap) .wb-toggle-label > * + *,
+html:not(.has-flex-gap) .wb-footer > * + *,
+html:not(.has-flex-gap) .sp-tabs > * + *,
+html:not(.has-flex-gap) .sp-row > * + *,
+html:not(.has-flex-gap) .sp-radio-group > * + *,
+html:not(.has-flex-gap) .sp-radio > * + *,
+html:not(.has-flex-gap) .sp-check > * + *,
+html:not(.has-flex-gap) .sp-acc-header > * + *,
+html:not(.has-flex-gap) .sp-theme-grid > * + *,
+html:not(.has-flex-gap) .sp-widget-row > * + *,
+html:not(.has-flex-gap) .sp-metric-item > * + *,
+html:not(.has-flex-gap) .badge-toast > * + *,
+html:not(.has-flex-gap) .focus-badge > * + *,
+html:not(.has-flex-gap) .fm-item > * + *,
+html:not(.has-flex-gap) .topbar-left > * + * { margin-left: 8px; }
+html:not(.has-flex-gap) .topbar-right > * + * { margin-left: 10px; }
+
+/* ── Column flex containers (vertical gap via margin-top) ──────── */
+html:not(.has-flex-gap) .wb-type-grid > * + *,
+html:not(.has-flex-gap) .wb-type-card > * + *,
+html:not(.has-flex-gap) .wb-list > * + *,
+html:not(.has-flex-gap) .wb-seg-list > * + *,
+html:not(.has-flex-gap) .sp-metric-list > * + *,
+html:not(.has-flex-gap) .media-panel > * + * { margin-top: 8px; }
+
+/* ── Specific gap values where 8px default is wrong ────────────── */
+html:not(.has-flex-gap) .map-tl > * + * { margin-left: 4px; }
+html:not(.has-flex-gap) .zoom-btns > * + * { margin-left: 4px; }
+html:not(.has-flex-gap) .wb-type-btn > * + * { margin-top: 4px; }
+html:not(.has-flex-gap) .cooldown-info > * + * { margin-left: 40px; }
+html:not(.has-flex-gap) .finish-stats > * + * { margin-left: 24px; }
+html:not(.has-flex-gap) .rc-stats > * + * { margin-left: 16px; }
+html:not(.has-flex-gap) .qs-panel > * + * { margin-left: 4px; }
+
+/* Also cover the overlay flex containers that start as display:none */
+html:not(.has-flex-gap) .pause-overlay > * + *,
+html:not(.has-flex-gap) .cooldown-overlay > * + *,
+html:not(.has-flex-gap) .finish-overlay > * + *,
+html:not(.has-flex-gap) .sv-no-key > * + *,
+html:not(.has-flex-gap) .no-route > * + * { margin-top: 12px; }

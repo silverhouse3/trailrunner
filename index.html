@@ -14,13 +14,21 @@
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
+<script>/* Flex-gap feature detect for Chrome 83 polyfill */
+(function(){var d=document.createElement('div');d.style.cssText=
+'display:flex;gap:1px;visibility:hidden;position:absolute';
+d.appendChild(document.createElement('div'));
+d.appendChild(document.createElement('div'));
+document.body.appendChild(d);if(d.scrollWidth===1)
+document.documentElement.classList.add('has-flex-gap');
+d.remove()})();</script>
 <div id="rootApp">
 
 <!-- ══════════════════════════════════════════════════════════════════════════
      TOPBAR
      ══════════════════════════════════════════════════════════════════════════ -->
 <div class="topbar">
-  <div style="display:flex;align-items:center;gap:14px">
+  <div class="topbar-left" style="display:flex;align-items:center;gap:14px">
     <div class="logo">TRAILRUNNER</div>
     <div class="pills">
       <div class="bt-pill" id="pillTM" style="font-size:9px;cursor:default" title="Treadmill connection status">🏃 ...</div>
@@ -33,7 +41,7 @@
       <div class="pill pill-settings" onclick="App.openSettings()">⚙ SETTINGS</div>
     </div>
   </div>
-  <div style="display:flex;align-items:center;gap:10px">
+  <div class="topbar-right" style="display:flex;align-items:center;gap:10px">
     <button class="focus-menu-btn" onclick="App.toggleFocusMenu()" title="Menu">☰</button>
     <button class="estop" onclick="App.emergencyStop()" title="EMERGENCY STOP">■</button>
     <div style="text-align:right">

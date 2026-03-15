@@ -105,8 +105,12 @@ adb connect <TREADMILL_IP>:5555
 adb push trailrunner-bridge /data/local/tmp/
 adb shell chmod +x /data/local/tmp/trailrunner-bridge
 
-:: Push mTLS keys
-adb push keys/ /sdcard/trailrunner/keys/
+:: Push mTLS keys — MUST go to /data/local/tmp/keys/ (world-readable)
+:: The APK runs as an unprivileged user that cannot read /sdcard/ files
+adb shell mkdir -p /data/local/tmp/keys
+adb push keys/ /data/local/tmp/keys/
+adb shell chmod 755 /data/local/tmp/keys
+adb shell chmod 644 /data/local/tmp/keys/*
 ```
 
 ### 3.3 Test the bridge
@@ -220,7 +224,7 @@ If you prefer not to install an APK, you can use the treadmill's browser:
 |-------|----------|
 | Bridge says "gRPC: false" | glassos_service not running. Restart treadmill or run: `adb shell am startservice -a com.ifit.glassos_service.GLASSOS_PLATFORM` |
 | APK shows "Connecting to treadmill..." forever | Bridge binary may not be at `/data/local/tmp/trailrunner-bridge` or may not be executable. Check with `adb shell ls -la /data/local/tmp/trailrunner-bridge` |
-| Speed/incline commands don't work | Check bridge logs: `adb logcat -s TrailRunner`. Verify gRPC keys are in `/sdcard/trailrunner/keys/` |
+| Speed/incline commands don't work | Check bridge logs: `adb shell cat /data/local/tmp/bridge.log`. Verify gRPC keys are in `/data/local/tmp/keys/` with world-readable permissions (`chmod 644`) |
 | "Mixed content blocked" in browser | Use the APK instead (it enables mixed content), or start a local HTTP server |
 | Belt doesn't start on "Start Run" | Workout may already be in progress. Try stop then start: `curl -X POST http://<IP>:4510/workout/stop` then start again |
 | Incline stuck | glassos_service may need a restart. Power cycle the treadmill |
@@ -238,6 +242,7 @@ adb uninstall com.silverhouse3.trailrunner
 adb shell rm /data/local/tmp/trailrunner-bridge
 
 :: Remove keys
+adb shell rm -rf /data/local/tmp/keys/
 adb shell rm -rf /sdcard/trailrunner/
 ```
 

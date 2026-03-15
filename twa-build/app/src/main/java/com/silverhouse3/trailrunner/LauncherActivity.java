@@ -20,6 +20,7 @@ import android.webkit.GeolocationPermissions;
 import android.webkit.PermissionRequest;
 
 import java.io.BufferedReader;
+import java.io.FileInputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -170,31 +171,99 @@ public class LauncherActivity extends Activity {
         }
     }
 
+    private static final String BRIDGE_LOG = "/data/local/tmp/bridge.log";
+
     private void startBridge() {
+        // Check if bridge binary exists
+        java.io.File bridge = new java.io.File(BRIDGE_BINARY);
+        if (!bridge.exists()) {
+            Log.e(TAG, "Bridge binary not found at " + BRIDGE_BINARY);
+            return;
+        }
+
+        // Kill any zombie bridge processes from previous attempts
+        killExistingBridges();
+
+        // Method 1: sh -c with log capture (most reliable on Android)
         try {
-            // Check if bridge binary exists
-            java.io.File bridge = new java.io.File(BRIDGE_BINARY);
-            if (!bridge.exists()) {
-                Log.e(TAG, "Bridge binary not found at " + BRIDGE_BINARY);
+            Runtime.getRuntime().exec(new String[]{
+                "sh", "-c", BRIDGE_BINARY + " > " + BRIDGE_LOG + " 2>&1 &"
+            });
+            Log.i(TAG, "Bridge started via sh -c (logging to " + BRIDGE_LOG + ")");
+            // Give Go runtime time to initialize and bind port
+            if (waitForBridgeShort(8000)) {
+                Log.i(TAG, "Bridge confirmed healthy after sh -c start");
                 return;
             }
-
-            // Start bridge in background (it has its own gRPC retry loop)
-            ProcessBuilder pb = new ProcessBuilder(BRIDGE_BINARY);
-            pb.redirectErrorStream(true);
-            pb.start();
-            Log.i(TAG, "Bridge started from " + BRIDGE_BINARY);
+            Log.w(TAG, "Bridge not healthy after sh -c, checking log...");
+            logBridgeOutput();
         } catch (Exception e) {
-            Log.e(TAG, "Failed to start bridge: " + e.getMessage());
-            // Fallback: try via shell
+            Log.w(TAG, "sh -c failed: " + e.getMessage());
+        }
+
+        // If still not healthy, kill and try ProcessBuilder
+        if (!isBridgeRunning()) {
+            killExistingBridges();
             try {
-                Runtime.getRuntime().exec(new String[]{
-                    "sh", "-c", BRIDGE_BINARY + " &"
-                });
-                Log.i(TAG, "Bridge started via shell fallback");
-            } catch (Exception e2) {
-                Log.e(TAG, "Shell fallback also failed: " + e2.getMessage());
+                ProcessBuilder pb = new ProcessBuilder(BRIDGE_BINARY);
+                pb.redirectErrorStream(true);
+                pb.redirectOutput(ProcessBuilder.Redirect.to(new java.io.File(BRIDGE_LOG)));
+                pb.start();
+                Log.i(TAG, "Bridge started via ProcessBuilder");
+                if (waitForBridgeShort(8000)) {
+                    Log.i(TAG, "Bridge confirmed healthy after ProcessBuilder start");
+                    return;
+                }
+                Log.w(TAG, "Bridge not healthy after ProcessBuilder");
+                logBridgeOutput();
+            } catch (Exception e) {
+                Log.w(TAG, "ProcessBuilder failed: " + e.getMessage());
             }
+        }
+    }
+
+    /** Kill any existing bridge processes to avoid port conflicts */
+    private void killExistingBridges() {
+        try {
+            Runtime.getRuntime().exec(new String[]{
+                "sh", "-c", "pkill -f trailrunner-bridge 2>/dev/null; sleep 1"
+            });
+            sleep(1500); // Wait for processes to die and port to free up
+            Log.i(TAG, "Cleaned up existing bridge processes");
+        } catch (Exception e) {
+            Log.w(TAG, "pkill failed (OK if no bridges running): " + e.getMessage());
+        }
+    }
+
+    /** Wait up to maxMs for bridge health, polling every 500ms */
+    private boolean waitForBridgeShort(int maxMs) {
+        long start = System.currentTimeMillis();
+        while (System.currentTimeMillis() - start < maxMs) {
+            if (isBridgeRunning()) return true;
+            sleep(500);
+        }
+        return false;
+    }
+
+    /** Read and log bridge output file for debugging */
+    private void logBridgeOutput() {
+        try {
+            java.io.File logFile = new java.io.File(BRIDGE_LOG);
+            if (!logFile.exists() || logFile.length() == 0) {
+                Log.w(TAG, "Bridge log empty or missing");
+                return;
+            }
+            BufferedReader reader = new BufferedReader(
+                new InputStreamReader(new FileInputStream(logFile)));
+            String line;
+            int lines = 0;
+            while ((line = reader.readLine()) != null && lines < 20) {
+                Log.i(TAG, "[bridge.log] " + line);
+                lines++;
+            }
+            reader.close();
+        } catch (Exception e) {
+            Log.w(TAG, "Could not read bridge log: " + e.getMessage());
         }
     }
 

@@ -162,13 +162,18 @@ func cleanState(s string) string {
 }
 
 func findKeysDir() string {
+	// /data/local/tmp/keys is checked first — world-readable, works from APK context.
+	// /sdcard/trailrunner/keys needs sdcard_rw group (stat succeeds but ReadFile fails
+	// from untrusted_app context), so it's checked second as a fallback for ADB usage.
 	for _, d := range []string{
-		"/sdcard/trailrunner/keys",
 		"/data/local/tmp/keys",
+		"/sdcard/trailrunner/keys",
 		filepath.Join(filepath.Dir(os.Args[0]), "keys"),
 		"keys",
 	} {
-		if _, err := os.Stat(filepath.Join(d, "ca_cert.txt")); err == nil {
+		// Verify we can actually READ the key files, not just stat them
+		if f, err := os.Open(filepath.Join(d, "ca_cert.txt")); err == nil {
+			f.Close()
 			return d
 		}
 	}
@@ -191,8 +196,12 @@ func subscribeSpeed() {
 				break
 			}
 			mu.Lock()
+			prev := currentSpeed
 			currentSpeed = m.LastKph
 			mu.Unlock()
+			if m.LastKph != prev {
+				log.Printf("[gRPC] Speed: %.1f kph (max=%.1f avg=%.1f)", m.LastKph, m.MaxKph, m.AvgKph)
+			}
 			broadcastState()
 		}
 		time.Sleep(2 * time.Second)
@@ -215,8 +224,12 @@ func subscribeIncline() {
 				break
 			}
 			mu.Lock()
+			prev := currentIncl
 			currentIncl = m.LastInclinePercent
 			mu.Unlock()
+			if m.LastInclinePercent != prev {
+				log.Printf("[gRPC] Incline: %.1f%% (max=%.1f avg=%.1f)", m.LastInclinePercent, m.MaxInclinePercent, m.AvgInclinePercent)
+			}
 			broadcastState()
 		}
 		time.Sleep(2 * time.Second)
@@ -725,11 +738,19 @@ func main() {
 		time.Sleep(5 * time.Second)
 	}
 
-	// Periodic state broadcast
+	// Periodic state broadcast + heartbeat
 	go func() {
+		tick := 0
 		for {
 			time.Sleep(2 * time.Second)
 			broadcastState()
+			tick++
+			if tick%150 == 0 { // every 5 minutes
+				mu.RLock()
+				log.Printf("[HEARTBEAT] speed=%.1f incline=%.1f workout=%s grpc=%v clients=%d",
+					currentSpeed, currentIncl, workoutState, grpcConnected, len(wsClients))
+				mu.RUnlock()
+			}
 		}
 	}()
 
