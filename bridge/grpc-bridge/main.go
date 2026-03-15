@@ -74,6 +74,7 @@ var (
 	calClient      pb.CaloriesBurnedServiceClient
 	timeClient     pb.ElapsedTimeServiceClient
 	elevClient     pb.ElevationServiceClient
+	hrClient       pb.HeartRateServiceClient
 	consoleClient  pb.ConsoleServiceClient
 	programClient  pb.ProgrammedWorkoutSessionServiceClient
 
@@ -140,6 +141,7 @@ func connectGRPC() error {
 	calClient = pb.NewCaloriesBurnedServiceClient(conn)
 	timeClient = pb.NewElapsedTimeServiceClient(conn)
 	elevClient = pb.NewElevationServiceClient(conn)
+	hrClient = pb.NewHeartRateServiceClient(conn)
 	consoleClient = pb.NewConsoleServiceClient(conn)
 	programClient = pb.NewProgrammedWorkoutSessionServiceClient(conn)
 
@@ -177,6 +179,7 @@ func connectGRPC() error {
 	go subscribeCalories()
 	go subscribeElapsedTime()
 	go subscribeElevation()
+	go subscribeHeartRate()
 	go fetchConsoleInfo()
 	go subscribeConsoleState()
 
@@ -380,6 +383,35 @@ func subscribeElevation() {
 			mu.Lock()
 			currentElevGain = m.ElevationGainMeters
 			mu.Unlock()
+			broadcastState()
+		}
+		time.Sleep(2 * time.Second)
+	}
+}
+
+func subscribeHeartRate() {
+	for {
+		stream, err := hrClient.HeartRateSubscription(grpcStreamCtx(), &pb.Empty{})
+		if err != nil {
+			log.Printf("[gRPC] HeartRate sub error: %v", err)
+			time.Sleep(3 * time.Second)
+			continue
+		}
+		log.Println("[gRPC] Heart rate subscription active")
+		for {
+			m, err := stream.Recv()
+			if err != nil {
+				log.Printf("[gRPC] HeartRate stream ended: %v", err)
+				break
+			}
+			bpm := int(m.LastBpm)
+			mu.Lock()
+			prev := currentHR
+			currentHR = bpm
+			mu.Unlock()
+			if bpm != prev && bpm > 0 {
+				log.Printf("[gRPC] HR: %d bpm (max=%d avg=%d)", bpm, int(m.MaxBpm), int(m.AvgBpm))
+			}
 			broadcastState()
 		}
 		time.Sleep(2 * time.Second)

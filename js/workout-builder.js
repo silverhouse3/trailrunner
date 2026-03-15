@@ -476,7 +476,13 @@ const WorkoutBuilder = {
     // Close builder
     this.close();
 
-    // Start via WorkoutSegments (if available) or Engine
+    // Try native programmed workout execution (motor controller handles transitions)
+    if (w.type === 'programmed' && typeof TM !== 'undefined' && TM._bridgeUrl) {
+      this._tryNativeProgram(w);
+      return;
+    }
+
+    // Fallback: Start via WorkoutSegments (PWA manages transitions)
     if (typeof WorkoutSegments !== 'undefined') {
       WorkoutSegments.start(w);
     }
@@ -487,6 +493,114 @@ const WorkoutBuilder = {
       Engine.startRun();
       TM.startWorkout();
     }
+  },
+
+  // Push programmed workout directly to motor controller via bridge /workout/program
+  _tryNativeProgram(w) {
+    const controls = this._buildControlPoints(w);
+    const totalSeconds = this._estimateTotalSeconds(w);
+
+    const payload = {
+      title: w.name || 'Programmed Workout',
+      targetType: 'TIME',
+      targetValue: totalSeconds,
+      controls: controls,
+    };
+
+    const url = TM._bridgeUrl + '/workout/program';
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.ok) {
+        console.log('[WorkoutBuilder] Native program pushed:', data);
+        // Start tracking in Engine
+        if (!Engine.run || Engine.run.status !== 'running') {
+          Engine.newRun();
+          Engine.startRun();
+        }
+        // Also start WorkoutSegments for UI display
+        if (typeof WorkoutSegments !== 'undefined') {
+          WorkoutSegments.start(w);
+        }
+      } else {
+        console.warn('[WorkoutBuilder] Native program failed, falling back:', data.error);
+        // Fallback to PWA-managed
+        if (typeof WorkoutSegments !== 'undefined') WorkoutSegments.start(w);
+        if (!Engine.run || Engine.run.status !== 'running') {
+          Engine.newRun();
+          Engine.startRun();
+          TM.startWorkout();
+        }
+      }
+    })
+    .catch(function(err) {
+      console.warn('[WorkoutBuilder] Native program error, falling back:', err);
+      if (typeof WorkoutSegments !== 'undefined') WorkoutSegments.start(w);
+      if (!Engine.run || Engine.run.status !== 'running') {
+        Engine.newRun();
+        Engine.startRun();
+        TM.startWorkout();
+      }
+    });
+  },
+
+  // Convert workout segments into gRPC Control points (MPS + INCLINE at time offsets)
+  _buildControlPoints(w) {
+    var controls = [];
+    var timeOffset = 0; // seconds
+    var sUnit = this.units[w.speedUnit || 'mph'];
+    var segs = w.segments || [];
+
+    // Warm-up
+    if (w.warmUp && w.warmUp.enabled !== false) {
+      var wuKph = w.warmUp.speed || 4.8;
+      var wuMps = wuKph / 3.6;
+      controls.push({ type: 'MPS', at: timeOffset, value: wuMps });
+      controls.push({ type: 'INCLINE', at: timeOffset, value: w.warmUp.incline || 0 });
+      timeOffset += w.warmUp.duration || 180;
+    }
+
+    // Main segments — convert distance + speed to time
+    for (var i = 0; i < segs.length; i++) {
+      var seg = segs[i];
+      var speedKph = sUnit ? sUnit.toKph(seg.speed) : seg.speed;
+      var mps = speedKph / 3.6;
+      var distKm = (w.distanceUnit === 'km') ? seg.distance : seg.distance * 1.60934;
+      var segSeconds = (speedKph > 0) ? (distKm / speedKph) * 3600 : 0;
+
+      controls.push({ type: 'MPS', at: timeOffset, value: mps });
+      controls.push({ type: 'INCLINE', at: timeOffset, value: seg.incline || 0 });
+      timeOffset += segSeconds;
+    }
+
+    // Cool-down
+    if (w.coolDown && w.coolDown.enabled !== false) {
+      var cdKph = w.coolDown.speed || 4.8;
+      var cdMps = cdKph / 3.6;
+      controls.push({ type: 'MPS', at: timeOffset, value: cdMps });
+      controls.push({ type: 'INCLINE', at: timeOffset, value: w.coolDown.incline || 0 });
+      timeOffset += w.coolDown.duration || 120;
+    }
+
+    return controls;
+  },
+
+  _estimateTotalSeconds(w) {
+    var total = 0;
+    var sUnit = this.units[w.speedUnit || 'mph'];
+    if (w.warmUp && w.warmUp.enabled !== false) total += w.warmUp.duration || 180;
+    var segs = w.segments || [];
+    for (var i = 0; i < segs.length; i++) {
+      var speedKph = sUnit ? sUnit.toKph(segs[i].speed) : segs[i].speed;
+      var distKm = (w.distanceUnit === 'km') ? segs[i].distance : segs[i].distance * 1.60934;
+      total += (speedKph > 0) ? (distKm / speedKph) * 3600 : 0;
+    }
+    if (w.coolDown && w.coolDown.enabled !== false) total += w.coolDown.duration || 120;
+    return Math.round(total);
   },
 
   _startFreeRun() {
