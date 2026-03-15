@@ -22,7 +22,11 @@ var TM = {
   _portIdx: 0,
   _pollTimer: null,
   _reconnectTimer: null,
+  _watchdogTimer: null,
   _bridgeBase: 'http://127.0.0.1:4510',
+  _consecutiveFails: 0,
+  _maxReconnectDelay: 30000,
+  _lastHealthy: 0,
 
   // Callbacks (set by app)
   onConnect: null,      // (port) =>
@@ -43,16 +47,18 @@ var TM = {
       return;
     }
     this._connecting = true;
+    this._httpRetries = 0;
     if (customPort) this._ports = [customPort];
     this._portIdx = 0;
     // Try HTTP first — works reliably from HTTPS pages (no mixed content issues)
     this._tryHTTPFirst();
   },
 
-  /** HTTP connection attempt — most reliable from HTTPS-served PWA */
+  /** HTTP connection attempt — retries up to 3 times before falling back to WS.
+   *  Handles bridge startup delay (APK starts bridge, may take a few seconds). */
   _tryHTTPFirst: function() {
     if (this.onStatus) this.onStatus('connecting', 'HTTP');
-    console.log('[TM] Trying HTTP connection to bridge...');
+    console.log('[TM] Trying HTTP connection to bridge (attempt ' + (this._httpRetries + 1) + '/3)...');
     var self = this;
     fetch(this._bridgeBase + '/health')
       .then(function(resp) {
@@ -64,22 +70,34 @@ var TM = {
         self._useHTTP = true;
         self.connected = true;
         self._connecting = false;
+        self._consecutiveFails = 0;
+        self._lastHealthy = Date.now();
         if (data.grpc) self.grpcConnected = true;
         if (data.workoutState) self.workoutState = data.workoutState;
         if (data.workoutId) self.workoutId = data.workoutId;
         if (self.onConnect) self.onConnect(4510);
         if (self.onStatus) self.onStatus('connected', 'Bridge HTTP');
         self._startPolling();
+        self._startWatchdog();
       })
       .catch(function(err) {
-        console.log('[TM] HTTP failed (' + err.message + '), trying WebSocket...');
-        self._tryConnect();
+        self._httpRetries = (self._httpRetries || 0) + 1;
+        if (self._httpRetries < 3) {
+          // Bridge might still be starting — wait 2s and retry HTTP
+          console.log('[TM] HTTP attempt ' + self._httpRetries + ' failed (' + err.message + '), retrying in 2s...');
+          if (self.onStatus) self.onStatus('connecting', 'Bridge starting...');
+          setTimeout(function() { self._tryHTTPFirst(); }, 2000);
+        } else {
+          console.log('[TM] HTTP failed after 3 attempts, trying WebSocket...');
+          self._tryConnect();
+        }
       });
   },
 
-  disconnect: function() {
+  disconnect: function(keepWatchdog) {
     if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
     if (this._pollTimer) { clearInterval(this._pollTimer); this._pollTimer = null; }
+    if (!keepWatchdog && this._watchdogTimer) { clearInterval(this._watchdogTimer); this._watchdogTimer = null; }
     if (this.ws) { try { this.ws.close(); } catch(e) {} }
     this.ws = null;
     this.connected = false;
@@ -101,11 +119,14 @@ var TM = {
         self.connected = true;
         self._connecting = false;
         self._useHTTP = false;
+        self._consecutiveFails = 0;
+        self._lastHealthy = Date.now();
         self._send({ values: {}, type: 'get' });
         console.log('[TM] WebSocket connected on port ' + port);
         var name = port === 4510 ? 'Bridge' : 'X32i';
         if (self.onConnect) self.onConnect(port);
         if (self.onStatus) self.onStatus('connected', name + ' :' + port);
+        if (port === 4510) self._startWatchdog();
       };
 
       this.ws.onmessage = function(e) {
@@ -132,10 +153,7 @@ var TM = {
           self.ws = null;
           if (self.onDisconnect) self.onDisconnect();
           if (self.onStatus) self.onStatus('idle');
-          // Auto-reconnect after 4s
-          self._reconnectTimer = setTimeout(function() {
-            if (!self.connected) self.connect();
-          }, 4000);
+          self._scheduleReconnect();
         }
       };
     } catch(e) {
@@ -158,6 +176,7 @@ var TM = {
     var self = this;
     var needFirstSuccess = !this.connected;
     var inFlight = false;
+    var pollFails = 0;
 
     this._pollTimer = setInterval(function() {
       if (inFlight) return; // prevent overlapping fetches
@@ -169,6 +188,9 @@ var TM = {
         })
         .then(function(msg) {
           inFlight = false;
+          pollFails = 0; // reset on success
+          self._consecutiveFails = 0;
+          self._lastHealthy = Date.now();
           self._handleMessage(msg);
           if (needFirstSuccess) {
             needFirstSuccess = false;
@@ -177,11 +199,20 @@ var TM = {
             self._connecting = false;
             if (self.onConnect) self.onConnect(4510);
             if (self.onStatus) self.onStatus('connected', 'Bridge HTTP');
+            self._startWatchdog();
           }
         })
         .catch(function() {
           inFlight = false;
-          // Bridge not reachable — stop polling and try reconnect later
+          pollFails++;
+          // Tolerate up to 3 consecutive failures before disconnecting
+          // (handles brief network hiccups)
+          if (pollFails < 3) {
+            console.log('[TM] Poll fail ' + pollFails + '/3 — retrying...');
+            return;
+          }
+          // Too many failures — stop polling and schedule reconnect
+          console.warn('[TM] Poll failed ' + pollFails + ' times — reconnecting');
           if (self._pollTimer) {
             clearInterval(self._pollTimer);
             self._pollTimer = null;
@@ -192,11 +223,63 @@ var TM = {
             if (self.onDisconnect) self.onDisconnect();
           }
           if (self.onStatus) self.onStatus('idle');
-          self._reconnectTimer = setTimeout(function() {
-            if (!self.connected) self.connect();
-          }, 10000);
+          self._scheduleReconnect();
         });
     }, 1000);
+  },
+
+  /** Exponential backoff reconnect: 2s, 4s, 8s, 16s, 30s cap */
+  _scheduleReconnect: function() {
+    if (this._reconnectTimer) return;
+    this._consecutiveFails++;
+    var delay = Math.min(this._maxReconnectDelay, 2000 * Math.pow(2, this._consecutiveFails - 1));
+    console.log('[TM] Reconnect in ' + (delay / 1000) + 's (attempt ' + this._consecutiveFails + ')');
+    var self = this;
+    if (this.onStatus) this.onStatus('connecting', 'Retry in ' + Math.round(delay / 1000) + 's');
+    this._reconnectTimer = setTimeout(function() {
+      self._reconnectTimer = null;
+      if (!self.connected) self.connect();
+    }, delay);
+  },
+
+  /** Health watchdog — runs every 15s when connected, auto-recovers on failure */
+  _startWatchdog: function() {
+    if (this._watchdogTimer) return;
+    var self = this;
+    console.log('[TM] Watchdog started');
+
+    this._watchdogTimer = setInterval(function() {
+      if (!self.connected) return;
+
+      fetch(self._bridgeBase + '/health', { signal: AbortSignal.timeout ? AbortSignal.timeout(5000) : undefined })
+        .then(function(resp) {
+          if (!resp.ok) throw new Error('HTTP ' + resp.status);
+          return resp.json();
+        })
+        .then(function(data) {
+          self._lastHealthy = Date.now();
+          // Check gRPC connection health
+          if (!data.grpc) {
+            console.warn('[TM] Watchdog: gRPC disconnected — bridge may need restart');
+          }
+          // Workout state recovery: if app thinks workout should be running
+          // but bridge says IDLE, auto-restart the workout
+          if (self._expectRunning && data.workoutState === 'IDLE') {
+            console.warn('[TM] Watchdog: workout dropped to IDLE — auto-restarting');
+            self.startWorkout();
+          }
+        })
+        .catch(function() {
+          var downFor = Date.now() - self._lastHealthy;
+          console.warn('[TM] Watchdog: bridge unreachable (down ' + Math.round(downFor / 1000) + 's)');
+          // If bridge has been down for more than 10s, force reconnect cycle
+          if (downFor > 10000) {
+            console.warn('[TM] Watchdog: forcing reconnect cycle');
+            self.disconnect(true); // keep watchdog running
+            self.connect();
+          }
+        });
+    }, 15000);
   },
 
   // ── Command dispatch ──────────────────────────────────────────────────
@@ -391,27 +474,34 @@ var TM = {
 
   // ── Workout lifecycle (gRPC via bridge) ────────────────────────────────
 
+  // Watchdog flag: set when the app expects a workout to be running
+  _expectRunning: false,
+
   /** Start a new manual workout — spins up the belt motor. */
   startWorkout: function() {
     console.log('[TM] Starting workout...');
+    this._expectRunning = true;
     this._send({ type: 'workout', action: 'start' });
   },
 
   /** Stop the current workout — belt stops. */
   stopWorkout: function() {
     console.log('[TM] Stopping workout...');
+    this._expectRunning = false;
     this._send({ type: 'workout', action: 'stop' });
   },
 
   /** Pause the current workout. */
   pauseWorkout: function() {
     console.log('[TM] Pausing workout...');
+    // Keep _expectRunning true — paused is still "should be active"
     this._send({ type: 'workout', action: 'pause' });
   },
 
   /** Resume a paused workout. */
   resumeWorkout: function() {
     console.log('[TM] Resuming workout...');
+    this._expectRunning = true;
     this._send({ type: 'workout', action: 'resume' });
   },
 };
