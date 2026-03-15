@@ -92,8 +92,16 @@ h1 { color: var(--cyan); font-size: 20px; text-align: center; margin-bottom: 4px
   <div class="metric hr"><div class="metric-val" id="mHR">—</div><div class="metric-label">BPM</div></div>
 </div>
 
-<div class="metrics" style="grid-template-columns:1fr">
-  <div class="metric state idle" id="stateCard"><div class="metric-val" id="mState">IDLE</div><div class="metric-label">WORKOUT STATE</div></div>
+<div class="metrics">
+  <div class="metric" style="grid-column:span 3">
+    <div class="metric-val" id="mState" style="color:var(--dim);font-size:16px">IDLE</div>
+    <div class="metric-label">WORKOUT STATE</div>
+  </div>
+</div>
+<div class="metrics" style="grid-template-columns:1fr 1fr 1fr;margin-bottom:16px">
+  <div class="metric"><div class="metric-val" id="mDist" style="color:var(--green);font-size:20px">—</div><div class="metric-label">DISTANCE (km)</div></div>
+  <div class="metric"><div class="metric-val" id="mCals" style="color:var(--orange);font-size:20px">—</div><div class="metric-label">CALORIES</div></div>
+  <div class="metric"><div class="metric-val" id="mTime" style="color:var(--purple);font-size:20px">—</div><div class="metric-label">ELAPSED</div></div>
 </div>
 
 <div class="workout-btns">
@@ -186,12 +194,24 @@ function poll() {
   pollTimer = setInterval(function() {
     fetch(host + '/api/state').then(function(r) { return r.json(); }).then(function(d) {
       handleState({
-        values: { KPH: String(d.speed_kph), Incline: String(d.incline_pct), 'Heart Rate': String(d.heart_rate) },
+        values: {
+          KPH: String(d.speed_kph), Incline: String(d.incline_pct), 'Heart Rate': String(d.heart_rate),
+          Distance: String(d.distance_km || 0), Calories: String(d.calories || 0), Elapsed: String(d.elapsed_sec || 0)
+        },
         workout: { state: d.workout_state }
       });
       if (!ws || ws.readyState !== 1) setStatus('Connected (polling)', 'connected');
     }).catch(function() {});
   }, 2000);
+}
+
+function fmtTime(s) {
+  s = Math.floor(s);
+  var h = Math.floor(s / 3600);
+  var m = Math.floor((s % 3600) / 60);
+  var sec = s % 60;
+  if (h > 0) return h + ':' + (m < 10 ? '0' : '') + m + ':' + (sec < 10 ? '0' : '') + sec;
+  return m + ':' + (sec < 10 ? '0' : '') + sec;
 }
 
 function handleState(msg) {
@@ -208,12 +228,21 @@ function handleState(msg) {
     document.getElementById('speedSliderVal').textContent = spd.toFixed(1);
     document.getElementById('inclineSlider').value = inc;
     document.getElementById('inclineSliderVal').textContent = inc.toFixed(1);
+
+    // Extended metrics
+    var dist = parseFloat(msg.values.Distance) || 0;
+    var cals = parseFloat(msg.values.Calories) || 0;
+    var elapsed = parseInt(msg.values.Elapsed) || 0;
+    document.getElementById('mDist').textContent = dist > 0 ? dist.toFixed(2) : '—';
+    document.getElementById('mCals').textContent = cals > 0 ? Math.round(cals) : '—';
+    document.getElementById('mTime').textContent = elapsed > 0 ? fmtTime(elapsed) : '—';
   }
   if (msg.workout) {
     var state = msg.workout.state || 'IDLE';
-    document.getElementById('mState').textContent = state;
-    var card = document.getElementById('stateCard');
-    card.className = 'metric state ' + state.toLowerCase();
+    var stateEl = document.getElementById('mState');
+    stateEl.textContent = state;
+    var colors = { RUNNING: 'var(--green)', PAUSED: 'var(--orange)', IDLE: 'var(--dim)' };
+    stateEl.style.color = colors[state] || 'var(--dim)';
   }
 }
 
