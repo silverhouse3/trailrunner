@@ -1246,7 +1246,14 @@ const App = {
     const sx = window.innerWidth / 1280;
     const sy = window.innerHeight / 720;
     const scale = Math.min(sx, sy);
-    root.style.transform = 'scale(' + scale + ')';
+    // Use CSS zoom instead of transform: scale() — Android 7 WebView has
+    // broken touch coordinates with CSS transforms (taps miss their targets)
+    if ('zoom' in root.style || navigator.userAgent.indexOf('Android') !== -1) {
+      root.style.transform = 'none';
+      root.style.zoom = scale;
+    } else {
+      root.style.transform = 'scale(' + scale + ')';
+    }
   },
 
   async _requestWakeLock() {
