@@ -46,6 +46,8 @@ window.Cadence = (function() {
       .then(function(s) {
         stream = s;
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        // Resume suspended AudioContext (Chrome requires user gesture)
+        if (audioCtx.state === 'suspended') audioCtx.resume();
         var source = audioCtx.createMediaStreamSource(stream);
 
         // Bandpass filter: 80-200 Hz (footstrike frequency range)
@@ -151,7 +153,7 @@ window.Cadence = (function() {
       }
     }
 
-    requestAnimationFrame(detectLoop);
+    setTimeout(detectLoop, 50); // setTimeout keeps running when tab backgrounded (rAF pauses)
   }
 
   return {

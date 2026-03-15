@@ -87,8 +87,9 @@ var Streaks = {
     this.data.lastWorkoutDate = today;
 
     // Update records
-    if ((summary.avgSpeed || 0) > this.data.maxSpeedKph) {
-      this.data.maxSpeedKph = summary.avgSpeed;
+    var peakSpeed = summary.maxSpeed || summary.avgSpeed || 0;
+    if (peakSpeed > this.data.maxSpeedKph) {
+      this.data.maxSpeedKph = peakSpeed;
     }
     if ((summary.distanceKm || 0) > this.data.maxSingleDistKm) {
       this.data.maxSingleDistKm = summary.distanceKm;

@@ -162,17 +162,7 @@ window.VoiceCommands = (function() {
       return;
     }
 
-    // ── Speed control ──
-    if (matches(text, ['faster', 'speed up', 'quicker'])) {
-      showFeedback('⏫ Speed +0.5', 'info');
-      adjustSpeed(0.5);
-      return;
-    }
-    if (matches(text, ['slower', 'slow down', 'easy'])) {
-      showFeedback('⏬ Speed -0.5', 'info');
-      adjustSpeed(-0.5);
-      return;
-    }
+    // ── Speed control (longer phrases first — indexOf matching) ──
     if (matches(text, ['much faster', 'sprint', 'kick'])) {
       showFeedback('⏫ Speed +2.0', 'info');
       adjustSpeed(2.0);
@@ -181,6 +171,16 @@ window.VoiceCommands = (function() {
     if (matches(text, ['much slower', 'walk', 'walking'])) {
       showFeedback('⏬ Speed -2.0', 'info');
       adjustSpeed(-2.0);
+      return;
+    }
+    if (matches(text, ['faster', 'speed up', 'quicker'])) {
+      showFeedback('⏫ Speed +0.5', 'info');
+      adjustSpeed(0.5);
+      return;
+    }
+    if (matches(text, ['slower', 'slow down', 'easy'])) {
+      showFeedback('⏬ Speed -0.5', 'info');
+      adjustSpeed(-0.5);
       return;
     }
 
@@ -236,33 +236,33 @@ window.VoiceCommands = (function() {
   }
 
   function adjustSpeed(delta) {
-    if (typeof Treadmill === 'undefined') return;
-    var current = Treadmill._lastSpeed > 0 ? Treadmill._lastSpeed : 0;
+    if (typeof TM === 'undefined') return;
+    var current = TM._lastSpeed > 0 ? TM._lastSpeed : 0;
     setSpeed(Math.max(0, Math.min(22, current + delta)));
   }
 
   function setSpeed(kph) {
-    if (typeof Treadmill !== 'undefined' && Treadmill.setSpeed) {
-      Treadmill.setSpeed(kph, true); // force=true to bypass rate limiter
+    if (typeof TM !== 'undefined' && TM.setSpeed) {
+      TM.setSpeed(kph, true); // force=true to bypass rate limiter
     }
   }
 
   function adjustIncline(delta) {
-    if (typeof Treadmill === 'undefined') return;
-    var current = Treadmill._lastIncline > -9000 ? Treadmill._lastIncline : 0;
+    if (typeof TM === 'undefined') return;
+    var current = TM._lastIncline > -9000 ? TM._lastIncline : 0;
     setIncline(Math.max(-6, Math.min(40, current + delta)));
   }
 
   function setIncline(pct) {
-    if (typeof Treadmill !== 'undefined' && Treadmill.setIncline) {
-      Treadmill.setIncline(pct, true); // force=true to bypass rate limiter
+    if (typeof TM !== 'undefined' && TM.setIncline) {
+      TM.setIncline(pct, true); // force=true to bypass rate limiter
     }
   }
 
   function speakStatus() {
-    if (typeof Treadmill === 'undefined') return;
-    var speed = Treadmill._lastSpeed > 0 ? Treadmill._lastSpeed : 0;
-    var incline = Treadmill._lastIncline > -9000 ? Treadmill._lastIncline : 0;
+    if (typeof TM === 'undefined') return;
+    var speed = TM._lastSpeed > 0 ? TM._lastSpeed : 0;
+    var incline = TM._lastIncline > -9000 ? TM._lastIncline : 0;
     var msg = 'Speed ' + speed.toFixed(1) + ' K P H, incline ' + incline.toFixed(0) + ' percent';
 
     showFeedback('📊 ' + msg, 'info');

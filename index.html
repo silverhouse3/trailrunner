@@ -21,7 +21,15 @@ d.appendChild(document.createElement('div'));
 d.appendChild(document.createElement('div'));
 document.body.appendChild(d);if(d.scrollWidth===1)
 document.documentElement.classList.add('has-flex-gap');
-d.remove()})();</script>
+d.remove();
+if(!document.documentElement.classList.contains('has-flex-gap')){
+document.addEventListener('DOMContentLoaded',function(){var a=document.querySelectorAll('[style]');
+for(var i=0;i<a.length;i++){var e=a[i],s=e.style;
+if((s.display==='flex'||s.display==='inline-flex')&&s.gap){var g=s.gap,
+isCol=s.flexDirection==='column'||s.flexDirection==='column-reverse',
+prop=isCol?'marginTop':'marginLeft',k=e.children;
+for(var j=1;j<k.length;j++)k[j].style[prop]=g}}})
+}})();</script>
 <div id="rootApp">
 
 <!-- ══════════════════════════════════════════════════════════════════════════

@@ -459,7 +459,7 @@ const TrackView = {
       const tw = c.measureText(name).width + 10;
       c.fillStyle = 'rgba(0,0,0,0.6)';
       c.beginPath();
-      c.roundRect(x - tw / 2, y - runnerH - 18, tw, 16, 4);
+      this._roundRect(c, x - tw / 2, y - runnerH - 18, tw, 16, 4);
       c.fill();
 
       c.fillStyle = color;
@@ -557,5 +557,20 @@ const TrackView = {
 
   _perspScale(dist) {
     return 1 / (1 + dist * 0.008);
+  },
+
+  /** Rounded rectangle polyfill (Chrome 83 lacks CanvasRenderingContext2D.roundRect). */
+  _roundRect(c, x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    c.moveTo(x + r, y);
+    c.lineTo(x + w - r, y);
+    c.arcTo(x + w, y, x + w, y + r, r);
+    c.lineTo(x + w, y + h - r);
+    c.arcTo(x + w, y + h, x + w - r, y + h, r);
+    c.lineTo(x + r, y + h);
+    c.arcTo(x, y + h, x, y + h - r, r);
+    c.lineTo(x, y + r);
+    c.arcTo(x, y, x + r, y, r);
+    c.closePath();
   },
 };
