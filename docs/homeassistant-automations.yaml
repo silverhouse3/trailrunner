@@ -1,0 +1,871 @@
+###############################################################################
+#  TrailRunner - Home Assistant Automations
+#
+#  These automations integrate with the TrailRunner MQTT bridge to provide
+#  notifications, safety alerts, environment control, and voice integration.
+#
+#  Prerequisites:
+#    - Home Assistant with MQTT integration connected to your broker
+#    - TrailRunner Bridge v3.1+ publishing to MQTT
+#    - Entity names match those from HA auto-discovery (see HOME_ASSISTANT.md)
+#
+#  Installation:
+#    Copy the relevant sections into your configuration.yaml or into
+#    separate files included via !include directives. The helpers
+#    (input_number, input_datetime, timer) go in their own top-level
+#    sections or via the UI under Settings > Devices & Services > Helpers.
+###############################################################################
+
+
+###############################################################################
+#  HELPERS
+#  Create these via Settings > Helpers in the HA UI, or add them to
+#  configuration.yaml under the appropriate top-level keys.
+###############################################################################
+
+input_number:
+  # Accumulates total distance (km) for the current week.
+  # Reset every Sunday at midnight by the weekly reset automation below.
+  trailrunner_weekly_distance:
+    name: "TrailRunner Weekly Distance"
+    min: 0
+    max: 500
+    step: 0.01
+    unit_of_measurement: "km"
+    icon: mdi:map-marker-distance
+
+input_datetime:
+  # Records when the current workout started so we can calculate duration
+  # for the cooldown reminder without depending on the treadmill timer.
+  trailrunner_workout_start_time:
+    name: "TrailRunner Workout Start Time"
+    has_date: true
+    has_time: true
+
+timer:
+  # 30-minute timer used for the cooldown reminder.
+  # Starts when a workout begins, fires when it expires.
+  trailrunner_cooldown:
+    name: "Cooldown Reminder Timer"
+    duration: "00:30:00"
+    icon: mdi:timer-alert-outline
+
+
+###############################################################################
+#  AUTOMATIONS
+###############################################################################
+
+automation:
+
+  #---------------------------------------------------------------------------
+  #  1. WORKOUT STARTED NOTIFICATION
+  #
+  #  Sends a push notification to your phone when the treadmill transitions
+  #  from IDLE to RUNNING. Useful to confirm the belt is moving if you
+  #  started it remotely (e.g., from Alexa or a dashboard button).
+  #---------------------------------------------------------------------------
+  - id: trailrunner_workout_started
+    alias: "TrailRunner: Workout Started"
+    description: "Notify phone when a workout begins"
+    mode: single
+
+    trigger:
+      - platform: state
+        entity_id: sensor.trailrunner_workout_state
+        from: "IDLE"
+        to: "RUNNING"
+
+    action:
+      # Record the start time for duration-based automations
+      - service: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.trailrunner_workout_start_time
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+
+      # Start the cooldown reminder timer
+      - service: timer.start
+        target:
+          entity_id: timer.trailrunner_cooldown
+
+      # Send push notification via the Home Assistant companion app.
+      # Replace 'mobile_app_your_phone' with your actual device name
+      # found under Settings > Companion App > Manage on your phone.
+      - service: notify.mobile_app_your_phone
+        data:
+          title: "TrailRunner"
+          message: "Workout started. Let's go!"
+          data:
+            # Android: set notification channel for grouping
+            channel: "trailrunner"
+            # iOS: use interruption level for visibility
+            push:
+              interruption-level: "time-sensitive"
+            # Actionable notification — tap to open HA dashboard
+            url: "/lovelace/treadmill"
+            actions:
+              - action: "PAUSE_TREADMILL"
+                title: "Pause"
+              - action: "STOP_TREADMILL"
+                title: "Stop"
+
+
+  #---------------------------------------------------------------------------
+  #  1b. HANDLE ACTIONABLE NOTIFICATION RESPONSES
+  #
+  #  When the user taps Pause or Stop on the workout started notification,
+  #  send the corresponding command to the treadmill.
+  #---------------------------------------------------------------------------
+  - id: trailrunner_notification_actions
+    alias: "TrailRunner: Handle Notification Actions"
+    description: "Respond to actionable notification button presses"
+    mode: single
+
+    trigger:
+      - platform: event
+        event_type: mobile_app_notification_action
+        event_data:
+          action: "PAUSE_TREADMILL"
+        id: pause
+
+      - platform: event
+        event_type: mobile_app_notification_action
+        event_data:
+          action: "STOP_TREADMILL"
+        id: stop
+
+    action:
+      - choose:
+          - conditions:
+              - condition: trigger
+                id: pause
+            sequence:
+              - service: button.press
+                target:
+                  entity_id: button.trailrunner_pause
+
+          - conditions:
+              - condition: trigger
+                id: stop
+            sequence:
+              - service: button.press
+                target:
+                  entity_id: button.trailrunner_stop
+
+
+  #---------------------------------------------------------------------------
+  #  2. HEART RATE ALERT
+  #
+  #  Flashes gym lights red when heart rate exceeds 180 bpm for more than
+  #  10 seconds. This gives a brief grace period to avoid false triggers
+  #  from momentary HR spikes. The lights flash 5 times then return to
+  #  their previous state. A notification is also sent.
+  #
+  #  Requires: a smart light entity (Hue, LIFX, etc.) exposed as light.gym
+  #---------------------------------------------------------------------------
+  - id: trailrunner_hr_alert
+    alias: "TrailRunner: Heart Rate Alert (>180 bpm)"
+    description: "Flash lights red and notify when HR exceeds safe threshold"
+    mode: single
+
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.trailrunner_heart_rate
+        above: 180
+        # Wait 10 seconds to confirm it's sustained, not a sensor glitch
+        for:
+          seconds: 10
+
+    condition:
+      # Only fire while actually running
+      - condition: state
+        entity_id: sensor.trailrunner_workout_state
+        state: "RUNNING"
+
+    action:
+      # Save current light state so we can restore it after flashing
+      - service: scene.create
+        data:
+          scene_id: gym_light_before_hr_alert
+          snapshot_entities:
+            - light.gym
+
+      # Flash red 5 times (on 0.5s, off 0.5s = 5s total)
+      - repeat:
+          count: 5
+          sequence:
+            - service: light.turn_on
+              target:
+                entity_id: light.gym
+              data:
+                color_name: red
+                brightness: 255
+            - delay:
+                milliseconds: 500
+            - service: light.turn_off
+              target:
+                entity_id: light.gym
+            - delay:
+                milliseconds: 500
+
+      # Restore previous light state
+      - service: scene.turn_on
+        target:
+          entity_id: scene.gym_light_before_hr_alert
+
+      # Send a persistent notification so you see it even after lights stop
+      - service: notify.mobile_app_your_phone
+        data:
+          title: "TrailRunner: HR Alert"
+          message: >
+            Heart rate {{ states('sensor.trailrunner_heart_rate') }} bpm
+            — slow down!
+          data:
+            channel: "trailrunner_alerts"
+            importance: high
+            push:
+              interruption-level: "critical"
+
+
+  #---------------------------------------------------------------------------
+  #  3. WORKOUT COMPLETE SUMMARY
+  #
+  #  When the workout transitions from RUNNING or PAUSED to IDLE, play a
+  #  TTS announcement on a media player (smart speaker) with a summary
+  #  of the session, and send a rich push notification.
+  #
+  #  The summary uses the trailrunner/workout/summary MQTT event which is
+  #  published by the bridge when a workout ends. The event contains:
+  #    route, distance_km, elapsed_sec, avg_speed_kph, avg_hr, calories,
+  #    elevation_gain_m
+  #
+  #  We create an MQTT sensor to capture that payload.
+  #---------------------------------------------------------------------------
+
+  # First, we need an MQTT sensor to capture the workout summary JSON.
+  # Add this under the 'mqtt' section of configuration.yaml:
+  #
+  # mqtt:
+  #   sensor:
+  #     - name: "TrailRunner Workout Summary"
+  #       state_topic: "trailrunner/workout/summary"
+  #       value_template: "{{ value_json.distance_km | round(2) }}"
+  #       json_attributes_topic: "trailrunner/workout/summary"
+  #       json_attributes_template: "{{ value_json | tojson }}"
+
+  - id: trailrunner_workout_complete
+    alias: "TrailRunner: Workout Complete Summary"
+    description: "TTS announcement and notification with workout stats"
+    mode: single
+
+    trigger:
+      - platform: state
+        entity_id: sensor.trailrunner_workout_state
+        from: "RUNNING"
+        to: "IDLE"
+        id: from_running
+
+      - platform: state
+        entity_id: sensor.trailrunner_workout_state
+        from: "PAUSED"
+        to: "IDLE"
+        id: from_paused
+
+    action:
+      # Cancel the cooldown timer if it's still running
+      - service: timer.cancel
+        target:
+          entity_id: timer.trailrunner_cooldown
+
+      # Small delay to let the summary MQTT message arrive
+      - delay:
+          seconds: 2
+
+      # Build the summary from the MQTT sensor attributes.
+      # If the summary sensor hasn't updated, fall back to live sensor values.
+      - variables:
+          distance: >
+            {{ state_attr('sensor.trailrunner_workout_summary', 'distance_km')
+               | default(states('sensor.trailrunner_distance'), true)
+               | float(0) | round(2) }}
+          elapsed_sec: >
+            {{ state_attr('sensor.trailrunner_workout_summary', 'elapsed_sec')
+               | default(states('sensor.trailrunner_duration'), true)
+               | int(0) }}
+          elapsed_min: "{{ (elapsed_sec / 60) | round(0) }}"
+          avg_speed: >
+            {{ state_attr('sensor.trailrunner_workout_summary', 'avg_speed_kph')
+               | default(0, true) | float(0) | round(1) }}
+          avg_hr: >
+            {{ state_attr('sensor.trailrunner_workout_summary', 'avg_hr')
+               | default(0, true) | int(0) }}
+          calories: >
+            {{ state_attr('sensor.trailrunner_workout_summary', 'calories')
+               | default(states('sensor.trailrunner_calories'), true)
+               | int(0) }}
+          elevation: >
+            {{ state_attr('sensor.trailrunner_workout_summary', 'elevation_gain_m')
+               | default(0, true) | float(0) | round(0) }}
+          route: >
+            {{ state_attr('sensor.trailrunner_workout_summary', 'route')
+               | default('Treadmill', true) }}
+
+      # TTS announcement on your smart speaker.
+      # Replace media_player.gym_speaker with your actual entity.
+      - service: tts.speak
+        target:
+          entity_id: tts.google_en_com
+        data:
+          media_player_entity_id: media_player.gym_speaker
+          message: >
+            Workout complete. You ran {{ distance }} kilometres in
+            {{ elapsed_min }} minutes, burning {{ calories }} calories.
+            {% if avg_hr > 0 %}Average heart rate was {{ avg_hr }} beats per minute.{% endif %}
+            {% if elevation | float > 0 %}Total climb: {{ elevation }} metres.{% endif %}
+            Great effort!
+
+      # Rich push notification with stats
+      - service: notify.mobile_app_your_phone
+        data:
+          title: "TrailRunner: Workout Complete"
+          message: >
+            {{ route }} | {{ distance }} km in {{ elapsed_min }} min
+            {% if avg_speed > 0 %}| Avg {{ avg_speed }} km/h{% endif %}
+            {% if avg_hr > 0 %}| HR {{ avg_hr }} bpm{% endif %}
+            | {{ calories }} kcal
+            {% if elevation | float > 0 %}| +{{ elevation }}m{% endif %}
+          data:
+            channel: "trailrunner"
+            # Android: show as a big-text notification
+            notification_icon: "mdi:run-fast"
+
+      # Update the weekly distance accumulator
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.trailrunner_weekly_distance
+        data:
+          value: >
+            {{ (states('input_number.trailrunner_weekly_distance') | float(0)
+                + distance | float(0)) | round(2) }}
+
+
+  #---------------------------------------------------------------------------
+  #  4. FAN CONTROL
+  #
+  #  Turns on a smart fan (or smart plug controlling a fan) when treadmill
+  #  speed exceeds 5 km/h. The fan speed scales with treadmill speed:
+  #    5-8 km/h  -> low  (33%)
+  #    8-12 km/h -> med  (66%)
+  #    12+ km/h  -> high (100%)
+  #
+  #  When the workout stops (state goes to IDLE), the fan runs for another
+  #  2 minutes for cool-down airflow, then turns off.
+  #---------------------------------------------------------------------------
+  - id: trailrunner_fan_on
+    alias: "TrailRunner: Fan On When Running"
+    description: "Auto-control gym fan based on treadmill speed"
+    mode: restart  # restart so speed changes re-evaluate immediately
+
+    trigger:
+      - platform: state
+        entity_id: sensor.trailrunner_speed
+
+    condition:
+      - condition: numeric_state
+        entity_id: sensor.trailrunner_speed
+        above: 4.9
+      - condition: state
+        entity_id: sensor.trailrunner_workout_state
+        state: "RUNNING"
+
+    action:
+      - service: fan.turn_on
+        target:
+          # Replace with your fan entity. If using a smart plug, use
+          # switch.gym_fan with switch.turn_on instead.
+          entity_id: fan.gym_fan
+        data:
+          percentage: >
+            {% set speed = states('sensor.trailrunner_speed') | float(0) %}
+            {% if speed >= 12 %}100
+            {% elif speed >= 8 %}66
+            {% else %}33{% endif %}
+
+
+  - id: trailrunner_fan_off
+    alias: "TrailRunner: Fan Off After Workout"
+    description: "Turn off fan 2 min after workout stops for post-run cooling"
+    mode: restart
+
+    trigger:
+      - platform: state
+        entity_id: sensor.trailrunner_workout_state
+        to: "IDLE"
+
+    condition:
+      # Only if the fan is actually on
+      - condition: state
+        entity_id: fan.gym_fan
+        state: "on"
+
+    action:
+      # Keep the fan on for 2 more minutes for cool-down
+      - delay:
+          minutes: 2
+      - service: fan.turn_off
+        target:
+          entity_id: fan.gym_fan
+
+
+  #---------------------------------------------------------------------------
+  #  5. COOLDOWN REMINDER
+  #
+  #  If running for more than 30 continuous minutes, send a notification
+  #  suggesting a cooldown. Uses a timer started when the workout begins
+  #  (see automation 1). This avoids issues with the treadmill's elapsed
+  #  time sensor which may not update in real-time.
+  #---------------------------------------------------------------------------
+  - id: trailrunner_cooldown_reminder
+    alias: "TrailRunner: Cooldown Reminder (30 min)"
+    description: "Remind to start cooldown after 30 minutes of running"
+    mode: single
+
+    trigger:
+      - platform: event
+        event_type: timer.finished
+        event_data:
+          entity_id: timer.trailrunner_cooldown
+
+    condition:
+      # Only fire if still running when the timer expires
+      - condition: state
+        entity_id: sensor.trailrunner_workout_state
+        state: "RUNNING"
+
+    action:
+      - service: notify.mobile_app_your_phone
+        data:
+          title: "TrailRunner: Cooldown Time"
+          message: >
+            You've been running for 30+ minutes.
+            Consider starting a 5-minute cooldown:
+            reduce speed to 4 km/h, incline to 0%.
+          data:
+            channel: "trailrunner"
+            actions:
+              - action: "START_COOLDOWN"
+                title: "Start Cooldown"
+              - action: "DISMISS_COOLDOWN"
+                title: "Keep Going"
+
+      # Also announce via TTS if a speaker is available
+      - service: tts.speak
+        target:
+          entity_id: tts.google_en_com
+        data:
+          media_player_entity_id: media_player.gym_speaker
+          message: >
+            You've been running for 30 minutes. Consider starting a cooldown.
+
+
+  - id: trailrunner_cooldown_action
+    alias: "TrailRunner: Execute Cooldown"
+    description: "Reduce speed and incline when cooldown is accepted"
+    mode: single
+
+    trigger:
+      - platform: event
+        event_type: mobile_app_notification_action
+        event_data:
+          action: "START_COOLDOWN"
+
+    condition:
+      - condition: state
+        entity_id: sensor.trailrunner_workout_state
+        state: "RUNNING"
+
+    action:
+      # Gradually reduce incline to 0
+      - service: number.set_value
+        target:
+          entity_id: number.trailrunner_set_incline
+        data:
+          value: 0
+
+      # Reduce speed to a walking pace
+      - delay:
+          seconds: 3
+      - service: number.set_value
+        target:
+          entity_id: number.trailrunner_set_speed
+        data:
+          value: 4.0
+
+      - service: notify.mobile_app_your_phone
+        data:
+          title: "TrailRunner"
+          message: "Cooldown started: 4.0 km/h, 0% incline. Walk for 5 minutes."
+
+
+  #---------------------------------------------------------------------------
+  #  6. WEEKLY DISTANCE TRACKER
+  #
+  #  The input_number.trailrunner_weekly_distance helper accumulates km
+  #  from each completed workout (see automation 3). This automation
+  #  resets it to zero every Sunday at midnight.
+  #
+  #  You can display the weekly total on a Lovelace dashboard card:
+  #    type: entity
+  #    entity: input_number.trailrunner_weekly_distance
+  #    name: "This Week's Distance"
+  #    icon: mdi:run-fast
+  #---------------------------------------------------------------------------
+  - id: trailrunner_weekly_distance_reset
+    alias: "TrailRunner: Reset Weekly Distance"
+    description: "Reset the weekly distance counter every Sunday at midnight"
+    mode: single
+
+    trigger:
+      - platform: time
+        at: "00:00:00"
+
+    condition:
+      # Only on Sunday (0 = Monday in HA, 6 = Sunday)
+      - condition: template
+        value_template: "{{ now().weekday() == 6 }}"
+
+    action:
+      # Log the previous week's total before resetting
+      - service: notify.mobile_app_your_phone
+        data:
+          title: "TrailRunner: Weekly Summary"
+          message: >
+            Last week's total distance:
+            {{ states('input_number.trailrunner_weekly_distance') | float(0) | round(2) }} km.
+            Counter reset for the new week.
+
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.trailrunner_weekly_distance
+        data:
+          value: 0
+
+
+  #---------------------------------------------------------------------------
+  #  7. ALEXA VOICE CONTROL
+  #
+  #  These automations enable Alexa integration via Nabu Casa or the
+  #  emulated_hue bridge. Set up Alexa routines that trigger HA scripts
+  #  or use the built-in Home Assistant skill.
+  #
+  #  Alexa routines (configure in the Alexa app):
+  #    "Alexa, start my run"       -> triggers script.trailrunner_start_run
+  #    "Alexa, how's my workout?"  -> triggers script.trailrunner_speak_status
+  #    "Alexa, cool me down"       -> triggers script.trailrunner_cooldown_mode
+  #
+  #  Expose these scripts to Alexa under Settings > Voice Assistants.
+  #---------------------------------------------------------------------------
+
+  # 7a. Voice-triggered workout start
+  - id: trailrunner_alexa_start
+    alias: "TrailRunner: Alexa Start Run"
+    description: "Start treadmill and set initial speed via Alexa routine"
+    mode: single
+
+    trigger:
+      - platform: event
+        event_type: alexa_actionable_notification
+        event_data:
+          event_id: start_treadmill
+
+    action:
+      - service: button.press
+        target:
+          entity_id: button.trailrunner_start
+
+      # Wait for the belt to start before setting speed
+      - delay:
+          seconds: 5
+
+      - service: number.set_value
+        target:
+          entity_id: number.trailrunner_set_speed
+        data:
+          value: 5.0
+
+      - service: number.set_value
+        target:
+          entity_id: number.trailrunner_set_incline
+        data:
+          value: 1.0
+
+  # 7b. Speak workout status on demand
+  #
+  # This automation fires when you say "Alexa, how's my workout?" (via an
+  # Alexa routine that calls script.trailrunner_speak_status).
+  # It announces current stats on the Alexa device.
+  - id: trailrunner_alexa_status
+    alias: "TrailRunner: Alexa Speak Status"
+    description: "Announce current workout stats on Alexa"
+    mode: single
+
+    trigger:
+      - platform: event
+        event_type: alexa_actionable_notification
+        event_data:
+          event_id: treadmill_status
+
+    action:
+      - variables:
+          speed: "{{ states('sensor.trailrunner_speed') | float(0) | round(1) }}"
+          incline: "{{ states('sensor.trailrunner_incline') | float(0) | round(1) }}"
+          hr: "{{ states('sensor.trailrunner_heart_rate') | int(0) }}"
+          distance: "{{ states('sensor.trailrunner_distance') | float(0) | round(2) }}"
+          duration_sec: "{{ states('sensor.trailrunner_duration') | int(0) }}"
+          duration_min: "{{ (duration_sec | int / 60) | round(0) }}"
+          calories: "{{ states('sensor.trailrunner_calories') | int(0) }}"
+          state: "{{ states('sensor.trailrunner_workout_state') }}"
+
+      # Use notify.alexa_media to speak on a specific Echo device.
+      # Requires the Alexa Media Player custom integration (HACS).
+      # Replace media_player.gym_echo with your Echo's entity_id.
+      - service: notify.alexa_media
+        data:
+          target: media_player.gym_echo
+          data:
+            type: tts
+          message: >
+            {% if state == 'IDLE' %}
+              The treadmill is idle. No active workout.
+            {% elif state == 'PAUSED' %}
+              Workout paused. {{ distance }} kilometres covered in {{ duration_min }} minutes.
+            {% else %}
+              You're running at {{ speed }} kilometres per hour
+              with {{ incline }} percent incline.
+              Distance: {{ distance }} kilometres.
+              Time: {{ duration_min }} minutes.
+              {% if hr > 0 %}Heart rate: {{ hr }} beats per minute.{% endif %}
+              Calories: {{ calories }}.
+              {% set weekly = states('input_number.trailrunner_weekly_distance') | float(0) %}
+              {% if weekly > 0 %}Weekly total so far: {{ weekly | round(1) }} kilometres.{% endif %}
+            {% endif %}
+
+
+  # 7c. Alexa-triggered cooldown
+  - id: trailrunner_alexa_cooldown
+    alias: "TrailRunner: Alexa Cooldown Mode"
+    description: "Reduce speed and incline for cooldown via Alexa"
+    mode: single
+
+    trigger:
+      - platform: event
+        event_type: alexa_actionable_notification
+        event_data:
+          event_id: treadmill_cooldown
+
+    action:
+      - service: number.set_value
+        target:
+          entity_id: number.trailrunner_set_incline
+        data:
+          value: 0
+
+      - delay:
+          seconds: 3
+
+      - service: number.set_value
+        target:
+          entity_id: number.trailrunner_set_speed
+        data:
+          value: 4.0
+
+      - service: notify.alexa_media
+        data:
+          target: media_player.gym_echo
+          data:
+            type: tts
+          message: "Cooldown mode activated. Speed set to 4 kilometres per hour, incline flat."
+
+
+###############################################################################
+#  SCRIPTS
+#
+#  Expose these as Alexa-callable entities under Settings > Voice Assistants.
+#  Create corresponding Alexa routines in the Alexa app:
+#    "Start my run"      -> script.trailrunner_start_run
+#    "How's my workout"  -> script.trailrunner_speak_status
+#    "Cool me down"      -> script.trailrunner_cooldown_mode
+###############################################################################
+
+script:
+  trailrunner_start_run:
+    alias: "TrailRunner: Start Run"
+    description: "Start the treadmill at 5.0 km/h, 1% incline"
+    icon: mdi:play
+    mode: single
+    sequence:
+      - service: button.press
+        target:
+          entity_id: button.trailrunner_start
+      - delay:
+          seconds: 5
+      - service: number.set_value
+        target:
+          entity_id: number.trailrunner_set_speed
+        data:
+          value: 5.0
+      - service: number.set_value
+        target:
+          entity_id: number.trailrunner_set_incline
+        data:
+          value: 1.0
+
+  trailrunner_speak_status:
+    alias: "TrailRunner: Speak Status"
+    description: "Announce current workout stats on the gym speaker"
+    icon: mdi:account-voice
+    mode: single
+    sequence:
+      - event: alexa_actionable_notification
+        event_data:
+          event_id: treadmill_status
+
+  trailrunner_cooldown_mode:
+    alias: "TrailRunner: Cooldown Mode"
+    description: "Set treadmill to walking pace for cooldown"
+    icon: mdi:walk
+    mode: single
+    sequence:
+      - service: number.set_value
+        target:
+          entity_id: number.trailrunner_set_incline
+        data:
+          value: 0
+      - delay:
+          seconds: 3
+      - service: number.set_value
+        target:
+          entity_id: number.trailrunner_set_speed
+        data:
+          value: 4.0
+
+  # Interval training preset: alternates between sprint and recovery
+  trailrunner_interval_workout:
+    alias: "TrailRunner: Interval Workout"
+    description: "10 x (1 min sprint at 12 km/h, 1 min recovery at 6 km/h)"
+    icon: mdi:run-fast
+    mode: single
+    sequence:
+      - service: button.press
+        target:
+          entity_id: button.trailrunner_start
+      - delay:
+          seconds: 5
+      # Warm up at 6 km/h for 3 minutes
+      - service: number.set_value
+        target:
+          entity_id: number.trailrunner_set_speed
+        data:
+          value: 6.0
+      - delay:
+          minutes: 3
+      # 10 intervals
+      - repeat:
+          count: 10
+          sequence:
+            # Sprint
+            - service: number.set_value
+              target:
+                entity_id: number.trailrunner_set_speed
+              data:
+                value: 12.0
+            - delay:
+                minutes: 1
+            # Recovery
+            - service: number.set_value
+              target:
+                entity_id: number.trailrunner_set_speed
+              data:
+                value: 6.0
+            - delay:
+                minutes: 1
+      # Cooldown
+      - service: number.set_value
+        target:
+          entity_id: number.trailrunner_set_speed
+        data:
+          value: 4.0
+      - delay:
+          minutes: 3
+      - service: button.press
+        target:
+          entity_id: button.trailrunner_stop
+
+
+###############################################################################
+#  MQTT SENSOR CONFIGURATION
+#
+#  Add this to your configuration.yaml under the 'mqtt' key to capture
+#  the workout summary event published by the bridge.
+###############################################################################
+
+# mqtt:
+#   sensor:
+#     - name: "TrailRunner Workout Summary"
+#       state_topic: "trailrunner/workout/summary"
+#       value_template: "{{ value_json.distance_km | round(2) }}"
+#       json_attributes_topic: "trailrunner/workout/summary"
+#       json_attributes_template: "{{ value_json | tojson }}"
+#       availability:
+#         - topic: "trailrunner/available"
+#           payload_available: "online"
+#           payload_not_available: "offline"
+#       icon: mdi:clipboard-check-outline
+
+
+###############################################################################
+#  LOVELACE DASHBOARD CARD (for reference)
+#
+#  Paste this into a Manual Card on your dashboard to show a workout
+#  summary panel alongside the weekly distance tracker.
+###############################################################################
+
+# type: vertical-stack
+# cards:
+#   - type: entities
+#     title: TrailRunner
+#     entities:
+#       - entity: sensor.trailrunner_workout_state
+#         name: Status
+#       - entity: sensor.trailrunner_speed
+#         name: Speed
+#       - entity: sensor.trailrunner_incline
+#         name: Incline
+#       - entity: sensor.trailrunner_heart_rate
+#         name: Heart Rate
+#       - entity: sensor.trailrunner_distance
+#         name: Distance
+#       - entity: sensor.trailrunner_calories
+#         name: Calories
+#       - entity: input_number.trailrunner_weekly_distance
+#         name: "This Week"
+#
+#   - type: horizontal-stack
+#     cards:
+#       - type: button
+#         entity: button.trailrunner_start
+#         name: Start
+#         icon: mdi:play
+#         tap_action:
+#           action: call-service
+#           service: button.press
+#           target:
+#             entity_id: button.trailrunner_start
+#       - type: button
+#         entity: button.trailrunner_pause
+#         name: Pause
+#         icon: mdi:pause
+#       - type: button
+#         entity: button.trailrunner_stop
+#         name: Stop
+#         icon: mdi:stop
