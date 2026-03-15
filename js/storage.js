@@ -124,8 +124,6 @@ const Store = {
       safetyMaxSpeed: 20,  // km/h
       safetyMaxIncline: 15, // %
       wsPort: null,        // custom WebSocket port (null = auto-detect)
-      stravaClientId: '212069',
-      stravaClientSecret: 'b0fecc67dfcf54c9d6d1ac820467c7d37b8b8034',
     });
   },
 
