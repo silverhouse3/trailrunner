@@ -354,6 +354,8 @@ const App = {
 
   startRun() {
     document.getElementById('setupOverlay').style.display = 'none';
+    // Auto-connect to treadmill bridge if not already connected
+    this._autoConnectBridge();
     Engine.startRun();
     MilestoneTracker.reset();
     this._updateRunButton();
@@ -371,6 +373,8 @@ const App = {
     Engine.newRun();
     this.setControlMode('manual');
     document.getElementById('setupOverlay').style.display = 'none';
+    // Auto-connect to treadmill bridge if not already connected
+    this._autoConnectBridge();
     const rname = document.getElementById('routeName');
     if (rname) rname.textContent = 'FREE RUN';
     // Don't start engine yet — let user set speed and tap START
@@ -383,6 +387,23 @@ const App = {
     this.setMapStyle('oval');
     // Auto-open speed quick-select so user can pick their running speed
     setTimeout(() => this.toggleQS('speed'), 500);
+  },
+
+  /** Auto-connect to bridge and start a workout so the belt can be controlled */
+  _autoConnectBridge() {
+    if (TM.connected) return;
+    // Save a callback so we start the workout once connected
+    var origOnConnect = TM.onConnect;
+    TM.onConnect = function(port) {
+      if (origOnConnect) origOnConnect(port);
+      // Auto-start a workout on the bridge (enables belt motor control)
+      if (TM.workoutState === 'IDLE') {
+        console.log('[App] Auto-starting workout on bridge');
+        TM.startWorkout();
+      }
+    };
+    var settings = Store.getSettings();
+    TM.connect(settings.wsPort);
   },
 
   togglePause() {

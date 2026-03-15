@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=2560, initial-scale=1, user-scalable=no">
+<title>TrailRunner — Boot Selector</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Rajdhani:wght@500;700&display=swap');
+
+  :root {
+    --bg: #090b10; --surf: #111420; --card: #181c28; --border: #20263a;
+    --cyan: #3ecfff; --green: #3ddc84; --orange: #ff9f43; --red: #ff5f5f;
+    --text: #dde4f0; --dim: #49536b; --mid: #7a889e;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+
+  html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg); }
+
+  body { color: var(--text); font-family: 'Rajdhani', sans-serif;
+    user-select: none; display: flex; align-items: center; justify-content: center; }
+
+  .selector {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 60px; padding: 40px;
+  }
+
+  .title {
+    font-family: 'Orbitron', sans-serif; font-size: 42px; font-weight: 900;
+    letter-spacing: .3em; color: var(--cyan);
+    text-shadow: 0 0 40px rgba(62,207,255,.4);
+  }
+
+  .subtitle {
+    font-size: 22px; color: var(--mid); letter-spacing: .1em; margin-top: -40px;
+  }
+
+  .buttons {
+    display: flex; gap: 80px; align-items: stretch;
+  }
+
+  .boot-btn {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    width: 480px; height: 360px; border-radius: 24px;
+    border: 2px solid var(--border); background: var(--card);
+    cursor: pointer; transition: all .3s ease;
+    text-decoration: none; color: var(--text);
+    position: relative; overflow: hidden;
+  }
+
+  .boot-btn::before {
+    content: ''; position: absolute; inset: 0; border-radius: 24px;
+    opacity: 0; transition: opacity .3s;
+  }
+
+  .boot-btn:active { transform: scale(0.97); }
+
+  /* TrailRunner button */
+  .boot-btn.trailrunner { border-color: rgba(62,207,255,.3); }
+  .boot-btn.trailrunner:hover,
+  .boot-btn.trailrunner.default-active {
+    border-color: var(--cyan);
+    box-shadow: 0 0 60px rgba(62,207,255,.2), inset 0 0 60px rgba(62,207,255,.05);
+  }
+  .boot-btn.trailrunner::before {
+    background: linear-gradient(135deg, rgba(62,207,255,.08), transparent);
+  }
+  .boot-btn.trailrunner:hover::before,
+  .boot-btn.trailrunner.default-active::before { opacity: 1; }
+
+  /* iFit button */
+  .boot-btn.ifit { border-color: rgba(255,159,67,.3); }
+  .boot-btn.ifit:hover,
+  .boot-btn.ifit.default-active {
+    border-color: var(--orange);
+    box-shadow: 0 0 60px rgba(255,159,67,.2), inset 0 0 60px rgba(255,159,67,.05);
+  }
+  .boot-btn.ifit::before {
+    background: linear-gradient(135deg, rgba(255,159,67,.08), transparent);
+  }
+  .boot-btn.ifit:hover::before,
+  .boot-btn.ifit.default-active::before { opacity: 1; }
+
+  .btn-icon { font-size: 100px; margin-bottom: 16px; line-height: 1; }
+
+  .btn-label {
+    font-family: 'Orbitron', sans-serif; font-size: 36px; font-weight: 700;
+    letter-spacing: .15em;
+  }
+
+  .btn-desc {
+    font-size: 18px; color: var(--mid); margin-top: 8px; letter-spacing: .05em;
+  }
+
+  .trailrunner .btn-label { color: var(--cyan); }
+  .ifit .btn-label { color: var(--orange); }
+
+  /* Countdown */
+  .countdown {
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+  }
+
+  .countdown-text {
+    font-size: 20px; color: var(--dim); letter-spacing: .05em;
+  }
+
+  .countdown-bar {
+    width: 400px; height: 6px; background: var(--border); border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .countdown-fill {
+    height: 100%; background: var(--cyan); border-radius: 3px;
+    transition: width 1s linear;
+  }
+
+  .countdown-fill.ifit-default {
+    background: var(--orange);
+  }
+
+  .countdown-seconds {
+    font-family: 'Orbitron', sans-serif; font-size: 28px; font-weight: 700;
+    color: var(--cyan);
+  }
+
+  .countdown-seconds.ifit-default { color: var(--orange); }
+
+  /* Settings gear */
+  .settings-btn {
+    position: fixed; bottom: 20px; right: 20px;
+    font-size: 28px; color: var(--dim); cursor: pointer;
+    opacity: 0.4; transition: opacity .3s;
+    background: none; border: none;
+  }
+  .settings-btn:hover { opacity: 1; }
+
+  /* Settings panel */
+  .settings-panel {
+    display: none; position: fixed; bottom: 80px; right: 20px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 24px; min-width: 380px; max-height: 80vh; overflow-y: auto;
+  }
+  .settings-panel.open { display: block; }
+  .settings-panel h3 {
+    font-family: 'Orbitron', sans-serif; font-size: 14px; letter-spacing: .1em;
+    color: var(--cyan); margin-bottom: 16px;
+  }
+  .setting-row {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 12px; font-size: 16px;
+  }
+  .setting-row label { color: var(--mid); }
+  .setting-row select, .setting-row input {
+    background: var(--surf); border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 6px 12px; font-size: 16px; font-family: inherit;
+  }
+
+  /* Developer mode section */
+  .dev-section { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 16px; }
+  .dev-section h3 { color: var(--green); }
+  .dev-code-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .dev-code-row input {
+    flex: 1; background: var(--surf); border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 8px 12px; font-size: 18px; font-family: 'JetBrains Mono', monospace;
+    text-align: center; letter-spacing: .15em;
+  }
+  .dev-code-row button {
+    background: var(--green); color: var(--bg); border: none; border-radius: 6px;
+    padding: 8px 16px; font-size: 14px; font-weight: 700; cursor: pointer;
+    font-family: 'Rajdhani', sans-serif; letter-spacing: .05em;
+  }
+  .dev-code-row button:active { transform: scale(0.95); }
+  .dev-response {
+    font-family: 'Orbitron', sans-serif; font-size: 32px; font-weight: 900;
+    color: var(--green); text-align: center; letter-spacing: .2em;
+    padding: 12px; background: rgba(61,220,132,.08); border-radius: 8px;
+    border: 1px solid rgba(61,220,132,.2); min-height: 56px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .dev-response.empty { font-size: 14px; color: var(--dim); font-family: 'Rajdhani', sans-serif; letter-spacing: .05em; }
+  .dev-hint { font-size: 12px; color: var(--dim); margin-top: 8px; line-height: 1.4; }
+</style>
+</head>
+<body>
+
+<div class="selector">
+  <div class="title">SELECT MODE</div>
+  <div class="subtitle">Choose your workout experience</div>
+
+  <div class="buttons">
+    <div class="boot-btn trailrunner" id="btnTrailRunner" onclick="launchTrailRunner()">
+      <div class="btn-icon">⛰</div>
+      <div class="btn-label">TRAILRUNNER</div>
+      <div class="btn-desc">GPX routes &bull; auto-incline &bull; HR zones</div>
+    </div>
+
+    <div class="boot-btn ifit" id="btnIfit" onclick="launchIfit()">
+      <div class="btn-icon">🏃</div>
+      <div class="btn-label">iFIT</div>
+      <div class="btn-desc">Classes &bull; trainers &bull; programs</div>
+    </div>
+  </div>
+
+  <div class="countdown" id="countdown">
+    <div class="countdown-text" id="countdownText">Auto-launching TrailRunner in</div>
+    <div class="countdown-seconds" id="countdownSeconds">10</div>
+    <div class="countdown-bar">
+      <div class="countdown-fill" id="countdownFill" style="width: 100%"></div>
+    </div>
+  </div>
+</div>
+
+<button class="settings-btn" onclick="toggleSettings()">⚙</button>
+
+<div class="settings-panel" id="settingsPanel">
+  <h3>BOOT SETTINGS</h3>
+  <div class="setting-row">
+    <label>Default app</label>
+    <select id="settingDefault" onchange="saveSettings()">
+      <option value="trailrunner">TrailRunner</option>
+      <option value="ifit">iFit</option>
+      <option value="none">No auto-launch</option>
+    </select>
+  </div>
+  <div class="setting-row">
+    <label>Countdown (seconds)</label>
+    <input type="number" id="settingTimer" min="3" max="30" value="10" onchange="saveSettings()">
+  </div>
+
+  <div class="dev-section">
+    <h3>DEVELOPER MODE</h3>
+    <div style="font-size:13px;color:var(--mid);margin-bottom:12px">
+      Enter the code shown on the treadmill's developer mode screen
+    </div>
+    <div class="dev-code-row">
+      <input type="text" id="devCodeInput" placeholder="Enter code" inputmode="numeric"
+             onkeydown="if(event.key==='Enter')generateResponseCode()">
+      <button onclick="generateResponseCode()">GET CODE</button>
+    </div>
+    <div class="dev-response empty" id="devResponse">Enter code above</div>
+    <div class="dev-hint">
+      Tap the response code to copy it. This replaces getresponsecode.com — works offline.
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── Settings (persisted in localStorage) ────────────────────────────────
+  const DEFAULTS = { defaultApp: 'trailrunner', timerSeconds: 10 };
+
+  function loadSettings() {
+    try {
+      const s = JSON.parse(localStorage.getItem('bootSelector') || '{}');
+      return { ...DEFAULTS, ...s };
+    } catch { return { ...DEFAULTS }; }
+  }
+
+  function saveSettings() {
+    const s = {
+      defaultApp: document.getElementById('settingDefault').value,
+      timerSeconds: parseInt(document.getElementById('settingTimer').value) || 10
+    };
+    localStorage.setItem('bootSelector', JSON.stringify(s));
+    // Restart countdown with new settings
+    clearInterval(timer);
+    startCountdown();
+  }
+
+  function toggleSettings() {
+    const panel = document.getElementById('settingsPanel');
+    panel.classList.toggle('open');
+    if (panel.classList.contains('open')) {
+      // Pause countdown when settings open
+      clearInterval(timer);
+      document.getElementById('countdown').style.opacity = '0.3';
+    } else {
+      document.getElementById('countdown').style.opacity = '1';
+      startCountdown();
+    }
+  }
+
+  // ── Launch functions ────────────────────────────────────────────────────
+  let launched = false;
+
+  function launchTrailRunner() {
+    if (launched) return;
+    launched = true;
+    clearInterval(timer);
+    document.getElementById('btnTrailRunner').style.transform = 'scale(0.95)';
+    document.getElementById('btnTrailRunner').style.boxShadow =
+      '0 0 100px rgba(62,207,255,.5), inset 0 0 80px rgba(62,207,255,.1)';
+    setTimeout(() => {
+      window.location.href = 'https://silverhouse3.github.io/trailrunner';
+    }, 300);
+  }
+
+  function launchIfit() {
+    if (launched) return;
+    launched = true;
+    clearInterval(timer);
+    document.getElementById('btnIfit').style.transform = 'scale(0.95)';
+    document.getElementById('btnIfit').style.boxShadow =
+      '0 0 100px rgba(255,159,67,.5), inset 0 0 80px rgba(255,159,67,.1)';
+
+    // Try multiple methods to launch iFit
+    setTimeout(() => {
+      // Method 1: Android intent URL (works in Chrome/Chromium)
+      const intentUrl = 'intent:#Intent;action=android.intent.action.MAIN;' +
+        'category=android.intent.category.LAUNCHER;package=com.ifit.eru;end';
+
+      // Method 2: Fallback to boot-launcher service
+      fetch('http://localhost:4511/launch-ifit', { mode: 'no-cors' })
+        .catch(() => {});
+
+      // Try intent URL
+      window.location.href = intentUrl;
+    }, 300);
+  }
+
+  // ── Countdown ───────────────────────────────────────────────────────────
+  let timer;
+  let remaining;
+
+  function startCountdown() {
+    const settings = loadSettings();
+    const { defaultApp, timerSeconds } = settings;
+
+    // Apply settings to UI
+    document.getElementById('settingDefault').value = defaultApp;
+    document.getElementById('settingTimer').value = timerSeconds;
+
+    if (defaultApp === 'none') {
+      document.getElementById('countdown').style.display = 'none';
+      document.getElementById('btnTrailRunner').classList.remove('default-active');
+      document.getElementById('btnIfit').classList.remove('default-active');
+      return;
+    }
+
+    document.getElementById('countdown').style.display = 'flex';
+    remaining = timerSeconds;
+
+    const isIfit = defaultApp === 'ifit';
+    const label = isIfit ? 'iFit' : 'TrailRunner';
+    const fill = document.getElementById('countdownFill');
+    const secs = document.getElementById('countdownSeconds');
+
+    document.getElementById('countdownText').textContent = `Auto-launching ${label} in`;
+    fill.className = 'countdown-fill' + (isIfit ? ' ifit-default' : '');
+    secs.className = 'countdown-seconds' + (isIfit ? ' ifit-default' : '');
+
+    // Highlight the default button
+    document.getElementById('btnTrailRunner').classList.toggle('default-active', !isIfit);
+    document.getElementById('btnIfit').classList.toggle('default-active', isIfit);
+
+    // Update display
+    secs.textContent = remaining;
+    fill.style.width = '100%';
+
+    timer = setInterval(() => {
+      remaining--;
+      secs.textContent = remaining;
+      fill.style.width = ((remaining / timerSeconds) * 100) + '%';
+
+      if (remaining <= 0) {
+        clearInterval(timer);
+        if (isIfit) launchIfit();
+        else launchTrailRunner();
+      }
+    }, 1000);
+  }
+
+  // ── Touch/click anywhere pauses countdown (except buttons) ──────────
+  document.addEventListener('touchstart', (e) => {
+    if (!e.target.closest('.boot-btn') && !e.target.closest('.settings-btn') &&
+        !e.target.closest('.settings-panel')) {
+      clearInterval(timer);
+      document.getElementById('countdownText').textContent = 'Countdown paused — tap an option';
+      document.getElementById('countdownSeconds').textContent = '⏸';
+    }
+  });
+
+  // ── Developer Mode Response Code Generator ──────────────────────────────
+  // Same algorithm as getresponsecode.com — Java LCG (works fully offline)
+  function generateResponseCode() {
+    const input = document.getElementById('devCodeInput').value.trim();
+    const el = document.getElementById('devResponse');
+
+    if (!input || isNaN(input)) {
+      el.textContent = 'Enter a valid number';
+      el.className = 'dev-response empty';
+      return;
+    }
+
+    const code = genResponseCode(parseInt(input, 10));
+    el.textContent = String(code).padStart(6, '0');
+    el.className = 'dev-response';
+
+    // Tap to copy
+    el.onclick = function() {
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(String(code)).catch(() => {});
+      }
+      el.style.color = 'var(--cyan)';
+      setTimeout(() => { el.style.color = ''; }, 500);
+    };
+  }
+
+  function genResponseCode(seed) {
+    const multiplier = 0x5DEECE66Dn;
+    const addend = 0xBn;
+    const mask = (1n << 48n) - 1n;
+
+    let s = (BigInt(seed) ^ multiplier) & mask;
+
+    function next(bits) {
+      s = (s * multiplier + addend) & mask;
+      return Number(s >> (48n - BigInt(bits)));
+    }
+
+    let bits, val;
+    do {
+      bits = next(31);
+      val = bits % 999999;
+    } while (bits - val + 999998 < 0);
+
+    return val;
+  }
+
+  // ── Init ────────────────────────────────────────────────────────────────
+  startCountdown();
+</script>
+</body>
+</html>

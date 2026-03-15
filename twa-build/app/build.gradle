@@ -1,0 +1,49 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.silverhouse3.trailrunner'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.silverhouse3.trailrunner"
+        // X32i runs Android 7 (API 24/25) — set minSdk accordingly
+        minSdk 24
+        targetSdk 34
+        versionCode 3
+        versionName "2.0.0"
+
+        manifestPlaceholders = [
+            launcherName: "TrailRunner"
+        ]
+    }
+
+    signingConfigs {
+        release {
+            storeFile file("../keystore/trailrunner.jks")
+            storePassword "trailrunner2026"
+            keyAlias "trailrunner"
+            keyPassword "trailrunner2026"
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+        debug {
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+
+dependencies {
+    // WebView is built into Android — no external dependencies needed
+}
