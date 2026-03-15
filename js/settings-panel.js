@@ -339,7 +339,7 @@ const SettingsPanel = {
             <span class="sp-acc-label">${sec.label}</span>
             <span class="sp-acc-chevron">${open ? '▼' : '▶'}</span>
           </div>
-          ${open ? `<div class="sp-acc-body">${sec.content()}</div>` : ''}
+          <div class="sp-acc-body" style="${open ? '' : 'display:none'}">${sec.content()}</div>
         </div>
       `;
     }).join('');
