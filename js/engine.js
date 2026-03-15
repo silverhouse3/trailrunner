@@ -119,6 +119,9 @@ const Engine = {
       routeId: this.route ? this.route.id : null,
       routeName: this.route ? this.route.name : 'Free Run',
 
+      // Resume ramp-up tracking
+      _resumeElapsed: null, // elapsed time at last resume (for gentle ramp-up)
+
       // Settings snapshot
       maxHR: settings.maxHR,
       weight: settings.weight,
@@ -135,43 +138,65 @@ const Engine = {
 
   pauseRun() {
     if (!this.run || this.run.status !== 'running') return;
+    var speed = this.run.speed;
+
+    // Set status immediately (UI shows pause overlay)
     this.run.status = 'paused';
     this._stopTicker();
 
-    // SAFETY: stop the belt immediately, but keep incline where it is
-    TM.setSpeed(0, true);
+    if (speed < 0.5) {
+      TM.setSpeed(0, true);
+      TM.pauseWorkout();
+    } else {
+      // Graceful deceleration — proportional to current speed, max 10s
+      // Incline stays where it is during pause
+      var dur = Math.max(3, Math.min(10, speed * 1.2));
+      this._gracefulRamp(speed, 0, 0, 0, dur, function() {
+        TM.pauseWorkout();
+      });
+    }
   },
 
   resumeRun() {
     if (!this.run || this.run.status !== 'paused') return;
     this.run.status = 'running';
+    this.run._resumeElapsed = this.run.elapsed; // mark for gentle ramp-up
     this._lastTickTime = Date.now();
     this._startTicker();
+    TM.resumeWorkout();
   },
 
   finishRun() {
     if (!this.run) return;
+    var speed = this.run.speed;
+    var incline = Math.max(this.run.incline, 0);
+
+    // Finalize run state immediately (UI shows summary, save works)
     this.run.status = 'finished';
     this.run.finishedAt = new Date().toISOString();
     this._stopTicker();
-
-    // SAFETY: stop the belt AND return to 0% grade
-    TM.setSpeed(0, true);
-    // Brief delay so the motor controller processes the speed-stop first,
-    // then bring the ramp down — avoids the user stepping off a moving,
-    // tilted belt
-    setTimeout(() => TM.setIncline(0, true), 2000);
-
-    // Finalize workout if active
     if (this.workout) this.workout = null;
+
+    if (speed < 0.5 && incline < 0.5) {
+      // Already stopped — just zero everything
+      TM.setSpeed(0, true);
+      TM.setIncline(0, true);
+      TM.stopWorkout();
+    } else {
+      // Graceful 15-second ramp-down (belt decelerates while user sees summary)
+      this._gracefulRamp(speed, 0, incline, 0, 15, function() {
+        TM.stopWorkout();
+      });
+    }
   },
 
   discardRun() {
     this._stopTicker();
+    if (this._decelTimer) { clearInterval(this._decelTimer); this._decelTimer = null; }
 
     // SAFETY: always return to zero on discard too
     TM.setSpeed(0, true);
-    setTimeout(() => TM.setIncline(0, true), 2000);
+    TM.setIncline(0, true);
 
     this.run = null;
     this.ghost = null;
@@ -434,11 +459,12 @@ const Engine = {
     }
 
     // ── Software speed ramp (when not receiving live treadmill data) ──
-    // Gentle startup: 0.7 km/h/s for first 15s (~15s to reach 10 km/h)
-    // Normal running: 2 km/h/s after 15s elapsed
-    // Applies in ANY mode when no treadmill/FTMS is feeding speed data
+    // Gentle ramp: 0.7 km/h/s for first 15s of run or after resume
+    // Normal running: 2 km/h/s after ramp period
     if (this.run.speedSource !== 'treadmill' && this.run.speedSource !== 'ftms') {
-      var baseRate = (this.run.elapsed < 15) ? 0.7 : 2.0;
+      var timeSinceResume = (this.run._resumeElapsed != null)
+        ? this.run.elapsed - this.run._resumeElapsed : Infinity;
+      var baseRate = (this.run.elapsed < 15 || timeSinceResume < 15) ? 0.7 : 2.0;
       var rampRate = baseRate * cappedDt;
       var diff = this.ctrl.targetSpeed - this.run.speed;
       if (Math.abs(diff) > 0.05) {
@@ -447,7 +473,6 @@ const Engine = {
       } else {
         this.run.speed = this.ctrl.targetSpeed;
       }
-      // Safety floor: speed can never go below 0
       if (this.run.speed < 0) this.run.speed = 0;
     }
 
@@ -720,6 +745,47 @@ const Engine = {
     const s = Math.floor(totalSec % 60);
     if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
     return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // GRACEFUL RAMP (standalone timer — independent of run ticker)
+  // ════════════════════════════════════════════════════════════════════════════
+
+  _decelTimer: null,
+
+  /**
+   * Smoothly ramp speed and incline from start to end values over `duration` seconds.
+   * Uses ease-out curve for natural feel. Calls `onComplete` when done.
+   * Runs independently of the run ticker so status can change immediately.
+   */
+  _gracefulRamp(startSpeed, endSpeed, startIncline, endIncline, duration, onComplete) {
+    if (this._decelTimer) { clearInterval(this._decelTimer); this._decelTimer = null; }
+    var started = Date.now();
+    var self = this;
+    var rampIncline = (startIncline !== endIncline);
+
+    this._decelTimer = setInterval(function() {
+      var elapsed = (Date.now() - started) / 1000;
+      var progress = Math.min(1, elapsed / duration);
+      // Ease-out: smooth deceleration (no sudden jerk)
+      var eased = 1 - (1 - progress) * (1 - progress);
+
+      var newSpeed = startSpeed + (endSpeed - startSpeed) * eased;
+      TM.setSpeed(Math.max(0, +(newSpeed.toFixed(1))), true);
+
+      if (rampIncline) {
+        var newIncline = startIncline + (endIncline - startIncline) * eased;
+        TM.setIncline(+(newIncline.toFixed(1)), true);
+      }
+
+      if (progress >= 1) {
+        clearInterval(self._decelTimer);
+        self._decelTimer = null;
+        TM.setSpeed(Math.max(0, endSpeed), true);
+        if (rampIncline) TM.setIncline(endIncline, true);
+        if (onComplete) onComplete();
+      }
+    }, 250);
   },
 
   // ════════════════════════════════════════════════════════════════════════════

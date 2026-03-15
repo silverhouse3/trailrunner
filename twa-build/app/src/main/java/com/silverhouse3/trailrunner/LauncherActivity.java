@@ -237,27 +237,27 @@ public class LauncherActivity extends Activity {
         settings.setAllowFileAccess(true);
         settings.setGeolocationEnabled(true);
 
-        // Allow mixed content (some map tile servers use HTTP)
-        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
+        // Allow ALL mixed content — PWA on HTTPS needs to reach bridge on HTTP/WS localhost
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
 
-        // Handle navigation inside the WebView (don't open external browser)
+        // Handle navigation, errors, and settings injection (single WebViewClient)
         webView.setWebViewClient(new WebViewClient() {
             @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                injectDeviceSettings(view);
+            }
+
+            @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                String url = request.getUrl().toString();
-
-                // Keep PWA URLs inside the WebView
-                if (url.contains("silverhouse3.github.io") || url.contains("localhost") || url.contains("127.0.0.1")) {
-                    return false; // load in WebView
-                }
-
-                // Strava OAuth callback — keep in WebView
-                if (url.contains("strava.com")) {
+                String reqUrl = request.getUrl().toString();
+                // Keep PWA, localhost, and Strava URLs inside the WebView
+                if (reqUrl.contains("silverhouse3.github.io") || reqUrl.contains("localhost")
+                        || reqUrl.contains("127.0.0.1") || reqUrl.contains("strava.com")) {
                     return false;
                 }
-
                 // External links open in system browser
-                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(reqUrl));
                 startActivity(intent);
                 return true;
             }
@@ -265,7 +265,6 @@ public class LauncherActivity extends Activity {
             @Override
             public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
                 Log.e(TAG, "WebView error: " + errorCode + " - " + description + " for " + failingUrl);
-                // Show a simple retry page on network error
                 view.loadData(
                     "<html><body style='background:#090b10;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0'>"
                     + "<div style='text-align:center'>"
@@ -297,6 +296,20 @@ public class LauncherActivity extends Activity {
 
         Log.i(TAG, "Loading PWA: " + PWA_URL);
         webView.loadUrl(PWA_URL);
+    }
+
+    /** Inject Strava credentials into localStorage (device-only, not in GitHub source) */
+    private void injectDeviceSettings(WebView view) {
+        String js = "try {"
+            + "var s = JSON.parse(localStorage.getItem('tr_settings') || '{}');"
+            + "if (!s.stravaClientId) {"
+            + "  s.stravaClientId = '212069';"
+            + "  s.stravaClientSecret = 'b0fecc67dfcf54c9d6d1ac820467c7d37b8b8034';"
+            + "  localStorage.setItem('tr_settings', JSON.stringify(s));"
+            + "  console.log('[APK] Injected Strava credentials');"
+            + "}"
+            + "} catch(e) { console.error('[APK] Settings inject error:', e); }";
+        view.evaluateJavascript(js, null);
     }
 
     @Override
