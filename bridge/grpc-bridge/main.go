@@ -35,6 +35,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -82,8 +83,9 @@ var (
 	wsMu      sync.Mutex
 	wsClients = make(map[*wsConn]bool)
 
-	mqttClient mqtt.Client
-	mqttReady  bool
+	mqttClient    mqtt.Client
+	mqttReady     bool
+	lastMQTTPub   time.Time
 
 	startTime = time.Now()
 )
@@ -881,6 +883,8 @@ func connectMQTT() {
 	opts.SetAutoReconnect(true)
 	opts.SetConnectRetry(true)
 	opts.SetConnectRetryInterval(10 * time.Second)
+	// Last Will: mark offline if bridge crashes
+	opts.SetWill(mqttTopicPrefix+"/available", "offline", 1, true)
 	opts.SetConnectionLostHandler(func(c mqtt.Client, err error) {
 		log.Printf("[MQTT] Connection lost: %v", err)
 		mqttReady = false
@@ -1077,6 +1081,12 @@ func publishMQTTState() {
 	if !mqttReady || mqttClient == nil {
 		return
 	}
+	// Throttle: at most once per 2 seconds to avoid MQTT flooding
+	now := time.Now()
+	if now.Sub(lastMQTTPub) < 2*time.Second {
+		return
+	}
+	lastMQTTPub = now
 	mu.RLock()
 	payload := map[string]interface{}{
 		"speed":         currentSpeed,
@@ -1135,6 +1145,20 @@ func main() {
 				mu.RUnlock()
 			}
 		}
+	}()
+
+	// Graceful shutdown — mark offline on MQTT before exit
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt)
+	go func() {
+		<-sigCh
+		log.Println("[BRIDGE] Shutting down...")
+		if mqttReady && mqttClient != nil {
+			mqttClient.Publish(mqttTopicPrefix+"/available", 1, true, "offline")
+			time.Sleep(200 * time.Millisecond)
+			mqttClient.Disconnect(500)
+		}
+		os.Exit(0)
 	}()
 
 	fmt.Println("")

@@ -70,7 +70,7 @@ body { color: var(--text); font-family: 'Rajdhani', sans-serif; user-select: non
 #mapDiv { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 0; }
 .leaflet-container { outline: none; font-family: 'Rajdhani', sans-serif; }
 
-.map-chip { position: absolute; backdrop-filter: blur(6px); border: 1px solid var(--border);
+.map-chip { position: absolute; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); border: 1px solid var(--border);
   border-radius: 5px; background: rgba(9,11,16,.88); padding: 5px 11px;
   font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: .05em; }
 .map-tl { bottom: 10px; left: 10px; top: auto; display: flex; gap: 4px; flex-wrap: wrap; max-width: 240px; }
@@ -78,7 +78,7 @@ body { color: var(--text); font-family: 'Rajdhani', sans-serif; user-select: non
 /* Map mode buttons — compact icon style (Google Maps inspired) */
 .map-mode-btn { padding: 4px 6px; background: rgba(9,11,16,.88); border: 1px solid var(--border);
   border-radius: 6px; color: var(--dim); font-size: 14px; font-family: inherit;
-  cursor: pointer; transition: .15s; backdrop-filter: blur(6px);
+  cursor: pointer; transition: .15s; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
   font-weight: 600; width: 30px; height: 30px; display: flex; align-items: center;
   justify-content: center; line-height: 1; }
 .map-mode-btn .map-btn-label { display: none; }
@@ -90,7 +90,7 @@ body { color: var(--text); font-family: 'Rajdhani', sans-serif; user-select: non
   gap: 4px; z-index: 20; }
 .zoom-btn { width: 30px; height: 30px; background: rgba(9,11,16,.88); border: 1px solid var(--border);
   border-radius: 5px; color: var(--mid); font-size: 16px; cursor: pointer; display: flex;
-  align-items: center; justify-content: center; backdrop-filter: blur(6px); transition: .15s;
+  align-items: center; justify-content: center; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); transition: .15s;
   line-height: 1; font-family: 'JetBrains Mono', monospace; font-weight: 700; }
 .zoom-btn:hover { border-color: var(--cyan); color: var(--cyan); }
 .zoom-level { width: 30px; height: 20px; background: rgba(9,11,16,.7); border: 1px solid var(--border);
@@ -214,7 +214,7 @@ body { color: var(--text); font-family: 'Rajdhani', sans-serif; user-select: non
 /* ══ FLOATING RUN CONTROLS ═══════════════════════════════════════════════ */
 .float-controls { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
   z-index: 25; display: flex; align-items: center; gap: 10px;
-  background: rgba(9,11,16,.92); backdrop-filter: blur(8px);
+  background: rgba(9,11,16,.92); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
   border: 1px solid var(--border); border-radius: 12px; padding: 8px 16px; }
 .fc-btn { padding: 14px 36px; border: none; border-radius: 8px; font-family: 'Orbitron', sans-serif;
   font-size: 16px; font-weight: 700; letter-spacing: .1em; cursor: pointer; transition: .2s;
@@ -461,7 +461,7 @@ body { color: var(--text); font-family: 'Rajdhani', sans-serif; user-select: non
 /* Mini now-playing indicator on map */
 .mini-np { position: absolute; bottom: 80px; left: 10px; z-index: 25;
   background: rgba(9,11,16,.92); border: 1px solid var(--border); border-radius: 6px;
-  padding: 5px 12px; backdrop-filter: blur(6px); }
+  padding: 5px 12px; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
 .mini-np-name { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--cyan);
   letter-spacing: .05em; }
 
@@ -567,7 +567,7 @@ body { color: var(--text); font-family: 'Rajdhani', sans-serif; user-select: non
 .wb-bookend-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
 .wb-toggle-label { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text);
   cursor: pointer; min-width: 90px; }
-.wb-toggle-label input[type="checkbox"] { accent-color: var(--cyan);
+.wb-toggle-label input[type="checkbox"] {
   -webkit-appearance: none; appearance: none; width: 16px; height: 16px; min-width: 16px;
   border: 2px solid var(--cyan); border-radius: 3px; background: transparent; cursor: pointer; }
 .wb-toggle-label input[type="checkbox"]:checked { background: var(--cyan); }
@@ -621,13 +621,13 @@ body { color: var(--text); font-family: 'Rajdhani', sans-serif; user-select: non
 .sp-radio-group { display: flex; gap: 10px; flex-wrap: wrap; }
 .sp-radio { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--text);
   font-family: 'JetBrains Mono', monospace; cursor: pointer; }
-.sp-radio input { accent-color: var(--cyan);
+.sp-radio input {
   -webkit-appearance: none; appearance: none; width: 14px; height: 14px; min-width: 14px;
   border: 2px solid var(--cyan); border-radius: 50%; background: transparent; cursor: pointer; }
 .sp-radio input:checked { background: var(--cyan); box-shadow: inset 0 0 0 2px var(--bg); }
 .sp-check { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text);
   cursor: pointer; }
-.sp-check input { accent-color: var(--cyan);
+.sp-check input {
   -webkit-appearance: none; appearance: none; width: 16px; height: 16px; min-width: 16px;
   border: 2px solid var(--cyan); border-radius: 3px; background: transparent; cursor: pointer; }
 .sp-check input:checked { background: var(--cyan); }
@@ -641,7 +641,7 @@ body { color: var(--text); font-family: 'Rajdhani', sans-serif; user-select: non
 .sp-toggle input:checked + .sp-slider { background: rgba(62,207,255,.3); }
 .sp-toggle input:checked + .sp-slider::before { transform: translateX(16px); background: var(--cyan); }
 
-.sp-range { flex: 1; accent-color: var(--cyan);
+.sp-range { flex: 1;
   -webkit-appearance: none; appearance: none; height: 6px; border-radius: 3px;
   background: #1e3050; outline: none; }
 .sp-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none;
@@ -714,7 +714,7 @@ body { color: var(--text); font-family: 'Rajdhani', sans-serif; user-select: non
   flex-direction: row; gap: 5px; pointer-events: none; flex-wrap: wrap; justify-content: center; }
 .layout.focus .focus-badges { display: flex; }
 .focus-badge { background: rgba(9,11,16,.88); border: 1px solid var(--border);
-  border-radius: 6px; padding: 4px 10px; backdrop-filter: blur(6px); pointer-events: auto;
+  border-radius: 6px; padding: 4px 10px; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); pointer-events: auto;
   display: flex; align-items: center; gap: 6px; min-width: 90px; }
 .fb-icon { font-size: 11px; min-width: 16px; text-align: center; }
 .fb-val { font-family: 'Orbitron', sans-serif; font-size: 14px; font-weight: 700; line-height: 1; }
@@ -728,7 +728,7 @@ body { color: var(--text); font-family: 'Rajdhani', sans-serif; user-select: non
 
 /* ══ QUICK-SELECT PANELS — slide from edges ════════════════════════════ */
 .qs-panel { position: absolute; top: 0; bottom: 0; width: 110px; z-index: 35;
-  background: rgba(9,11,16,.94); backdrop-filter: blur(8px);
+  background: rgba(9,11,16,.94); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
   display: flex; flex-direction: column; align-items: center;
   padding: 8px 6px; gap: 4px; justify-content: center;
   transition: transform .25s ease, opacity .25s; border: 1px solid var(--border); }
