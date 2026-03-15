@@ -163,6 +163,36 @@ case "$cmd" in
     fi
     ;;
 
+  json)
+    # Machine-readable JSON state — designed for Claude Code / scripts
+    curl -s "${BASE}/api/state" 2>/dev/null
+    ;;
+
+  workout)
+    # Quick workout summary for the current or most recent workout
+    data=$(curl -s "${BASE}/api/state" 2>/dev/null)
+    if [ -z "$data" ]; then
+      echo -e "${RED}Cannot reach bridge${NC}"
+      exit 1
+    fi
+    speed=$(echo "$data" | python3 -c "import sys,json; print(f'{json.load(sys.stdin).get(\"speed_kph\",0):.1f}')" 2>/dev/null)
+    incline=$(echo "$data" | python3 -c "import sys,json; print(f'{json.load(sys.stdin).get(\"incline_pct\",0):.1f}')" 2>/dev/null)
+    dist=$(echo "$data" | python3 -c "import sys,json; print(f'{json.load(sys.stdin).get(\"distance_km\",0):.2f}')" 2>/dev/null)
+    cal=$(echo "$data" | python3 -c "import sys,json; print(round(json.load(sys.stdin).get('calories',0)))" 2>/dev/null)
+    elapsed=$(echo "$data" | python3 -c "import sys,json; s=int(json.load(sys.stdin).get('elapsed_sec',0)); print(f'{s//3600}:{(s%3600)//60:02d}:{s%60:02d}')" 2>/dev/null)
+    state=$(echo "$data" | python3 -c "import sys,json; print(json.load(sys.stdin).get('workout_state','UNKNOWN'))" 2>/dev/null)
+    elev=$(echo "$data" | python3 -c "import sys,json; print(f'{json.load(sys.stdin).get(\"elevation_m\",0):.0f}')" 2>/dev/null)
+
+    echo -e "${BOLD}Workout Summary${NC}"
+    echo -e "  State:     ${state}"
+    echo -e "  Speed:     ${speed} kph"
+    echo -e "  Incline:   ${incline}%"
+    echo -e "  Distance:  ${dist} km"
+    echo -e "  Elapsed:   ${elapsed}"
+    echo -e "  Elevation: ${elev} m"
+    echo -e "  Calories:  ${cal} kcal"
+    ;;
+
   *)
     echo -e "${BOLD}TrailRunner CLI${NC} — NordicTrack X32i Controller"
     echo ""
@@ -180,6 +210,8 @@ case "$cmd" in
     echo "  watch               Live-stream state to terminal"
     echo "  ramp <kph> [steps]  Gradually ramp speed"
     echo "  health              Check bridge connectivity"
+    echo "  json                Raw JSON state (for scripts)"
+    echo "  workout             Current workout summary"
     echo ""
     echo "Environment:"
     echo "  TREADMILL_IP=${HOST}"
