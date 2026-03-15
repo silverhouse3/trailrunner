@@ -411,6 +411,7 @@ const UI = {
     v('setMaxSpeed', s.safetyMaxSpeed);
     v('setMaxIncline', s.safetyMaxIncline);
     v('setGoogleApiKey', s.googleApiKey || '');
+    v('setWebhookUrl', Sync.webhookUrl || '');
   },
 
   closeSettings() {
@@ -431,6 +432,10 @@ const UI = {
     else delete s.googleApiKey;
 
     Store.saveSettings(s);
+
+    // Save webhook URL
+    const webhookUrl = (document.getElementById('setWebhookUrl')?.value || '').trim();
+    Sync.webhookUrl = webhookUrl;
 
     // Save Strava app credentials
     const clientId = (document.getElementById('setStravaClientId')?.value || '').trim();

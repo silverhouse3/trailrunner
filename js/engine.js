@@ -112,6 +112,7 @@ const Engine = {
       _hrSamples: 0,
       _speedSum: 0,
       _speedSamples: 0,
+      _speedMax: 0,
 
       // Track points for GPX export (sampled every ~5s)
       trackPoints: [],
@@ -218,6 +219,7 @@ const Engine = {
       distanceKm: +(r.distanceM / 1000).toFixed(2),
       elapsed: Math.round(r.elapsed),
       avgSpeed: r._speedSamples > 0 ? +(r._speedSum / r._speedSamples).toFixed(1) : 0,
+      maxSpeed: +(r._speedMax || 0).toFixed(1),
       avgHR: r._hrSamples > 0 ? Math.round(r._hrSum / r._hrSamples) : 0,
       maxHR: r.maxHR,
       calories: Math.round(r.calories),
@@ -490,6 +492,7 @@ const Engine = {
     if (this.run.speed > 0.5) {
       this.run._speedSum += this.run.speed;
       this.run._speedSamples++;
+      if (this.run.speed > this.run._speedMax) this.run._speedMax = this.run.speed;
     }
 
     // ── Cadence: prefer mic-detected, fall back to speed estimate ────────

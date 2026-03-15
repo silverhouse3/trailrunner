@@ -337,4 +337,88 @@ const Sync = {
       queuedRuns: queue.length,
     };
   },
+
+  // ── Webhook notification ──────────────────────────────────────────────
+
+  get webhookUrl() {
+    try {
+      return localStorage.getItem('tr_webhook_url') || '';
+    } catch { return ''; }
+  },
+
+  set webhookUrl(val) {
+    if (val) localStorage.setItem('tr_webhook_url', val);
+    else localStorage.removeItem('tr_webhook_url');
+  },
+
+  /**
+   * POST run summary to a configured webhook URL.
+   * Works with Home Assistant webhooks, IFTTT, Zapier, or any HTTP endpoint.
+   * Format: HA-compatible JSON payload with run stats.
+   */
+  async notifyWebhook(run) {
+    var url = this.webhookUrl;
+    if (!url) return;
+
+    var payload = {
+      event: 'workout_complete',
+      device: 'TrailRunner X32i',
+      timestamp: new Date().toISOString(),
+      route: run.routeName || 'Free Run',
+      distance_km: run.distanceKm || +(run.distanceM / 1000).toFixed(2),
+      elapsed_sec: run.elapsed || 0,
+      elapsed_str: this._fmtTime(run.elapsed || 0),
+      avg_speed_kph: run.avgSpeed || 0,
+      max_speed_kph: run.maxSpeed || 0,
+      avg_hr: run.avgHR || 0,
+      max_hr: run.maxHR || 0,
+      calories: run.calories || 0,
+      elevation_gain_m: run.elevGained || run.elevGain || 0,
+      splits_count: run.splits ? run.splits.length : 0,
+    };
+
+    try {
+      await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        mode: 'no-cors', // HA webhook may not send CORS headers
+      });
+      console.log('[Sync] Webhook notified:', url);
+    } catch (err) {
+      console.warn('[Sync] Webhook failed:', err.message);
+    }
+  },
+
+  _fmtTime(s) {
+    var h = Math.floor(s / 3600);
+    var m = Math.floor((s % 3600) / 60);
+    var sec = Math.floor(s % 60);
+    if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
+    return m + ':' + String(sec).padStart(2, '0');
+  },
+
+  /**
+   * POST run summary to bridge MQTT endpoint (if bridge is reachable).
+   * This publishes to trailrunner/workout/summary on the MQTT broker.
+   */
+  async notifyBridge(run) {
+    try {
+      await fetch('http://127.0.0.1:4510/api/workout/summary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          route: run.routeName || 'Free Run',
+          distance_km: run.distanceKm || +(run.distanceM / 1000).toFixed(2),
+          elapsed_sec: run.elapsed || 0,
+          avg_speed_kph: run.avgSpeed || 0,
+          avg_hr: run.avgHR || 0,
+          calories: run.calories || 0,
+          elevation_gain_m: run.elevGained || run.elevGain || 0,
+        }),
+      });
+    } catch {
+      // Bridge not reachable — that's fine
+    }
+  },
 };

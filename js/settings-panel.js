@@ -740,6 +740,13 @@ const SettingsPanel = {
         <input class="sp-input" type="text" id="spGoogleKey" placeholder="AIza..." value="${s.googleApiKey||''}" style="width:180px">
       </div>
 
+      <div class="sp-section-label" style="margin-top:12px">WEBHOOK (HOME ASSISTANT / IFTTT)</div>
+      <div class="sp-row">
+        <span class="sp-label">Webhook URL</span>
+        <input class="sp-input" type="text" id="spWebhookUrl" placeholder="https://ha.local/api/webhook/..." value="${Sync.webhookUrl||''}" style="width:240px">
+      </div>
+      <div class="sp-hint" style="font-size:10px;color:var(--dim,#4a6785);margin:-4px 0 8px">POSTs run summary JSON on workout complete. Works with HA, IFTTT, Zapier, etc.</div>
+
       <div class="sp-section-label" style="margin-top:12px">STRAVA APP CREDENTIALS</div>
       <div class="sp-row">
         <span class="sp-label">Client ID</span>
@@ -909,6 +916,8 @@ const SettingsPanel = {
     s.exportFormat = v('spExportFormat');
     const gKey = (v('spGoogleKey') || '').trim();
     if (gKey) s.googleApiKey = gKey; else delete s.googleApiKey;
+    const webhookUrl = (v('spWebhookUrl') || '').trim();
+    Sync.webhookUrl = webhookUrl;
     const sId = (v('spStravaId') || '').trim();
     const sSec = (v('spStravaSecret') || '').trim();
     if (sId) s.stravaClientId = sId;

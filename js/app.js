@@ -522,6 +522,7 @@ const App = {
         avgHR: Engine.getAvgHR() || 0,
         maxHR: saved.maxHR || 0,
         avgSpeed: saved.avgSpeed || 0,
+        maxSpeed: saved.maxSpeed || 0,
         calories: saved.calories || 0,
         ghostDelta: Engine.ghostEnabled && Engine.ghost ? (Engine.ghost.elapsed - saved.elapsed) : 0,
       };
@@ -543,6 +544,9 @@ const App = {
         if (ok) console.log('[App] Run synced to Strava');
         this._updateSyncPill();
       }).catch(() => {});
+      // Webhook + bridge notification (fire and forget)
+      Sync.notifyWebhook(saved).catch(() => {});
+      Sync.notifyBridge(saved).catch(() => {});
     }
   },
 
