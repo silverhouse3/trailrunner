@@ -157,14 +157,18 @@ var TM = {
     if (this.onStatus) this.onStatus('connecting', 'HTTP poll');
     var self = this;
     var needFirstSuccess = !this.connected;
+    var inFlight = false;
 
     this._pollTimer = setInterval(function() {
+      if (inFlight) return; // prevent overlapping fetches
+      inFlight = true;
       fetch(self._bridgeBase + '/state')
         .then(function(resp) {
           if (!resp.ok) throw new Error('HTTP ' + resp.status);
           return resp.json();
         })
         .then(function(msg) {
+          inFlight = false;
           self._handleMessage(msg);
           if (needFirstSuccess) {
             needFirstSuccess = false;
@@ -176,6 +180,7 @@ var TM = {
           }
         })
         .catch(function() {
+          inFlight = false;
           // Bridge not reachable — stop polling and try reconnect later
           if (self._pollTimer) {
             clearInterval(self._pollTimer);
@@ -334,6 +339,7 @@ var TM = {
   setSpeed: function(kmh, force) {
     if (!this.connected) return;
     var kph = +(+kmh).toFixed(1);
+    if (isNaN(kph)) return;
     if (!force) {
       if (Math.abs(kph - this._lastSpeed) < 0.15) return;
       var now = Date.now();
@@ -348,6 +354,7 @@ var TM = {
   /** Set ramp incline (%). Rate-limited unless force=true (safety returns). */
   setIncline: function(pct, force) {
     if (!this.connected) return;
+    if (isNaN(pct)) return;
     var clamped = Math.max(-6, Math.min(40, pct));
     var rounded = Math.round(clamped * 2) / 2;
     if (!force) {

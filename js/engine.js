@@ -854,9 +854,9 @@ const Engine = {
     this.ctrl.targetSpeed = this.run.speed;
     this.ctrl.targetIncline = this.run.incline;
 
-    // Send to treadmill
-    TM.setSpeed(this.run.speed);
-    TM.setIncline(this.run.incline);
+    // Send to treadmill (force = bypass rate limiter during cool-down)
+    TM.setSpeed(this.run.speed, true);
+    TM.setIncline(this.run.incline, true);
 
     // Cool-down complete
     if (progress >= 1) {

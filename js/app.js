@@ -587,6 +587,8 @@ const App = {
   // ════════════════════════════════════════════════════════════════════════════
 
   emergencyStop() {
+    // Cancel any graceful ramp-down first — prevents it from fighting the stop
+    if (Engine._decelTimer) { clearInterval(Engine._decelTimer); Engine._decelTimer = null; }
     TM.emergencyStop();
     if (Engine.run && Engine.run.status === 'running') {
       Engine.pauseRun();
