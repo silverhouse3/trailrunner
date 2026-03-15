@@ -1220,6 +1220,7 @@ func publishHADiscovery() {
 		{"Distance", "distance", "km", "mdi:map-marker-distance", "{{ value_json.distance }}", "distance"},
 		{"Calories", "calories", "kcal", "mdi:fire", "{{ value_json.calories }}", ""},
 		{"Duration", "duration", "s", "mdi:timer", "{{ value_json.elapsed }}", "duration"},
+		{"Elevation Gain", "elevation_gain", "m", "mdi:elevation-rise", "{{ value_json.elevation }}", "distance"},
 	}
 
 	for _, s := range sensors {
@@ -1331,6 +1332,31 @@ func publishHADiscovery() {
 	mqttClient.Publish("homeassistant/binary_sensor/trailrunner/available/config", 1, true, d)
 	mqttClient.Publish(mqttTopicPrefix+"/available", 1, true, "online")
 
+	// Binary sensor — gRPC connection to treadmill motor controller
+	grpcPayload := map[string]interface{}{
+		"name":            "gRPC Connected",
+		"unique_id":       "trailrunner_grpc_connected",
+		"state_topic":     mqttTopicPrefix + "/state",
+		"value_template":  "{{ 'ON' if value_json.grpc else 'OFF' }}",
+		"device_class":    "connectivity",
+		"icon":            "mdi:lan-connect",
+		"device":          json.RawMessage(dev),
+	}
+	d, _ = json.Marshal(grpcPayload)
+	mqttClient.Publish("homeassistant/binary_sensor/trailrunner/grpc_connected/config", 1, true, d)
+
+	// Sensor — console state (IDLE, ACTIVE, etc.)
+	consoleStatePayload := map[string]interface{}{
+		"name":            "Console State",
+		"unique_id":       "trailrunner_console_state",
+		"state_topic":     mqttTopicPrefix + "/state",
+		"value_template":  "{{ value_json.console_state | default('UNKNOWN') }}",
+		"icon":            "mdi:monitor",
+		"device":          json.RawMessage(dev),
+	}
+	d, _ = json.Marshal(consoleStatePayload)
+	mqttClient.Publish("homeassistant/sensor/trailrunner/console_state/config", 1, true, d)
+
 	log.Println("[MQTT] Home Assistant auto-discovery published")
 }
 
@@ -1419,9 +1445,11 @@ func publishMQTTState() {
 		"calories":      currentCals,
 		"elapsed":       currentElapsed,
 		"elevation":     currentElevGain,
-		"workout_state": workoutState,
-		"workout_id":    workoutID,
-		"grpc":          grpcConnected,
+		"workout_state":      workoutState,
+		"workout_id":         workoutID,
+		"grpc":               grpcConnected,
+		"console_state":      consoleState,
+		"safety_key_removed": safetyKeyOut,
 	}
 	mu.RUnlock()
 	d, _ := json.Marshal(payload)

@@ -191,6 +191,11 @@ const Sync = {
 
   /** Internal upload — does NOT queue on failure (used by _processQueue to avoid loops) */
   async _doUpload(run) {
+    // Validate minimum run data exists before attempting upload
+    if (!run.elapsed || run.elapsed < 10) {
+      console.warn('[Sync] Skipping upload — run too short:', run.elapsed, 's');
+      return false;
+    }
     try {
       // Generate TCX (Strava prefers TCX for treadmill activities with HR data)
       const tcx = GPX.exportTCX({

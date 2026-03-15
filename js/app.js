@@ -33,24 +33,42 @@ const App = {
     FTMS.onData = (data) => Engine.onFTMSData(data);
     FTMS.onStatus = (state, name) => UI.updateConnectionPill('tm', state, name);
 
+    // ── Cache DOM refs and settings for hot-path performance ────────────
+    this._elBigSpeed = null;
+    this._elBigInc = null;
+    this._elBigSpeedUnit = null;
+    this._cachedSettings = null;
+    this._settingsCacheTime = 0;
+    this._lastMapPanTime = 0;
+
     // ── Wire engine callbacks ────────────────────────────────────────────
     Engine.onTick = () => {
       UI.update();
       UI.drawElevation();
       // Keep big displays in sync with actual run values (in user's chosen unit)
-      const bs = document.getElementById('bigSpeedVal');
-      const bi = document.getElementById('bigIncVal');
-      const bsu = document.getElementById('bigSpeedUnit');
-      if (bs && Engine.run) {
-        var _s = Store.getSettings();
-        var _unit = _s.speedButtonUnit || 'kph';
-        var _disp = SpeedUnits.fromKph(Engine.run.speed, _unit);
-        bs.textContent = SpeedUnits.format(_disp, _unit);
-        if (bsu) bsu.textContent = _unit;
+      // Cache element refs — avoids getElementById 4x per second
+      if (!this._elBigSpeed) this._elBigSpeed = document.getElementById('bigSpeedVal');
+      if (!this._elBigInc) this._elBigInc = document.getElementById('bigIncVal');
+      if (!this._elBigSpeedUnit) this._elBigSpeedUnit = document.getElementById('bigSpeedUnit');
+      // Cache settings (refresh every 5s, not every 250ms tick)
+      var now = Date.now();
+      if (!this._cachedSettings || now - this._settingsCacheTime > 5000) {
+        this._cachedSettings = Store.getSettings();
+        this._settingsCacheTime = now;
       }
-      if (bi && Engine.run) bi.textContent = Engine.run.incline.toFixed(1);
+      if (this._elBigSpeed && Engine.run) {
+        var _unit = this._cachedSettings.speedButtonUnit || 'kph';
+        var _disp = SpeedUnits.fromKph(Engine.run.speed, _unit);
+        this._elBigSpeed.textContent = SpeedUnits.format(_disp, _unit);
+        if (this._elBigSpeedUnit) this._elBigSpeedUnit.textContent = _unit;
+      }
+      if (this._elBigInc && Engine.run) this._elBigInc.textContent = Engine.run.incline.toFixed(1);
       if (Engine.hasRoute()) {
-        MapView.updateRunner(Engine.getCurrentLatLon());
+        // Throttle map pan to every 500ms (halves Leaflet repaints vs every tick)
+        if (now - this._lastMapPanTime >= 500) {
+          this._lastMapPanTime = now;
+          MapView.updateRunner(Engine.getCurrentLatLon());
+        }
         MapView.updateGhost(Engine.getGhostLatLon(), Engine.ghostEnabled);
         // Update Street View if active
         if (this._streetViewReady && document.getElementById('streetViewPanel').style.display !== 'none') {
@@ -85,12 +103,11 @@ const App = {
 
       // ── Feed MilestoneTracker ────────────────────────────────────────
       if (Engine.run && Engine.run.status === 'running') {
-        var mSettings = Store.getSettings();
         MilestoneTracker.tick(
           Engine.run.speed || 0,
           Engine.run.incline || 0,
           Engine.run.hr || 0,
-          mSettings.maxHR || 185,
+          this._cachedSettings.maxHR || 185,
           Engine.run.elapsed || 0,
           (Engine.run.distanceM || 0) / 1000
         );
@@ -101,8 +118,7 @@ const App = {
         var dt = 0.25; // Engine ticks at 250ms
         var speedMs = (Engine.run.speed || 0) / 3.6;
         var distDelta = speedMs * dt;
-        var settings = Store.getSettings();
-        WorkoutSegments.tick(distDelta, dt, Engine.run.hr || 0, settings.maxHR || 185);
+        WorkoutSegments.tick(distDelta, dt, Engine.run.hr || 0, this._cachedSettings.maxHR || 185);
 
         // Feed OvalTrack with workout progress
         if (OvalTrack.active) {
@@ -112,7 +128,7 @@ const App = {
             OvalTrack.setTotalDistance(progress.covered, progress.total, progress.unit);
           }
           OvalTrack.setSpeedKph(Engine.run.speed || 0);
-          OvalTrack.setHR(Engine.run.hr || 0, settings.maxHR || 185);
+          OvalTrack.setHR(Engine.run.hr || 0, this._cachedSettings.maxHR || 185);
 
           // Segment info
           var seg = WorkoutSegments.getCurrentSegment();
@@ -140,8 +156,8 @@ const App = {
           }
 
           // HR zone colour for consumed trail
-          if (Engine.run.hr > 0 && settings.maxHR > 0) {
-            var hrPct = Engine.run.hr / settings.maxHR;
+          if (Engine.run.hr > 0 && this._cachedSettings.maxHR > 0) {
+            var hrPct = Engine.run.hr / this._cachedSettings.maxHR;
             var zoneCol = hrPct < 0.6 ? '#6b7280' : hrPct < 0.7 ? '#22c55e' : hrPct < 0.8 ? '#fbbf24' : hrPct < 0.9 ? '#f97316' : '#ef4444';
             OvalTrack.setHRZoneColour(zoneCol);
           }
@@ -150,7 +166,6 @@ const App = {
 
       // ── Feed OvalTrack without WorkoutSegments (route or free run) ──
       if (!WorkoutSegments.active && OvalTrack.active && Engine.run && Engine.run.status === 'running') {
-        var oSettings = Store.getSettings();
         var distKm = (Engine.run.distanceM || 0) / 1000;
         if (Engine.hasRoute()) {
           // Route-based progress
@@ -164,7 +179,7 @@ const App = {
           OvalTrack.setTotalDistance(distKm, distKm, 'km');
         }
         OvalTrack.setSpeedKph(Engine.run.speed || 0);
-        OvalTrack.setHR(Engine.run.hr || 0, oSettings.maxHR || 185);
+        OvalTrack.setHR(Engine.run.hr || 0, this._cachedSettings.maxHR || 185);
 
         // Ghost on oval track
         if (Engine.ghostEnabled && Engine.ghost && Engine.hasRoute()) {
