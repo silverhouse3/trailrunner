@@ -2,6 +2,11 @@
 // UI — DOM updates, panels, modals, unit formatting, elevation canvas
 // ════════════════════════════════════════════════════════════════════════════
 
+function _esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 const UI = {
 
   // ── Unit state ─────────────────────────────────────────────────────────────
@@ -358,7 +363,7 @@ const UI = {
       const bestStr = r.bestTime ? Engine.fmtTime(r.bestTime) : '—';
       return '<div class="route-card' + (isActive ? ' active' : '') + '" data-id="' + r.id + '" onclick="App.selectRoute(\'' + r.id + '\')">' +
         '<div class="rc-top">' +
-          '<div class="rc-name">' + r.name + '</div>' +
+          '<div class="rc-name">' + _esc(r.name) + '</div>' +
           (r.favourite ? '<span class="rc-fav">⭐</span>' : '') +
           '<button class="rc-del" onclick="event.stopPropagation();App.deleteRoute(\'' + r.id + '\')" title="Delete route">✕</button>' +
         '</div>' +
@@ -520,7 +525,7 @@ const UI = {
       const date = r.startedAt ? new Date(r.startedAt).toLocaleDateString() : '—';
       return '<div class="history-row" onclick="App.loadGhost(\'' + r.id + '\')">' +
         '<div class="hr-date">' + date + '</div>' +
-        '<div class="hr-name">' + (r.routeName || 'Free Run') + '</div>' +
+        '<div class="hr-name">' + _esc(r.routeName || 'Free Run') + '</div>' +
         '<div class="hr-time">' + Engine.fmtTime(r.elapsed) + '</div>' +
         '<div class="hr-dist">' + (r.distanceKm || 0).toFixed(1) + ' km</div>' +
         '<div class="hr-btn">👻 RACE</div>' +

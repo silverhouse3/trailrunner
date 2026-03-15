@@ -131,7 +131,7 @@ const WorkoutBuilder = {
       <div class="wb-card" onclick="WorkoutBuilder._startWorkout('${w.id}')">
         <div class="wb-card-top">
           <span class="wb-card-icon">${icon}</span>
-          <span class="wb-card-name">${w.name}</span>
+          <span class="wb-card-name">${(typeof _esc==='function'?_esc(w.name):w.name)}</span>
           <span class="wb-card-dist">${totalDist}</span>
         </div>
         <div class="wb-card-bottom">
@@ -238,7 +238,7 @@ const WorkoutBuilder = {
       <div class="wb-form">
         <div class="wb-form-row">
           <label class="wb-label">Name</label>
-          <input class="wb-input" type="text" id="wbName" value="${w.name || ''}" placeholder="My Workout">
+          <input class="wb-input" type="text" id="wbName" value="${(typeof _esc==='function'?_esc(w.name||''):w.name||'')}" placeholder="My Workout">
         </div>
 
         <div class="wb-form-row" style="display:flex;gap:12px">
@@ -574,6 +574,54 @@ const WorkoutBuilder = {
         warmUp: { enabled: true, duration: 180, speed: 4.8, incline: 0, rampUp: true },
         coolDown: { enabled: true, duration: 180, speed: 4.8, incline: 0, mandatory: true },
         tags: ['hr', 'fat-burn'], created: Date.now(), timesCompleted: 0,
+      },
+      {
+        id: 'wk_default_5', name: 'X32i Mountain', type: 'programmed',
+        speedUnit: 'mph', distanceUnit: 'mi',
+        segments: [
+          { distance: 0.3, speed: 4.5, incline: 5, label: 'Foothills' },
+          { distance: 0.2, speed: 4, incline: 15, label: 'Ascent' },
+          { distance: 0.15, speed: 3.5, incline: 25, label: 'Summit Push' },
+          { distance: 0.1, speed: 3, incline: 35, label: 'Peak' },
+          { distance: 0.15, speed: 5, incline: -3, label: 'Descent' },
+          { distance: 0.2, speed: 5.5, incline: -6, label: 'Downhill Run' },
+          { distance: 0.3, speed: 5, incline: 0, label: 'Valley' },
+        ],
+        warmUp: { enabled: true, duration: 180, speed: 4, incline: 0, rampUp: true },
+        coolDown: { enabled: true, duration: 180, speed: 3.5, incline: 0, mandatory: true },
+        tags: ['hills', 'extreme', 'x32i'], created: Date.now(), timesCompleted: 0,
+      },
+      {
+        id: 'wk_default_6', name: 'Couch to 5K W1', type: 'interval-time',
+        speedUnit: 'mph', rounds: 8,
+        intervals: [
+          { label: 'Run', duration: 60, speed: 5, incline: 0 },
+          { label: 'Walk', duration: 90, speed: 3.5, incline: 0 },
+        ],
+        warmUp: { enabled: true, duration: 300, speed: 3.5, incline: 0, rampUp: false },
+        coolDown: { enabled: true, duration: 300, speed: 3.5, incline: 0, mandatory: false },
+        tags: ['beginner', 'c25k'], created: Date.now(), timesCompleted: 0,
+      },
+      {
+        id: 'wk_default_7', name: 'Tabata Sprints', type: 'interval-time',
+        speedUnit: 'mph', rounds: 8,
+        intervals: [
+          { label: 'MAX', duration: 20, speed: 10, incline: 1 },
+          { label: 'Rest', duration: 10, speed: 3.5, incline: 0 },
+        ],
+        warmUp: { enabled: true, duration: 300, speed: 5, incline: 0, rampUp: true },
+        coolDown: { enabled: true, duration: 300, speed: 4, incline: 0, mandatory: true },
+        tags: ['tabata', 'sprint', 'hard'], created: Date.now(), timesCompleted: 0,
+      },
+      {
+        id: 'wk_default_8', name: '12-3-30', type: 'programmed',
+        speedUnit: 'mph', distanceUnit: 'mi',
+        segments: [
+          { distance: 1.5, speed: 3, incline: 12, label: '12% Walk' },
+        ],
+        warmUp: { enabled: true, duration: 120, speed: 3, incline: 0, rampUp: false },
+        coolDown: { enabled: true, duration: 120, speed: 3, incline: 0, mandatory: false },
+        tags: ['12-3-30', 'walk', 'popular'], created: Date.now(), timesCompleted: 0,
       },
     ];
 
