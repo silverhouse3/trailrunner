@@ -45,8 +45,8 @@ public class LauncherActivity extends Activity {
     private static final String GLASSOS_PACKAGE = "com.ifit.glassos_service";
     private static final String GLASSOS_SERVICE = ".GlassOSPlatformService";
     private static final String GLASSOS_ACTION = "com.ifit.glassos_service.GLASSOS_PLATFORM";
-    private static final int MAX_BRIDGE_WAIT_MS = 15000;
-    private static final int BRIDGE_POLL_MS = 500;
+    private static final int MAX_BRIDGE_WAIT_MS = 30000;
+    private static final int BRIDGE_POLL_MS = 1000;
 
     private WebView webView;
     private Handler handler;
@@ -103,8 +103,8 @@ public class LauncherActivity extends Activity {
         updateStatus("Starting motor control service...");
         startGlassosService();
 
-        // Brief pause to let glassos initialize its gRPC server
-        sleep(2000);
+        // Wait for glassos to initialize its gRPC server (longer on cold boot)
+        sleep(5000);
 
         // Step 2: Start bridge binary if not already running
         Log.i(TAG, "Checking bridge...");

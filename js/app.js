@@ -328,8 +328,8 @@ const App = {
     // ── Update sync status indicator ─────────────────────────────────────
     this._updateSyncPill();
 
-    // ── Auto-connect to treadmill bridge on boot ──────────────────────────
-    this._autoConnectBridge();
+    // ── Auto-connect to treadmill bridge on boot (connect only, no workout start)
+    this._autoConnectBridge(false);
 
     console.log('[TrailRunner] Initialised (all modules)');
   },
@@ -357,8 +357,8 @@ const App = {
 
   startRun() {
     document.getElementById('setupOverlay').style.display = 'none';
-    // Auto-connect to treadmill bridge if not already connected
-    this._autoConnectBridge();
+    // Connect + start workout (user-initiated, safe to start belt)
+    this._autoConnectBridge(true);
     Engine.startRun();
     MilestoneTracker.reset();
     this._updateRunButton();
@@ -376,8 +376,8 @@ const App = {
     Engine.newRun();
     this.setControlMode('manual');
     document.getElementById('setupOverlay').style.display = 'none';
-    // Auto-connect to treadmill bridge if not already connected
-    this._autoConnectBridge();
+    // Connect + start workout (user-initiated, safe to start belt)
+    this._autoConnectBridge(true);
     const rname = document.getElementById('routeName');
     if (rname) rname.textContent = 'FREE RUN';
     // Don't start engine yet — let user set speed and tap START
@@ -392,15 +392,23 @@ const App = {
     setTimeout(() => this.toggleQS('speed'), 500);
   },
 
-  /** Auto-connect to bridge and start a workout so the belt can be controlled */
-  _autoConnectBridge() {
-    if (TM.connected) return;
-    // Save a callback so we start the workout once connected
+  /** Auto-connect to bridge. Only starts a workout if startWorkout=true
+   *  (i.e. user explicitly started a run). On page load we connect but
+   *  do NOT start the workout — prevents belt spinning on boot. */
+  _autoConnectBridge(startWorkout) {
+    if (TM.connected) {
+      // Already connected — just start workout if requested and needed
+      if (startWorkout && TM.workoutState === 'IDLE') {
+        console.log('[App] Starting workout (already connected)');
+        TM.startWorkout();
+      }
+      return;
+    }
+    // Save a callback so we optionally start the workout once connected
     var origOnConnect = TM.onConnect;
     TM.onConnect = function(port) {
       if (origOnConnect) origOnConnect(port);
-      // Auto-start a workout on the bridge (enables belt motor control)
-      if (TM.workoutState === 'IDLE') {
+      if (startWorkout && TM.workoutState === 'IDLE') {
         console.log('[App] Auto-starting workout on bridge');
         TM.startWorkout();
       }

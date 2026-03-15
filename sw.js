@@ -1,5 +1,5 @@
 // Service Worker — caches all static assets for offline use on the treadmill
-const CACHE = 'trailrunner-v30';
+const CACHE = 'trailrunner-v31';
 const ASSETS = [
   './',
   'index.html',
