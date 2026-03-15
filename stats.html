@@ -62,6 +62,31 @@ a:hover { text-decoration: underline; }
 .streak-dot.today { border-color: var(--cyan); }
 .streak-day-name { font-size: 9px; color: var(--dim); }
 
+/* Heatmap */
+.heatmap { margin-bottom: 32px; }
+.heatmap-grid { display: grid; grid-template-columns: 30px repeat(7, 1fr); gap: 3px; }
+.heatmap-cell { width: 100%; aspect-ratio: 1; border-radius: 3px; background: var(--bg3); border: 1px solid var(--border); }
+.heatmap-cell.l1 { background: rgba(0,230,118,.15); border-color: rgba(0,230,118,.2); }
+.heatmap-cell.l2 { background: rgba(0,230,118,.35); border-color: rgba(0,230,118,.4); }
+.heatmap-cell.l3 { background: rgba(0,230,118,.55); border-color: rgba(0,230,118,.6); }
+.heatmap-cell.l4 { background: rgba(0,230,118,.8); border-color: rgba(0,230,118,.9); }
+.heatmap-cell.future { opacity: .3; }
+.heatmap-week-label { font-size: 9px; color: var(--dim); display: flex; align-items: center; }
+.heatmap-day-header { font-size: 9px; color: var(--dim); text-align: center; }
+.heatmap-legend { display: flex; align-items: center; margin-top: 8px; font-size: 10px; color: var(--dim); }
+.heatmap-legend-cell { width: 14px; height: 14px; border-radius: 2px; margin: 0 2px; }
+
+/* Pace trend */
+.pace-chart { position: relative; height: 120px; margin-bottom: 32px; border-left: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.pace-dot { position: absolute; width: 8px; height: 8px; border-radius: 50%; background: var(--purple); transform: translate(-50%, -50%); }
+.pace-line { position: absolute; height: 2px; background: rgba(187,134,252,.3); transform-origin: left center; }
+.pace-label-y { position: absolute; left: -36px; font-size: 9px; color: var(--dim); font-family: 'JetBrains Mono', monospace; transform: translateY(-50%); }
+.pace-label-x { position: absolute; bottom: -16px; font-size: 8px; color: var(--dim); transform: translateX(-50%); }
+
+/* Synced badge */
+.synced { color: var(--green); font-size: 10px; }
+.not-synced { color: var(--dim); font-size: 10px; }
+
 /* Back link */
 .back-link { display: inline-block; margin-bottom: 16px; font-size: 14px; }
 </style>
@@ -89,10 +114,20 @@ a:hover { text-decoration: underline; }
 </div>
 
 <div class="chart-section">
+  <div class="chart-title">PACE TREND (min/km)</div>
+  <div class="pace-chart" id="paceChart"></div>
+</div>
+
+<div class="chart-section">
+  <div class="chart-title">ACTIVITY HEATMAP (12 WEEKS)</div>
+  <div class="heatmap" id="heatmap"></div>
+</div>
+
+<div class="chart-section">
   <div class="chart-title">RECENT RUNS</div>
   <table class="history-table" id="historyTable">
     <thead><tr>
-      <th>DATE</th><th>DISTANCE</th><th>TIME</th><th>AVG SPEED</th><th>AVG INCLINE</th><th>CALORIES</th>
+      <th>DATE</th><th>DISTANCE</th><th>TIME</th><th>AVG SPEED</th><th>TOP SPEED</th><th>AVG HR</th><th>CALORIES</th><th>SYNC</th>
     </tr></thead>
     <tbody id="historyBody"></tbody>
   </table>
@@ -102,7 +137,7 @@ a:hover { text-decoration: underline; }
 (function() {
   'use strict';
 
-  // Read runs from localStorage (same store as main PWA)
+  // Read runs from localStorage (IndexedDB may have more, but this is always available)
   function getRuns() {
     try {
       var raw = localStorage.getItem('tr_runs');
@@ -134,24 +169,30 @@ a:hover { text-decoration: underline; }
 
   // ── Summary cards ──
   var totalDist = 0, totalTime = 0, totalCals = 0, totalRuns = runs.length;
-  var maxSpeed = 0, maxIncline = 0;
+  var topSpeed = 0, maxIncline = 0, totalHR = 0, hrCount = 0, totalElevGain = 0;
   runs.forEach(function(r) {
     totalDist += r.distanceKm || 0;
     totalTime += r.elapsedSec || r.elapsed || 0;
     totalCals += r.calories || 0;
-    if (r.avgSpeed > maxSpeed) maxSpeed = r.avgSpeed;
+    var spd = r.maxSpeed || r.avgSpeed || 0;
+    if (spd > topSpeed) topSpeed = spd;
     if (r.maxIncline > maxIncline) maxIncline = r.maxIncline;
+    if (r.avgHR > 0) { totalHR += r.avgHR; hrCount++; }
+    totalElevGain += r.elevGained || r.elevGain || 0;
   });
 
   var avgPace = totalDist > 0 ? totalTime / 60 / totalDist : 0; // min/km
+  var avgHR = hrCount > 0 ? Math.round(totalHR / hrCount) : 0;
 
   var cards = [
     { value: totalRuns, label: 'TOTAL RUNS', cls: 'cyan' },
     { value: fmt(totalDist, 1), label: 'TOTAL DISTANCE', sub: 'km', cls: 'green' },
     { value: fmtTime(totalTime), label: 'TOTAL TIME', cls: 'orange' },
     { value: fmt(totalCals), label: 'TOTAL CALORIES', sub: 'kcal', cls: 'red' },
+    { value: fmt(topSpeed, 1), label: 'TOP SPEED', sub: 'kph', cls: 'cyan' },
     { value: fmt(avgPace, 1), label: 'AVG PACE', sub: 'min/km', cls: 'purple' },
-    { value: fmt(totalDist > 0 ? totalDist / Math.max(totalRuns, 1) : 0, 1), label: 'AVG DISTANCE', sub: 'km/run', cls: 'cyan' },
+    { value: avgHR > 0 ? avgHR : '—', label: 'AVG HEART RATE', sub: avgHR > 0 ? 'bpm' : '', cls: 'red' },
+    { value: fmt(totalElevGain), label: 'TOTAL ELEVATION', sub: 'm gained', cls: 'green' },
   ];
 
   var grid = document.getElementById('summaryCards');
@@ -177,7 +218,18 @@ a:hover { text-decoration: underline; }
   // ── Personal records ──
   var prs = [];
   if (runs.length > 0) {
-    // Fastest speed
+    // Top speed (max speed from any run)
+    var fastestPeak = runs.reduce(function(best, r) {
+      var s = r.maxSpeed || r.avgSpeed || 0;
+      var bs = best.maxSpeed || best.avgSpeed || 0;
+      return s > bs ? r : best;
+    }, runs[0]);
+    var peakSpd = fastestPeak.maxSpeed || fastestPeak.avgSpeed || 0;
+    if (peakSpd > 0) {
+      prs.push({ label: 'TOP SPEED', value: fmt(peakSpd, 1) + ' kph', date: fmtDate(fastestPeak.savedAt) });
+    }
+
+    // Fastest avg speed
     var fastest = runs.reduce(function(best, r) {
       return (r.avgSpeed || 0) > (best.avgSpeed || 0) ? r : best;
     }, runs[0]);
@@ -203,12 +255,31 @@ a:hover { text-decoration: underline; }
     }, runs[0]);
     prs.push({ label: 'MOST CALORIES', value: fmt(mostCals.calories) + ' kcal', date: fmtDate(mostCals.savedAt) });
 
+    // Highest avg HR
+    var highestHR = runs.reduce(function(best, r) {
+      return (r.avgHR || 0) > (best.avgHR || 0) ? r : best;
+    }, runs[0]);
+    if ((highestHR.avgHR || 0) > 0) {
+      prs.push({ label: 'HIGHEST AVG HR', value: fmt(highestHR.avgHR) + ' bpm', date: fmtDate(highestHR.savedAt) });
+    }
+
     // Steepest incline
     var steepest = runs.reduce(function(best, r) {
       return (r.maxIncline || 0) > (best.maxIncline || 0) ? r : best;
     }, runs[0]);
     if (steepest.maxIncline > 0) {
       prs.push({ label: 'STEEPEST INCLINE', value: fmt(steepest.maxIncline, 1) + '%', date: fmtDate(steepest.savedAt) });
+    }
+
+    // Most elevation gain
+    var mostElev = runs.reduce(function(best, r) {
+      var e = r.elevGained || r.elevGain || 0;
+      var be = best.elevGained || best.elevGain || 0;
+      return e > be ? r : best;
+    }, runs[0]);
+    var elevVal = mostElev.elevGained || mostElev.elevGain || 0;
+    if (elevVal > 0) {
+      prs.push({ label: 'MOST ELEVATION', value: fmt(elevVal) + ' m', date: fmtDate(mostElev.savedAt) });
     }
   }
 
@@ -275,21 +346,127 @@ a:hover { text-decoration: underline; }
       '<div class="streak-day-name">' + dayNames[i] + '</div></div>';
   }
 
+  // ── Pace trend chart ──
+  var paceEl = document.getElementById('paceChart');
+  var paceRuns = runs.filter(function(r) {
+    return (r.distanceKm || 0) > 0.5 && (r.elapsedSec || r.elapsed || 0) > 60;
+  }).slice(0, 20).reverse(); // oldest first, max 20
+
+  if (paceRuns.length >= 2) {
+    var paces = paceRuns.map(function(r) {
+      var t = r.elapsedSec || r.elapsed || 0;
+      return t / 60 / r.distanceKm; // min/km
+    });
+    var minPace = Math.min.apply(null, paces);
+    var maxPace = Math.max.apply(null, paces);
+    var range = maxPace - minPace;
+    if (range < 0.5) { minPace -= 0.25; maxPace += 0.25; range = maxPace - minPace; }
+    var padTop = 10, padBot = 20, padLeft = 40;
+    var chartH = 120;
+
+    // Y-axis labels (lower pace = faster = higher on chart)
+    for (var yi = 0; yi <= 4; yi++) {
+      var paceVal = maxPace - (range * yi / 4);
+      var yPos = padTop + ((chartH - padTop - padBot) * (1 - yi / 4));
+      paceEl.innerHTML += '<span class="pace-label-y" style="top:' + yPos + 'px">' + paceVal.toFixed(1) + '</span>';
+    }
+
+    // Plot dots and lines
+    for (var pi = 0; pi < paces.length; pi++) {
+      var x = padLeft + ((pi / (paces.length - 1)) * (100 - padLeft - 5));
+      var yPct = (maxPace - paces[pi]) / range; // 0=slowest (bottom), 1=fastest (top)
+      var y = padTop + ((chartH - padTop - padBot) * (1 - yPct));
+
+      paceEl.innerHTML += '<div class="pace-dot" style="left:' + x + '%;top:' + y + 'px" title="' +
+        paces[pi].toFixed(1) + ' min/km"></div>';
+
+      // Date label (every 5th point or first/last)
+      if (pi === 0 || pi === paces.length - 1 || pi % 5 === 0) {
+        paceEl.innerHTML += '<span class="pace-label-x" style="left:' + x + '%">' +
+          fmtShortDate(paceRuns[pi].savedAt || paceRuns[pi].date) + '</span>';
+      }
+    }
+  } else {
+    paceEl.innerHTML = '<div style="color:var(--dim);text-align:center;padding:40px">Need 2+ runs to show pace trend</div>';
+    paceEl.style.height = 'auto';
+    paceEl.style.border = 'none';
+  }
+
+  // ── Activity heatmap (12 weeks) ──
+  var heatmapEl = document.getElementById('heatmap');
+  var now = new Date();
+  // Find the Monday 12 weeks ago
+  var hmDay = now.getDay();
+  var hmMondayOffset = hmDay === 0 ? -6 : 1 - hmDay;
+  var thisMonday = new Date(now);
+  thisMonday.setDate(now.getDate() + hmMondayOffset);
+  thisMonday.setHours(0, 0, 0, 0);
+  var startMonday = new Date(thisMonday);
+  startMonday.setDate(thisMonday.getDate() - 11 * 7); // 12 weeks back
+
+  // Build run counts per day
+  var runCountByDay = {};
+  runs.forEach(function(r) {
+    var d = new Date(r.savedAt || r.date);
+    var key = d.toISOString().slice(0, 10);
+    runCountByDay[key] = (runCountByDay[key] || 0) + 1;
+  });
+
+  var hmHtml = '<div class="heatmap-grid">';
+  // Day headers
+  hmHtml += '<div></div>';
+  var hmDayNames = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+  for (var di = 0; di < 7; di++) {
+    hmHtml += '<div class="heatmap-day-header">' + hmDayNames[di] + '</div>';
+  }
+
+  // Weeks
+  var todayStr = now.toISOString().slice(0, 10);
+  for (var wi = 0; wi < 12; wi++) {
+    var weekStart = new Date(startMonday);
+    weekStart.setDate(startMonday.getDate() + wi * 7);
+    hmHtml += '<div class="heatmap-week-label">' + fmtShortDate(weekStart.toISOString()) + '</div>';
+
+    for (var di = 0; di < 7; di++) {
+      var cellDate = new Date(weekStart);
+      cellDate.setDate(weekStart.getDate() + di);
+      var cellKey = cellDate.toISOString().slice(0, 10);
+      var count = runCountByDay[cellKey] || 0;
+      var lvl = count === 0 ? '' : count === 1 ? ' l1' : count === 2 ? ' l2' : count === 3 ? ' l3' : ' l4';
+      var isFuture = cellKey > todayStr ? ' future' : '';
+      hmHtml += '<div class="heatmap-cell' + lvl + isFuture + '" title="' + cellKey + ': ' + count + ' run' + (count !== 1 ? 's' : '') + '"></div>';
+    }
+  }
+  hmHtml += '</div>';
+  hmHtml += '<div class="heatmap-legend">Less ';
+  hmHtml += '<div class="heatmap-legend-cell" style="background:var(--bg3);border:1px solid var(--border)"></div>';
+  hmHtml += '<div class="heatmap-legend-cell" style="background:rgba(0,230,118,.15)"></div>';
+  hmHtml += '<div class="heatmap-legend-cell" style="background:rgba(0,230,118,.35)"></div>';
+  hmHtml += '<div class="heatmap-legend-cell" style="background:rgba(0,230,118,.55)"></div>';
+  hmHtml += '<div class="heatmap-legend-cell" style="background:rgba(0,230,118,.8)"></div>';
+  hmHtml += ' More</div>';
+  heatmapEl.innerHTML = hmHtml;
+
   // ── History table ──
   var tbody = document.getElementById('historyBody');
-  runs.slice(0, 20).forEach(function(r) {
+  runs.slice(0, 30).forEach(function(r) {
     var elapsed = r.elapsedSec || r.elapsed || 0;
+    var ms = r.maxSpeed || 0;
+    var hr = r.avgHR || 0;
+    var synced = r.synced && r.synced.strava;
     tbody.innerHTML += '<tr>' +
       '<td>' + fmtDate(r.savedAt || r.date) + '</td>' +
       '<td>' + fmt(r.distanceKm, 2) + ' km</td>' +
       '<td>' + fmtTime(elapsed) + '</td>' +
-      '<td>' + fmt(r.avgSpeed, 1) + ' kph</td>' +
-      '<td>' + fmt(r.avgIncline, 1) + '%</td>' +
-      '<td>' + fmt(r.calories) + '</td></tr>';
+      '<td>' + fmt(r.avgSpeed, 1) + '</td>' +
+      '<td>' + (ms > 0 ? fmt(ms, 1) : '—') + '</td>' +
+      '<td>' + (hr > 0 ? fmt(hr) : '—') + '</td>' +
+      '<td>' + fmt(r.calories) + '</td>' +
+      '<td>' + (synced ? '<span class="synced">Strava</span>' : '<span class="not-synced">—</span>') + '</td></tr>';
   });
 
   if (runs.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--dim);padding:32px">No runs recorded yet. Complete a workout to see your stats here.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--dim);padding:32px">No runs recorded yet. Complete a workout to see your stats here.</td></tr>';
   }
 })();
 </script>

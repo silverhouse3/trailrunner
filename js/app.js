@@ -9,6 +9,9 @@ const App = {
   // ════════════════════════════════════════════════════════════════════════════
 
   init() {
+    // Init IndexedDB for run storage (async migration from localStorage)
+    if (typeof IDBStore !== 'undefined') IDBStore.init();
+
     UI.init();
 
     // ── Wire treadmill callbacks ─────────────────────────────────────────

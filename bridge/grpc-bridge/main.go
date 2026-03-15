@@ -392,6 +392,7 @@ func startHTTPServer() {
 	mux.HandleFunc("/incline", cors(handleIncline))
 	mux.HandleFunc("/command", cors(handleCommand))
 	mux.HandleFunc("/api/state", cors(handleAPIState))
+	mux.HandleFunc("/api/workout/summary", cors(handleWorkoutSummary))
 	mux.HandleFunc("/ws", handleWS)
 
 	log.Printf("[HTTP] Listening on %s", listenAddr)
@@ -521,6 +522,14 @@ func handleSpeed(w http.ResponseWriter, r *http.Request) {
 	if kph == 0 && req.MPH > 0 {
 		kph = req.MPH * 1.60934
 	}
+	// Safety: only allow speed changes when workout is running (or setting to 0)
+	mu.RLock()
+	state := workoutState
+	mu.RUnlock()
+	if kph > 0 && state != "RUNNING" {
+		j(w, map[string]interface{}{"ok": false, "error": "workout not running", "state": state})
+		return
+	}
 	_, err := speedClient.SetSpeed(grpcCtx(), &pb.SpeedRequest{Kph: clamp(kph, 0, 22)})
 	if err != nil {
 		j(w, map[string]interface{}{"ok": false, "error": err.Error()})
@@ -539,6 +548,14 @@ func handleIncline(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		j(w, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+	// Safety: only allow incline changes when workout is running (or resetting to 0)
+	mu.RLock()
+	state := workoutState
+	mu.RUnlock()
+	if req.Percent != 0 && state != "RUNNING" {
+		j(w, map[string]interface{}{"ok": false, "error": "workout not running", "state": state})
 		return
 	}
 	_, err := inclineClient.SetIncline(grpcCtx(), &pb.InclineRequest{Percent: clamp(req.Percent, -6, 40)})
@@ -569,6 +586,27 @@ func handleAPIState(w http.ResponseWriter, r *http.Request) {
 		"version":       "3.1",
 		"uptime_sec":    int(time.Since(startTime).Seconds()),
 	})
+}
+
+func handleWorkoutSummary(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	body, _ := io.ReadAll(r.Body)
+	var summary map[string]interface{}
+	if err := json.Unmarshal(body, &summary); err != nil {
+		j(w, map[string]interface{}{"ok": false, "error": "invalid JSON"})
+		return
+	}
+	log.Printf("[SUMMARY] Workout complete: %v", summary)
+
+	// Publish to MQTT so HA can trigger automations
+	if mqttReady && mqttClient != nil {
+		mqttClient.Publish(mqttTopicPrefix+"/workout/summary", 1, false, body)
+		log.Println("[SUMMARY] Published to MQTT")
+	}
+	j(w, map[string]interface{}{"ok": true})
 }
 
 func handleCommand(w http.ResponseWriter, r *http.Request) {
@@ -667,15 +705,36 @@ func processMessage(data []byte) {
 		if !ok {
 			return
 		}
+		// Safety: check workout state before allowing motor commands
+		mu.RLock()
+		wsState := workoutState
+		mu.RUnlock()
 		if mph, ok := vals["MPH"].(float64); ok {
-			go func() { speedClient.SetSpeed(grpcCtx(), &pb.SpeedRequest{Kph: clamp(mph*1.60934, 0, 22)}) }()
+			kph := mph * 1.60934
+			if kph > 0 && wsState != "RUNNING" {
+				log.Printf("[WS] Blocked speed %.1f kph — workout is %s", kph, wsState)
+			} else {
+				go func() { speedClient.SetSpeed(grpcCtx(), &pb.SpeedRequest{Kph: clamp(kph, 0, 22)}) }()
+			}
 		} else if kph, ok := vals["KPH"].(float64); ok {
-			go func() { speedClient.SetSpeed(grpcCtx(), &pb.SpeedRequest{Kph: clamp(kph, 0, 22)}) }()
+			if kph > 0 && wsState != "RUNNING" {
+				log.Printf("[WS] Blocked speed %.1f kph — workout is %s", kph, wsState)
+			} else {
+				go func() { speedClient.SetSpeed(grpcCtx(), &pb.SpeedRequest{Kph: clamp(kph, 0, 22)}) }()
+			}
 		}
 		if inc, ok := vals["Incline"].(float64); ok {
-			go func() { inclineClient.SetIncline(grpcCtx(), &pb.InclineRequest{Percent: clamp(inc, -6, 40)}) }()
+			if inc != 0 && wsState != "RUNNING" {
+				log.Printf("[WS] Blocked incline %.1f%% — workout is %s", inc, wsState)
+			} else {
+				go func() { inclineClient.SetIncline(grpcCtx(), &pb.InclineRequest{Percent: clamp(inc, -6, 40)}) }()
+			}
 		} else if gr, ok := vals["Grade"].(float64); ok {
-			go func() { inclineClient.SetIncline(grpcCtx(), &pb.InclineRequest{Percent: clamp(gr, -6, 40)}) }()
+			if gr != 0 && wsState != "RUNNING" {
+				log.Printf("[WS] Blocked incline %.1f%% — workout is %s", gr, wsState)
+			} else {
+				go func() { inclineClient.SetIncline(grpcCtx(), &pb.InclineRequest{Percent: clamp(gr, -6, 40)}) }()
+			}
 		}
 
 	case "workout":
@@ -1034,11 +1093,25 @@ func subscribeCommands() {
 		switch {
 		case strings.HasSuffix(topic, "/speed"):
 			if kph, err := strconv.ParseFloat(payload, 64); err == nil {
-				speedClient.SetSpeed(grpcCtx(), &pb.SpeedRequest{Kph: clamp(kph, 0, 22)})
+				mu.RLock()
+				mqState := workoutState
+				mu.RUnlock()
+				if kph > 0 && mqState != "RUNNING" {
+					log.Printf("[MQTT] Blocked speed %.1f kph — workout is %s", kph, mqState)
+				} else {
+					speedClient.SetSpeed(grpcCtx(), &pb.SpeedRequest{Kph: clamp(kph, 0, 22)})
+				}
 			}
 		case strings.HasSuffix(topic, "/incline"):
 			if pct, err := strconv.ParseFloat(payload, 64); err == nil {
-				inclineClient.SetIncline(grpcCtx(), &pb.InclineRequest{Percent: clamp(pct, -6, 40)})
+				mu.RLock()
+				mqState := workoutState
+				mu.RUnlock()
+				if pct != 0 && mqState != "RUNNING" {
+					log.Printf("[MQTT] Blocked incline %.1f%% — workout is %s", pct, mqState)
+				} else {
+					inclineClient.SetIncline(grpcCtx(), &pb.InclineRequest{Percent: clamp(pct, -6, 40)})
+				}
 			}
 		case strings.HasSuffix(topic, "/workout"):
 			switch payload {

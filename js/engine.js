@@ -231,6 +231,11 @@ const Engine = {
 
     const saved = Store.saveRun(summary);
 
+    // Also save to IndexedDB (unlimited storage, async)
+    if (typeof IDBStore !== 'undefined' && IDBStore._ready) {
+      IDBStore.saveRun(summary);
+    }
+
     // Update route stats
     if (r.routeId) {
       const updates = {
