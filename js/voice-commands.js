@@ -14,6 +14,10 @@
 //   "flat"                   → Incline 0%
 //   "hill"                   → Incline +2%
 //   "status"                 → Speak current stats
+//   "last run"               → Speak last run summary
+//   "streak" / "my streak"   → Speak current streak
+//   "total distance"         → Speak total distance
+//   "motivation"             → Speak next badge progress
 //   "emergency" / "help"     → Emergency stop
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -225,6 +229,24 @@ window.VoiceCommands = (function() {
       return;
     }
 
+    // ── History queries ──
+    if (matches(text, ['last run', 'previous run', 'how did my last run go', 'last workout'])) {
+      speakLastRun();
+      return;
+    }
+    if (matches(text, ['streak', 'my streak', 'what\'s my streak', 'current streak'])) {
+      speakStreak();
+      return;
+    }
+    if (matches(text, ['total distance', 'how far', 'total', 'distance total'])) {
+      speakTotal();
+      return;
+    }
+    if (matches(text, ['motivation', 'motivate me', 'encourage', 'badges'])) {
+      speakMotivation();
+      return;
+    }
+
     console.log('[Voice] Unrecognized: "' + text + '"');
   }
 
@@ -305,6 +327,50 @@ window.VoiceCommands = (function() {
     toast._timer = setTimeout(function() {
       toast.style.opacity = '0';
     }, 2500);
+  }
+
+  function speak(msg) {
+    if ('speechSynthesis' in window) {
+      var u = new SpeechSynthesisUtterance(msg);
+      u.rate = 1.1;
+      u.pitch = 1.0;
+      window.speechSynthesis.speak(u);
+    }
+    showFeedback(msg, 'info');
+  }
+
+  function speakLastRun() {
+    if (typeof Store === 'undefined') return;
+    var runs = Store.getRuns();
+    if (!runs.length) {
+      speak('No runs recorded yet. Get out there!');
+      return;
+    }
+    var r = runs[0];
+    var dist = (r.distanceKm || 0).toFixed(1);
+    var elapsed = r.elapsedSec || r.elapsed || 0;
+    var mins = Math.floor(elapsed / 60);
+    var avgSpd = (r.avgSpeed || 0).toFixed(1);
+    var cals = Math.round(r.calories || 0);
+    speak('Last run: ' + dist + ' K M in ' + mins + ' minutes, average speed ' + avgSpd + ' K P H, ' + cals + ' calories burned');
+  }
+
+  function speakStreak() {
+    if (typeof Streaks === 'undefined') return;
+    var d = Streaks.getData();
+    speak('Current streak: ' + d.currentStreak + ' days. Longest ever: ' + d.longestStreak + ' days. Total workouts: ' + d.totalWorkouts);
+  }
+
+  function speakTotal() {
+    if (typeof Streaks === 'undefined') return;
+    var d = Streaks.getData();
+    speak('Total distance: ' + d.totalDistanceKm.toFixed(1) + ' K M across ' + d.totalWorkouts + ' workouts');
+  }
+
+  function speakMotivation() {
+    if (typeof Streaks === 'undefined') return;
+    var msg = Streaks.getMotivationMessage();
+    speak(msg);
   }
 
   function updateMicIcon(active) {
