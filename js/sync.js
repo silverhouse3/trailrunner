@@ -299,7 +299,11 @@ const Sync = {
       await new Promise(r => setTimeout(r, 1000));
     }
 
-    this._queue = remaining;
+    // Merge remaining with any runs queued during async processing
+    var current = this._queue;
+    var processedIds = queue.map(function(r) { return r.id; });
+    var newlyQueued = current.filter(function(r) { return processedIds.indexOf(r.id) === -1; });
+    this._queue = remaining.concat(newlyQueued);
     this._processingQueue = false;
     if (remaining.length) {
       console.log('[Sync] Queue still has', remaining.length, 'runs pending');

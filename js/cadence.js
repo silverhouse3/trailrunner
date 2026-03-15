@@ -32,6 +32,7 @@ window.Cadence = (function() {
   var noiseFloor = 0;
   var frameCount = 0;
   var onCadenceUpdate = null;
+  var _startGen = 0; // generation counter — prevents stale getUserMedia callbacks
 
   function start(callback) {
     if (active) return;
@@ -42,8 +43,14 @@ window.Cadence = (function() {
       return false;
     }
 
+    var myGen = ++_startGen;
     navigator.mediaDevices.getUserMedia({ audio: true, video: false })
       .then(function(s) {
+        // stop() was called while waiting for mic permission — clean up and bail
+        if (myGen !== _startGen) {
+          s.getTracks().forEach(function(t) { t.stop(); });
+          return;
+        }
         stream = s;
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         // Resume suspended AudioContext (Chrome requires user gesture)
@@ -79,6 +86,7 @@ window.Cadence = (function() {
   }
 
   function stop() {
+    _startGen++; // invalidate any pending getUserMedia callback
     active = false;
     if (stream) {
       stream.getTracks().forEach(function(t) { t.stop(); });

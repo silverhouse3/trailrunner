@@ -361,11 +361,12 @@ const UI = {
       const activeId = Store.getActiveRouteId();
       const isActive = r.id === activeId;
       const bestStr = r.bestTime ? Engine.fmtTime(r.bestTime) : '—';
-      return '<div class="route-card' + (isActive ? ' active' : '') + '" data-id="' + r.id + '" onclick="App.selectRoute(\'' + r.id + '\')">' +
+      const safeId = _esc(r.id);
+      return '<div class="route-card' + (isActive ? ' active' : '') + '" data-id="' + safeId + '" onclick="App.selectRoute(\'' + safeId + '\')">' +
         '<div class="rc-top">' +
           '<div class="rc-name">' + _esc(r.name) + '</div>' +
           (r.favourite ? '<span class="rc-fav">⭐</span>' : '') +
-          '<button class="rc-del" onclick="event.stopPropagation();App.deleteRoute(\'' + r.id + '\')" title="Delete route">✕</button>' +
+          '<button class="rc-del" onclick="event.stopPropagation();App.deleteRoute(\'' + safeId + '\')" title="Delete route">✕</button>' +
         '</div>' +
         '<div class="rc-stats">' +
           '<span>' + distStr + ' km</span>' +
@@ -523,7 +524,8 @@ const UI = {
 
     el.innerHTML = runs.slice(0, 20).map(r => {
       const date = r.startedAt ? new Date(r.startedAt).toLocaleDateString() : '—';
-      return '<div class="history-row" onclick="App.loadGhost(\'' + r.id + '\')">' +
+      const safeId = _esc(r.id);
+      return '<div class="history-row" onclick="App.loadGhost(\'' + safeId + '\')">' +
         '<div class="hr-date">' + date + '</div>' +
         '<div class="hr-name">' + _esc(r.routeName || 'Free Run') + '</div>' +
         '<div class="hr-time">' + Engine.fmtTime(r.elapsed) + '</div>' +

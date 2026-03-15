@@ -171,6 +171,7 @@ const Engine = {
 
   finishRun() {
     if (!this.run) return;
+    if (this.run.status === 'finished') return; // prevent double-call
     var speed = this.run.speed;
     var incline = Math.max(this.run.incline, 0);
 

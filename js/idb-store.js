@@ -171,7 +171,7 @@ var IDBStore = {
       }
     };
     request.onerror = function() {
-      callback(this.getRunsSync());
+      callback(IDBStore.getRunsSync());
     };
   },
 
@@ -215,6 +215,8 @@ var IDBStore = {
     try {
       var raw = localStorage.getItem('tr_runs');
       var runs = raw ? JSON.parse(raw) : [];
+      // Prevent duplicates — Store.saveRun() may have already added this run
+      if (run.id && runs.length > 0 && runs[0].id === run.id) return;
       runs.unshift(run);
       // Cap at 50 in localStorage (IndexedDB holds unlimited)
       while (runs.length > 50) runs.pop();

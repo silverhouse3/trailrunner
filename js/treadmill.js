@@ -63,6 +63,8 @@ var TM = {
   /** HTTP connection attempt — retries up to 3 times before falling back to WS.
    *  Handles bridge startup delay (APK starts bridge, may take a few seconds). */
   _tryHTTPFirst: function() {
+    // Guard: if disconnect was called during retry, abort
+    if (!this._connecting) return;
     if (this.onStatus) this.onStatus('connecting', 'HTTP');
     console.log('[TM] Trying HTTP connection to bridge (attempt ' + (this._httpRetries + 1) + '/3)...');
     var self = this;
@@ -72,6 +74,7 @@ var TM = {
         return resp.json();
       })
       .then(function(data) {
+        if (!self._connecting) return; // aborted by disconnect
         console.log('[TM] Bridge HTTP connected:', JSON.stringify(data));
         self._useHTTP = true;
         self.connected = true;
@@ -257,7 +260,14 @@ var TM = {
     this._watchdogTimer = setInterval(function() {
       if (!self.connected) return;
 
-      fetch(self._bridgeBase + '/health', { signal: AbortSignal.timeout ? AbortSignal.timeout(5000) : undefined })
+      // Chrome 83 doesn't have AbortSignal.timeout — use AbortController with manual timeout
+      var ctrl, sig;
+      if (typeof AbortController !== 'undefined') {
+        ctrl = new AbortController();
+        sig = ctrl.signal;
+        setTimeout(function() { ctrl.abort(); }, 5000);
+      }
+      fetch(self._bridgeBase + '/health', { signal: sig })
         .then(function(resp) {
           if (!resp.ok) throw new Error('HTTP ' + resp.status);
           return resp.json();
@@ -612,6 +622,9 @@ var BLEHR = {
   connected: false,
   onHR: null,       // (hr) =>
   onStatus: null,   // (state, name) =>
+  _disconnectHandler: null,
+  _hrHandler: null,
+  _char: null,
 
   connect: function() {
     if (!navigator.bluetooth) {
@@ -627,23 +640,30 @@ var BLEHR = {
       optionalServices: ['heart_rate'],
     }).then(function(device) {
       self.device = device;
-      device.addEventListener('gattserverdisconnected', function() {
+      // Remove stale listener from previous connection to same device
+      if (self._disconnectHandler) {
+        device.removeEventListener('gattserverdisconnected', self._disconnectHandler);
+      }
+      self._disconnectHandler = function() {
         self.connected = false;
         if (self.onStatus) self.onStatus('idle');
-      });
+      };
+      device.addEventListener('gattserverdisconnected', self._disconnectHandler);
       return device.gatt.connect();
     }).then(function(server) {
       return server.getPrimaryService('heart_rate');
     }).then(function(svc) {
       return svc.getCharacteristic('heart_rate_measurement');
     }).then(function(char) {
-      char.addEventListener('characteristicvaluechanged', function(e) {
+      self._char = char;
+      self._hrHandler = function(e) {
         var flags = e.target.value.getUint8(0);
         var hr = (flags & 1)
           ? e.target.value.getUint16(1, true)
           : e.target.value.getUint8(1);
         if (hr > 30 && hr < 220 && self.onHR) self.onHR(hr);
-      });
+      };
+      char.addEventListener('characteristicvaluechanged', self._hrHandler);
       return char.startNotifications();
     }).then(function() {
       self.connected = true;
@@ -657,6 +677,12 @@ var BLEHR = {
   },
 
   disconnect: function() {
+    // Remove characteristic listener to prevent accumulation on reconnect
+    if (this._char && this._hrHandler) {
+      try { this._char.removeEventListener('characteristicvaluechanged', this._hrHandler); } catch(e) {}
+      this._char = null;
+      this._hrHandler = null;
+    }
     if (this.device && this.device.gatt.connected) {
       try { this.device.gatt.disconnect(); } catch(e) {}
     }
@@ -672,6 +698,9 @@ var FTMS = {
   connected: false,
   onData: null,      // ({ speed, incline, hr }) =>
   onStatus: null,    // (state, name) =>
+  _disconnectHandler: null,
+  _dataHandler: null,
+  _char: null,
 
   connect: function() {
     if (!navigator.bluetooth) return Promise.resolve(false);
@@ -685,17 +714,22 @@ var FTMS = {
       optionalServices: [SVC],
     }).then(function(device) {
       self.device = device;
-      device.addEventListener('gattserverdisconnected', function() {
+      if (self._disconnectHandler) {
+        device.removeEventListener('gattserverdisconnected', self._disconnectHandler);
+      }
+      self._disconnectHandler = function() {
         self.connected = false;
         if (self.onStatus) self.onStatus('idle');
-      });
+      };
+      device.addEventListener('gattserverdisconnected', self._disconnectHandler);
       return device.gatt.connect();
     }).then(function(server) {
       return server.getPrimaryService(SVC);
     }).then(function(svc) {
       return svc.getCharacteristic(CHAR);
     }).then(function(char) {
-      char.addEventListener('characteristicvaluechanged', function(e) {
+      self._char = char;
+      self._dataHandler = function(e) {
         var d = e.target.value;
         var flags = d.getUint16(0, true);
         var offset = 2;
@@ -707,7 +741,8 @@ var FTMS = {
         if (flags & 0x0010) offset += 4;
         if (flags & 0x0100) { data.hr = d.getUint8(offset); }
         if (self.onData) self.onData(data);
-      });
+      };
+      char.addEventListener('characteristicvaluechanged', self._dataHandler);
       return char.startNotifications();
     }).then(function() {
       self.connected = true;
@@ -718,5 +753,18 @@ var FTMS = {
       if (self.onStatus) self.onStatus('idle');
       return false;
     });
+  },
+
+  disconnect: function() {
+    if (this._char && this._dataHandler) {
+      try { this._char.removeEventListener('characteristicvaluechanged', this._dataHandler); } catch(e) {}
+      this._char = null;
+      this._dataHandler = null;
+    }
+    if (this.device && this.device.gatt.connected) {
+      try { this.device.gatt.disconnect(); } catch(e) {}
+    }
+    this.connected = false;
+    if (this.onStatus) this.onStatus('idle');
   },
 };
