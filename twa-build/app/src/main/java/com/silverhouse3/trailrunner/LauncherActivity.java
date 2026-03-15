@@ -103,8 +103,9 @@ public class LauncherActivity extends Activity {
         updateStatus("Starting motor control service...");
         startGlassosService();
 
-        // Wait for glassos to initialize its gRPC server (longer on cold boot)
-        sleep(5000);
+        // Wait for glassos to initialize its gRPC server
+        // No rush — belt won't start until user taps Start Run
+        sleep(8000);
 
         // Step 2: Start bridge binary if not already running
         Log.i(TAG, "Checking bridge...");

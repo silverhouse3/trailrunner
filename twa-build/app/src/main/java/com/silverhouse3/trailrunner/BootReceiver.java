@@ -16,15 +16,13 @@ import java.net.URL;
  */
 public class BootReceiver extends BroadcastReceiver {
     private static final String TAG = "TrailRunner";
-    private static final int MAX_WAIT_MS = 60000;
-    private static final int POLL_MS = 5000;
-    private static final int INITIAL_DELAY_MS = 20000;
+    private static final int INITIAL_DELAY_MS = 45000;  // 45s after boot — no rush
 
     @Override
     public void onReceive(Context context, Intent intent) {
         if (!Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) return;
 
-        Log.i(TAG, "Boot completed — waiting " + (INITIAL_DELAY_MS / 1000) + "s before launch");
+        Log.i(TAG, "Boot completed — waiting 45s for services to settle before launch");
 
         new Thread(new Runnable() {
             @Override
