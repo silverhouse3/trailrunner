@@ -1,6 +1,6 @@
 # Home Assistant Integration
 
-TrailRunner Bridge v3.1+ publishes treadmill state to MQTT with Home Assistant auto-discovery. Once connected, your treadmill appears as a device in HA with sensors and controls.
+TrailRunner Bridge v3.2+ publishes treadmill state to MQTT with Home Assistant auto-discovery. Once connected, your treadmill appears as a device in HA with sensors and controls.
 
 ## Prerequisites
 
@@ -41,6 +41,8 @@ After starting the bridge, check **Settings → Devices & Services → MQTT → 
 | `sensor.trailrunner_calories` | Calories | kcal | Estimated calories burned |
 | `sensor.trailrunner_duration` | Duration | s | Workout elapsed time |
 | `sensor.trailrunner_workout_state` | State | — | IDLE, RUNNING, PAUSED, etc. |
+| `sensor.trailrunner_elevation_gain` | Distance | m | Cumulative elevation gain |
+| `sensor.trailrunner_console_state` | State | — | Console hardware state |
 
 #### Controls
 | Entity | Type | Description |
@@ -56,12 +58,17 @@ After starting the bridge, check **Settings → Devices & Services → MQTT → 
 | Entity | Type | Description |
 |--------|------|-------------|
 | `binary_sensor.trailrunner_available` | Connectivity | Bridge online/offline |
+| `binary_sensor.trailrunner_safety_key` | Safety | Safety key removed detection |
+| `binary_sensor.trailrunner_grpc_connected` | Connectivity | gRPC connection to motor controller |
 
 ## MQTT Topics
 
 ```
-trailrunner/state          → JSON: {speed, incline, hr, workout_state, ...}
+trailrunner/state          → JSON: {speed, incline, hr, distance, calories,
+                                    elapsed, elevation, workout_state, workout_id,
+                                    grpc, console_state, safety_key_removed}
 trailrunner/available      → "online" or "offline"
+trailrunner/safety_key     → "ok" or "removed"
 trailrunner/command/speed  ← float (km/h)
 trailrunner/command/incline ← float (%)
 trailrunner/command/workout ← "start"|"stop"|"pause"|"resume"

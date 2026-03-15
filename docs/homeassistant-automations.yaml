@@ -687,6 +687,51 @@ automation:
           message: "Cooldown mode activated. Speed set to 4 kilometres per hour, incline flat."
 
 
+  #---------------------------------------------------------------------------
+  #  8. SAFETY KEY REMOVED ALERT
+  #
+  #  Sends a critical notification and announces on Alexa when the safety key
+  #  is removed while a workout is running.
+  #---------------------------------------------------------------------------
+
+  - id: trailrunner_safety_key_alert
+    alias: "TrailRunner: Safety Key Removed Alert"
+    description: "Alert when safety key is removed during a workout"
+    mode: single
+
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.trailrunner_safety_key
+        to: "on"
+
+    condition:
+      - condition: state
+        entity_id: sensor.trailrunner_workout_state
+        state: "RUNNING"
+
+    action:
+      # Critical mobile notification
+      - service: notify.mobile_app
+        data:
+          title: "SAFETY KEY REMOVED"
+          message: "The treadmill safety key has been removed during a workout!"
+          data:
+            push:
+              sound:
+                name: default
+                critical: 1
+                volume: 1.0
+            tag: trailrunner_safety
+
+      # Announce on Alexa
+      - service: notify.alexa_media
+        data:
+          target: media_player.gym_echo
+          data:
+            type: tts
+          message: "Warning! The safety key has been removed. The treadmill will stop."
+
+
 ###############################################################################
 #  SCRIPTS
 #
@@ -847,8 +892,14 @@ script:
 #         name: Distance
 #       - entity: sensor.trailrunner_calories
 #         name: Calories
+#       - entity: sensor.trailrunner_elevation_gain
+#         name: Elevation
 #       - entity: input_number.trailrunner_weekly_distance
 #         name: "This Week"
+#       - entity: binary_sensor.trailrunner_safety_key
+#         name: Safety Key
+#       - entity: binary_sensor.trailrunner_grpc_connected
+#         name: Motor Link
 #
 #   - type: horizontal-stack
 #     cards:
