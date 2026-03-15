@@ -328,6 +328,9 @@ const App = {
     // ── Update sync status indicator ─────────────────────────────────────
     this._updateSyncPill();
 
+    // ── Auto-connect to treadmill bridge on boot ──────────────────────────
+    this._autoConnectBridge();
+
     console.log('[TrailRunner] Initialised (all modules)');
   },
 

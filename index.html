@@ -23,7 +23,7 @@
   <div style="display:flex;align-items:center;gap:14px">
     <div class="logo">TRAILRUNNER</div>
     <div class="pills">
-      <div class="bt-pill" id="pillTM" onclick="App.connectTreadmill()" title="Connect to treadmill WebSocket">🏃 TREADMILL</div>
+      <div class="bt-pill" id="pillTM" style="font-size:9px;cursor:default" title="Treadmill connection status">🏃 ...</div>
       <div class="bt-pill" id="pillHR" onclick="App.connectHR()" title="Connect Bluetooth HR Monitor">❤ HR</div>
       <div class="pill pill-nav" onclick="App.openWorkouts()">🏋 WORKOUTS</div>
       <div class="pill pill-nav" onclick="App.openRoutes()">🗺 ROUTES</div>
@@ -60,9 +60,9 @@
         </div>
       </div>
       <div class="setup-step">
-        <div class="setup-step-title" style="color:var(--orange)">② CONNECT TREADMILL</div>
+        <div class="setup-step-title" style="color:var(--orange)">② TREADMILL</div>
         <div class="setup-step-body">
-          Tap <strong style="color:var(--text)">🏃 TREADMILL</strong> — connects to the X32i's WebSocket server (uthttpd).<br><br>
+          Auto-connects to the X32i on startup.<br><br>
           Real speed, incline &amp; HR sync instantly. App <strong style="color:var(--green)">controls the belt &amp; ramp</strong>.
         </div>
       </div>
