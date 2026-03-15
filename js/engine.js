@@ -434,10 +434,12 @@ const Engine = {
     }
 
     // ── Software speed ramp (when not receiving live treadmill data) ──
-    // Ramps at max 2 km/h per second to prevent instant acceleration
+    // Gentle startup: 0.7 km/h/s for first 15s (~15s to reach 10 km/h)
+    // Normal running: 2 km/h/s after 15s elapsed
     // Applies in ANY mode when no treadmill/FTMS is feeding speed data
     if (this.run.speedSource !== 'treadmill' && this.run.speedSource !== 'ftms') {
-      var rampRate = 2.0 * cappedDt; // 2 km/h per second
+      var baseRate = (this.run.elapsed < 15) ? 0.7 : 2.0;
+      var rampRate = baseRate * cappedDt;
       var diff = this.ctrl.targetSpeed - this.run.speed;
       if (Math.abs(diff) > 0.05) {
         if (diff > 0) this.run.speed = Math.min(this.ctrl.targetSpeed, this.run.speed + rampRate);
