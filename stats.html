@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#090b10">
+<title>TrailRunner — Stats</title>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;700&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #090b10; --bg2: #0d1117; --bg3: #141b27;
+  --cyan: #3ecfff; --green: #00e676; --orange: #ffab00;
+  --red: #ff3d57; --purple: #bb86fc;
+  --text: #e0e6ed; --dim: #4a6785; --border: #1e3050;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: 'Rajdhani', sans-serif; padding: 20px; }
+h1 { font-family: 'Orbitron', sans-serif; color: var(--cyan); font-size: 28px; margin-bottom: 8px; }
+.subtitle { color: var(--dim); font-size: 14px; margin-bottom: 24px; }
+a { color: var(--cyan); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Summary cards */
+.summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 32px; }
+.card { background: var(--bg3); border: 1px solid var(--border); border-radius: 12px; padding: 16px; text-align: center; }
+.card-value { font-family: 'Orbitron', sans-serif; font-size: 28px; font-weight: 700; }
+.card-label { font-size: 12px; color: var(--dim); margin-top: 4px; letter-spacing: .1em; }
+.card-sub { font-size: 11px; color: var(--dim); margin-top: 2px; }
+.card.cyan .card-value { color: var(--cyan); }
+.card.green .card-value { color: var(--green); }
+.card.orange .card-value { color: var(--orange); }
+.card.red .card-value { color: var(--red); }
+.card.purple .card-value { color: var(--purple); }
+
+/* Charts */
+.chart-section { margin-bottom: 32px; }
+.chart-title { font-size: 16px; font-weight: 700; margin-bottom: 12px; color: var(--text); }
+.chart-bar-row { display: flex; align-items: center; margin-bottom: 6px; }
+.chart-bar-label { width: 80px; font-size: 11px; color: var(--dim); font-family: 'JetBrains Mono', monospace; flex-shrink: 0; }
+.chart-bar { height: 24px; border-radius: 4px; transition: width .5s ease; min-width: 2px; position: relative; }
+.chart-bar-val { position: absolute; right: 8px; top: 3px; font-size: 11px; font-family: 'JetBrains Mono', monospace; color: rgba(255,255,255,.8); }
+.chart-bar.outside .chart-bar-val { right: auto; left: calc(100% + 8px); color: var(--dim); }
+
+/* Run history table */
+.history-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.history-table th { text-align: left; padding: 8px; color: var(--dim); border-bottom: 2px solid var(--border); font-size: 11px; letter-spacing: .1em; }
+.history-table td { padding: 8px; border-bottom: 1px solid var(--border); }
+.history-table tr:hover { background: rgba(62,207,255,.05); }
+
+/* Personal records */
+.pr-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 32px; }
+.pr-card { background: linear-gradient(135deg, rgba(187,134,252,.1), rgba(62,207,255,.05)); border: 1px solid var(--purple); border-radius: 12px; padding: 16px; }
+.pr-label { font-size: 11px; color: var(--purple); letter-spacing: .1em; margin-bottom: 4px; }
+.pr-value { font-family: 'Orbitron', sans-serif; font-size: 22px; font-weight: 700; color: var(--text); }
+.pr-date { font-size: 10px; color: var(--dim); margin-top: 4px; }
+
+/* Streak */
+.streak-bar { display: flex; margin-bottom: 32px; }
+.streak-day { width: 14.28%; text-align: center; padding: 8px 4px; }
+.streak-dot { width: 20px; height: 20px; border-radius: 50%; margin: 0 auto 4px; border: 2px solid var(--border); }
+.streak-dot.active { background: var(--green); border-color: var(--green); }
+.streak-dot.today { border-color: var(--cyan); }
+.streak-day-name { font-size: 9px; color: var(--dim); }
+
+/* Back link */
+.back-link { display: inline-block; margin-bottom: 16px; font-size: 14px; }
+</style>
+</head>
+<body>
+<a href="index.html" class="back-link">← Back to TrailRunner</a>
+<h1>YOUR STATS</h1>
+<p class="subtitle" id="dateRange"></p>
+
+<div class="summary-grid" id="summaryCards"></div>
+
+<div class="chart-section">
+  <div class="chart-title">PERSONAL RECORDS</div>
+  <div class="pr-grid" id="prGrid"></div>
+</div>
+
+<div class="chart-section">
+  <div class="chart-title">WEEKLY DISTANCE (km)</div>
+  <div id="weeklyChart"></div>
+</div>
+
+<div class="chart-section">
+  <div class="chart-title">THIS WEEK</div>
+  <div class="streak-bar" id="streakBar"></div>
+</div>
+
+<div class="chart-section">
+  <div class="chart-title">RECENT RUNS</div>
+  <table class="history-table" id="historyTable">
+    <thead><tr>
+      <th>DATE</th><th>DISTANCE</th><th>TIME</th><th>AVG SPEED</th><th>AVG INCLINE</th><th>CALORIES</th>
+    </tr></thead>
+    <tbody id="historyBody"></tbody>
+  </table>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  // Read runs from localStorage (same store as main PWA)
+  function getRuns() {
+    try {
+      var raw = localStorage.getItem('tr_runs');
+      return raw ? JSON.parse(raw) : [];
+    } catch(e) { return []; }
+  }
+
+  function fmt(n, d) { return n != null ? n.toFixed(d || 0) : '—'; }
+  function fmtTime(s) {
+    if (!s) return '—';
+    var h = Math.floor(s / 3600);
+    var m = Math.floor((s % 3600) / 60);
+    var sec = Math.floor(s % 60);
+    if (h > 0) return h + ':' + (m < 10 ? '0' : '') + m + ':' + (sec < 10 ? '0' : '') + sec;
+    return m + ':' + (sec < 10 ? '0' : '') + sec;
+  }
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+  function fmtShortDate(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  }
+
+  var runs = getRuns();
+
+  // ── Summary cards ──
+  var totalDist = 0, totalTime = 0, totalCals = 0, totalRuns = runs.length;
+  var maxSpeed = 0, maxIncline = 0;
+  runs.forEach(function(r) {
+    totalDist += r.distanceKm || 0;
+    totalTime += r.elapsedSec || r.elapsed || 0;
+    totalCals += r.calories || 0;
+    if (r.avgSpeed > maxSpeed) maxSpeed = r.avgSpeed;
+    if (r.maxIncline > maxIncline) maxIncline = r.maxIncline;
+  });
+
+  var avgPace = totalDist > 0 ? totalTime / 60 / totalDist : 0; // min/km
+
+  var cards = [
+    { value: totalRuns, label: 'TOTAL RUNS', cls: 'cyan' },
+    { value: fmt(totalDist, 1), label: 'TOTAL DISTANCE', sub: 'km', cls: 'green' },
+    { value: fmtTime(totalTime), label: 'TOTAL TIME', cls: 'orange' },
+    { value: fmt(totalCals), label: 'TOTAL CALORIES', sub: 'kcal', cls: 'red' },
+    { value: fmt(avgPace, 1), label: 'AVG PACE', sub: 'min/km', cls: 'purple' },
+    { value: fmt(totalDist > 0 ? totalDist / Math.max(totalRuns, 1) : 0, 1), label: 'AVG DISTANCE', sub: 'km/run', cls: 'cyan' },
+  ];
+
+  var grid = document.getElementById('summaryCards');
+  cards.forEach(function(c) {
+    grid.innerHTML += '<div class="card ' + c.cls + '">' +
+      '<div class="card-value">' + c.value + '</div>' +
+      '<div class="card-label">' + c.label + '</div>' +
+      (c.sub ? '<div class="card-sub">' + c.sub + '</div>' : '') +
+      '</div>';
+  });
+
+  // ── Date range ──
+  if (runs.length > 0) {
+    var oldest = runs[runs.length - 1];
+    var newest = runs[0];
+    document.getElementById('dateRange').textContent =
+      fmtDate(oldest.savedAt || oldest.date) + ' — ' + fmtDate(newest.savedAt || newest.date) +
+      ' (' + totalRuns + ' runs)';
+  } else {
+    document.getElementById('dateRange').textContent = 'No runs recorded yet. Go run!';
+  }
+
+  // ── Personal records ──
+  var prs = [];
+  if (runs.length > 0) {
+    // Fastest speed
+    var fastest = runs.reduce(function(best, r) {
+      return (r.avgSpeed || 0) > (best.avgSpeed || 0) ? r : best;
+    }, runs[0]);
+    prs.push({ label: 'FASTEST AVG SPEED', value: fmt(fastest.avgSpeed, 1) + ' kph', date: fmtDate(fastest.savedAt) });
+
+    // Longest distance
+    var longest = runs.reduce(function(best, r) {
+      return (r.distanceKm || 0) > (best.distanceKm || 0) ? r : best;
+    }, runs[0]);
+    prs.push({ label: 'LONGEST RUN', value: fmt(longest.distanceKm, 2) + ' km', date: fmtDate(longest.savedAt) });
+
+    // Longest time
+    var longestTime = runs.reduce(function(best, r) {
+      var t = r.elapsedSec || r.elapsed || 0;
+      var bt = best.elapsedSec || best.elapsed || 0;
+      return t > bt ? r : best;
+    }, runs[0]);
+    prs.push({ label: 'LONGEST TIME', value: fmtTime(longestTime.elapsedSec || longestTime.elapsed), date: fmtDate(longestTime.savedAt) });
+
+    // Most calories
+    var mostCals = runs.reduce(function(best, r) {
+      return (r.calories || 0) > (best.calories || 0) ? r : best;
+    }, runs[0]);
+    prs.push({ label: 'MOST CALORIES', value: fmt(mostCals.calories) + ' kcal', date: fmtDate(mostCals.savedAt) });
+
+    // Steepest incline
+    var steepest = runs.reduce(function(best, r) {
+      return (r.maxIncline || 0) > (best.maxIncline || 0) ? r : best;
+    }, runs[0]);
+    if (steepest.maxIncline > 0) {
+      prs.push({ label: 'STEEPEST INCLINE', value: fmt(steepest.maxIncline, 1) + '%', date: fmtDate(steepest.savedAt) });
+    }
+  }
+
+  var prGrid = document.getElementById('prGrid');
+  prs.forEach(function(pr) {
+    prGrid.innerHTML += '<div class="pr-card">' +
+      '<div class="pr-label">' + pr.label + '</div>' +
+      '<div class="pr-value">' + pr.value + '</div>' +
+      '<div class="pr-date">' + pr.date + '</div></div>';
+  });
+
+  // ── Weekly distance chart ──
+  var weeks = {};
+  runs.forEach(function(r) {
+    var d = new Date(r.savedAt || r.date);
+    // Week start (Monday)
+    var day = d.getDay(); // 0=Sun
+    var diff = d.getDate() - day + (day === 0 ? -6 : 1);
+    var weekStart = new Date(d.setDate(diff));
+    var key = weekStart.toISOString().slice(0, 10);
+    if (!weeks[key]) weeks[key] = 0;
+    weeks[key] += r.distanceKm || 0;
+  });
+
+  var weekKeys = Object.keys(weeks).sort().slice(-12); // last 12 weeks
+  var maxWeekDist = Math.max.apply(null, weekKeys.map(function(k) { return weeks[k]; }));
+  if (maxWeekDist === 0) maxWeekDist = 1;
+
+  var chartEl = document.getElementById('weeklyChart');
+  weekKeys.forEach(function(k) {
+    var dist = weeks[k];
+    var pct = (dist / maxWeekDist * 100).toFixed(0);
+    var isSmall = pct < 15;
+    chartEl.innerHTML += '<div class="chart-bar-row">' +
+      '<div class="chart-bar-label">' + fmtShortDate(k) + '</div>' +
+      '<div class="chart-bar' + (isSmall ? ' outside' : '') + '" style="width:' + Math.max(pct, 2) + '%;background:linear-gradient(90deg,rgba(62,207,255,.6),rgba(62,207,255,.2))">' +
+      '<span class="chart-bar-val">' + dist.toFixed(1) + '</span></div></div>';
+  });
+
+  // ── This week streak ──
+  var dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  var today = new Date();
+  var todayDay = today.getDay(); // 0=Sun
+  var mondayOffset = todayDay === 0 ? -6 : 1 - todayDay;
+  var monday = new Date(today);
+  monday.setDate(today.getDate() + mondayOffset);
+  monday.setHours(0, 0, 0, 0);
+
+  var runDays = {};
+  runs.forEach(function(r) {
+    var d = new Date(r.savedAt || r.date);
+    runDays[d.toISOString().slice(0, 10)] = true;
+  });
+
+  var streakEl = document.getElementById('streakBar');
+  for (var i = 0; i < 7; i++) {
+    var d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    var key = d.toISOString().slice(0, 10);
+    var isToday = key === today.toISOString().slice(0, 10);
+    var ran = runDays[key];
+    streakEl.innerHTML += '<div class="streak-day">' +
+      '<div class="streak-dot' + (ran ? ' active' : '') + (isToday ? ' today' : '') + '"></div>' +
+      '<div class="streak-day-name">' + dayNames[i] + '</div></div>';
+  }
+
+  // ── History table ──
+  var tbody = document.getElementById('historyBody');
+  runs.slice(0, 20).forEach(function(r) {
+    var elapsed = r.elapsedSec || r.elapsed || 0;
+    tbody.innerHTML += '<tr>' +
+      '<td>' + fmtDate(r.savedAt || r.date) + '</td>' +
+      '<td>' + fmt(r.distanceKm, 2) + ' km</td>' +
+      '<td>' + fmtTime(elapsed) + '</td>' +
+      '<td>' + fmt(r.avgSpeed, 1) + ' kph</td>' +
+      '<td>' + fmt(r.avgIncline, 1) + '%</td>' +
+      '<td>' + fmt(r.calories) + '</td></tr>';
+  });
+
+  if (runs.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--dim);padding:32px">No runs recorded yet. Complete a workout to see your stats here.</td></tr>';
+  }
+})();
+</script>
+</body>
+</html>

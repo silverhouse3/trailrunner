@@ -43,6 +43,7 @@ d.remove()})();</script>
   </div>
   <div class="topbar-right" style="display:flex;align-items:center;gap:10px">
     <button class="focus-menu-btn" onclick="App.toggleFocusMenu()" title="Menu">☰</button>
+    <button id="voiceMicBtn" class="focus-menu-btn" onclick="VoiceCommands.toggle()" title="Voice commands (click to toggle)" style="font-size:16px">🎤</button>
     <button class="estop" onclick="App.emergencyStop()" title="EMERGENCY STOP">■</button>
     <div style="text-align:right">
       <div class="rname" id="routeName">NO ROUTE LOADED</div>
@@ -417,6 +418,7 @@ d.remove()})();</script>
     <div class="fm-item" onclick="App.toggleQS('speed')"><span class="fm-item-icon">⚡</span> Speed Presets</div>
     <div class="fm-item" onclick="App.toggleQS('incline')"><span class="fm-item-icon">↗</span> Incline Presets</div>
     <div class="fm-item" onclick="App.toggleFocusMode();App.closeFocusMenu()"><span class="fm-item-icon">📈</span> Show Metrics Panel</div>
+    <div class="fm-item" onclick="window.open('stats.html','_self')"><span class="fm-item-icon">📊</span> Stats Dashboard</div>
     <div class="fm-divider"></div>
     <div class="fm-item" onclick="App.openSettings();App.closeFocusMenu()"><span class="fm-item-icon">⚙</span> Settings</div>
   </div>
@@ -574,6 +576,8 @@ d.remove()})();</script>
 <script src="js/oval-track.js"></script>
 <script src="js/fun-facts.js"></script>
 <script src="js/voice.js"></script>
+<script src="js/voice-commands.js"></script>
+<script src="js/cadence.js"></script>
 <script src="js/streaks.js"></script>
 <script src="js/workout-builder.js"></script>
 <script src="js/settings-panel.js"></script>

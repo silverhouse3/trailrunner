@@ -488,13 +488,19 @@ const Engine = {
       this.run._speedSamples++;
     }
 
-    // ── Cadence estimate (from speed) ────────────────────────────────────
-    // Rough model: 155 spm at 6 km/h → 190 spm at 16 km/h
-    if (this.run.speed > 1) {
+    // ── Cadence: prefer mic-detected, fall back to speed estimate ────────
+    var micCadence = (typeof Cadence !== 'undefined' && Cadence.isActive()) ? Cadence.getCadence() : 0;
+    if (micCadence > 0) {
+      this.run.cadence = micCadence;
+      this.run.cadenceSource = 'mic';
+    } else if (this.run.speed > 1) {
+      // Rough model: 155 spm at 6 km/h → 190 spm at 16 km/h
       this.run.cadence = Math.round(Math.max(150, Math.min(200,
         155 + (this.run.speed - 6) * 3.5)));
+      this.run.cadenceSource = 'estimate';
     } else {
       this.run.cadence = 0;
+      this.run.cadenceSource = null;
     }
 
     // ── Calorie estimate (if treadmill doesn't send calories) ────────────

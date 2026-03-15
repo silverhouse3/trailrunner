@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#090b10">
+<title>TrailRunner Remote</title>
+<style>
+:root {
+  --bg: #090b10; --bg2: #0d1117; --bg3: #141b27;
+  --cyan: #3ecfff; --green: #00e676; --orange: #ffab00;
+  --red: #ff3d57; --purple: #bb86fc;
+  --text: #e0e6ed; --dim: #4a6785; --border: #1e3050;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  display: flex; flex-direction: column; min-height: 100vh; max-width: 480px; margin: 0 auto; padding: 16px; }
+h1 { color: var(--cyan); font-size: 20px; text-align: center; margin-bottom: 4px; }
+
+.status { text-align: center; font-size: 12px; color: var(--dim); margin-bottom: 16px; }
+.status.connected { color: var(--green); }
+.status.error { color: var(--red); }
+
+.metrics { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 16px; }
+.metric { background: var(--bg3); border: 1px solid var(--border); border-radius: 12px; padding: 12px; text-align: center; }
+.metric-val { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.metric-label { font-size: 10px; color: var(--dim); margin-top: 2px; }
+.metric.speed .metric-val { color: var(--cyan); }
+.metric.incline .metric-val { color: var(--orange); }
+.metric.hr .metric-val { color: var(--red); }
+.metric.state .metric-val { font-size: 16px; }
+.metric.state.running .metric-val { color: var(--green); }
+.metric.state.paused .metric-val { color: var(--orange); }
+.metric.state.idle .metric-val { color: var(--dim); }
+
+.controls { display: flex; flex-direction: column; gap: 12px; }
+.control-row { display: flex; align-items: center; gap: 8px; }
+.control-label { width: 70px; font-size: 13px; color: var(--dim); flex-shrink: 0; }
+.btn { padding: 14px 20px; border: none; border-radius: 10px; font-size: 16px; font-weight: 700;
+  cursor: pointer; -webkit-tap-highlight-color: transparent; flex: 1; }
+.btn:active { transform: scale(0.95); }
+.btn-start { background: var(--green); color: #000; }
+.btn-stop { background: var(--red); color: #fff; }
+.btn-pause { background: var(--orange); color: #000; }
+.btn-resume { background: var(--cyan); color: #000; }
+
+.adj-group { display: flex; gap: 6px; flex: 1; }
+.btn-adj { padding: 12px; border: 2px solid var(--border); background: var(--bg3); color: var(--text);
+  border-radius: 10px; font-size: 18px; font-weight: 700; cursor: pointer; flex: 1; text-align: center; }
+.btn-adj:active { background: rgba(62,207,255,.15); border-color: var(--cyan); }
+
+.slider-row { display: flex; align-items: center; gap: 8px; }
+.slider-row input[type=range] { flex: 1; height: 32px; }
+.slider-val { width: 50px; text-align: right; font-variant-numeric: tabular-nums; font-size: 14px; }
+
+.workout-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
+
+.connect-form { display: flex; gap: 8px; margin-bottom: 16px; }
+.connect-form input { flex: 1; padding: 10px 14px; border: 2px solid var(--border); background: var(--bg3);
+  color: var(--text); border-radius: 8px; font-size: 14px; }
+.connect-form button { padding: 10px 16px; background: var(--cyan); color: #000; border: none;
+  border-radius: 8px; font-weight: 700; cursor: pointer; }
+
+.emergency { padding: 20px; background: var(--red); color: #fff; border: none; border-radius: 12px;
+  font-size: 22px; font-weight: 900; width: 100%; cursor: pointer; margin-top: auto;
+  letter-spacing: .05em; text-transform: uppercase; }
+.emergency:active { background: #cc0022; }
+</style>
+</head>
+<body>
+
+<h1>TRAILRUNNER REMOTE</h1>
+<div class="status" id="status">Not connected</div>
+
+<div class="connect-form">
+  <input type="text" id="hostInput" placeholder="Treadmill IP (e.g. 192.168.100.54)" value="">
+  <button onclick="connectTreadmill()">Connect</button>
+</div>
+
+<div class="metrics">
+  <div class="metric speed"><div class="metric-val" id="mSpeed">—</div><div class="metric-label">KM/H</div></div>
+  <div class="metric incline"><div class="metric-val" id="mIncline">—</div><div class="metric-label">INCLINE %</div></div>
+  <div class="metric hr"><div class="metric-val" id="mHR">—</div><div class="metric-label">BPM</div></div>
+</div>
+
+<div class="metrics" style="grid-template-columns:1fr">
+  <div class="metric state idle" id="stateCard"><div class="metric-val" id="mState">IDLE</div><div class="metric-label">WORKOUT STATE</div></div>
+</div>
+
+<div class="workout-btns">
+  <button class="btn btn-start" onclick="cmd('/workout/start')">START</button>
+  <button class="btn btn-stop" onclick="cmd('/workout/stop')">STOP</button>
+  <button class="btn btn-pause" onclick="cmd('/workout/pause')">PAUSE</button>
+  <button class="btn btn-resume" onclick="cmd('/workout/resume')">RESUME</button>
+</div>
+
+<div class="controls">
+  <div class="control-row">
+    <div class="control-label">Speed</div>
+    <div class="adj-group">
+      <div class="btn-adj" onclick="adjustSpeed(-1)">-1</div>
+      <div class="btn-adj" onclick="adjustSpeed(-0.5)">-.5</div>
+      <div class="btn-adj" onclick="adjustSpeed(+0.5)">+.5</div>
+      <div class="btn-adj" onclick="adjustSpeed(+1)">+1</div>
+    </div>
+  </div>
+
+  <div class="slider-row">
+    <div class="control-label">Speed</div>
+    <input type="range" min="0" max="22" step="0.5" value="0" id="speedSlider" oninput="setSpeed(this.value)">
+    <div class="slider-val" id="speedSliderVal">0</div>
+  </div>
+
+  <div class="control-row">
+    <div class="control-label">Incline</div>
+    <div class="adj-group">
+      <div class="btn-adj" onclick="adjustIncline(-2)">-2</div>
+      <div class="btn-adj" onclick="adjustIncline(-1)">-1</div>
+      <div class="btn-adj" onclick="adjustIncline(+1)">+1</div>
+      <div class="btn-adj" onclick="adjustIncline(+2)">+2</div>
+    </div>
+  </div>
+
+  <div class="slider-row">
+    <div class="control-label">Incline</div>
+    <input type="range" min="-6" max="40" step="0.5" value="0" id="inclineSlider" oninput="setIncline(this.value)">
+    <div class="slider-val" id="inclineSliderVal">0</div>
+  </div>
+</div>
+
+<button class="emergency" onclick="emergencyStop()">EMERGENCY STOP</button>
+
+<script>
+var host = '';
+var ws = null;
+var pollTimer = null;
+var currentSpeed = 0;
+var currentIncline = 0;
+
+// Try to restore last host
+var saved = localStorage.getItem('tr_remote_host');
+if (saved) document.getElementById('hostInput').value = saved;
+
+function connectTreadmill() {
+  host = document.getElementById('hostInput').value.trim();
+  if (!host) return;
+  // Add port if missing
+  if (host.indexOf(':') === -1) host += ':4510';
+  if (host.indexOf('://') === -1) host = 'http://' + host;
+  localStorage.setItem('tr_remote_host', document.getElementById('hostInput').value.trim());
+
+  setStatus('Connecting...', '');
+  // Try WebSocket first
+  tryWebSocket();
+  // Also poll as fallback
+  poll();
+}
+
+function tryWebSocket() {
+  try {
+    var wsUrl = host.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws';
+    ws = new WebSocket(wsUrl);
+    ws.onopen = function() { setStatus('Connected (WebSocket)', 'connected'); };
+    ws.onmessage = function(e) {
+      try { handleState(JSON.parse(e.data)); } catch(err) {}
+    };
+    ws.onclose = function() {
+      setStatus('Disconnected', 'error');
+      setTimeout(tryWebSocket, 3000);
+    };
+    ws.onerror = function() {};
+  } catch(e) {}
+}
+
+function poll() {
+  clearInterval(pollTimer);
+  pollTimer = setInterval(function() {
+    fetch(host + '/api/state').then(function(r) { return r.json(); }).then(function(d) {
+      handleState({
+        values: { KPH: String(d.speed_kph), Incline: String(d.incline_pct), 'Heart Rate': String(d.heart_rate) },
+        workout: { state: d.workout_state }
+      });
+      if (!ws || ws.readyState !== 1) setStatus('Connected (polling)', 'connected');
+    }).catch(function() {});
+  }, 2000);
+}
+
+function handleState(msg) {
+  if (msg.values) {
+    var spd = parseFloat(msg.values.KPH) || 0;
+    var inc = parseFloat(msg.values.Incline) || 0;
+    var hr = parseInt(msg.values['Heart Rate']) || 0;
+    currentSpeed = spd;
+    currentIncline = inc;
+    document.getElementById('mSpeed').textContent = spd.toFixed(1);
+    document.getElementById('mIncline').textContent = inc.toFixed(1);
+    document.getElementById('mHR').textContent = hr || '—';
+    document.getElementById('speedSlider').value = spd;
+    document.getElementById('speedSliderVal').textContent = spd.toFixed(1);
+    document.getElementById('inclineSlider').value = inc;
+    document.getElementById('inclineSliderVal').textContent = inc.toFixed(1);
+  }
+  if (msg.workout) {
+    var state = msg.workout.state || 'IDLE';
+    document.getElementById('mState').textContent = state;
+    var card = document.getElementById('stateCard');
+    card.className = 'metric state ' + state.toLowerCase();
+  }
+}
+
+function setStatus(text, cls) {
+  var el = document.getElementById('status');
+  el.textContent = text;
+  el.className = 'status' + (cls ? ' ' + cls : '');
+}
+
+function cmd(path) {
+  if (!host) { alert('Connect first'); return; }
+  fetch(host + path, { method: 'POST' }).catch(function(e) {
+    setStatus('Command failed', 'error');
+  });
+}
+
+function setSpeed(kph) {
+  kph = parseFloat(kph);
+  document.getElementById('speedSliderVal').textContent = kph.toFixed(1);
+  if (!host) return;
+  fetch(host + '/speed', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kph: kph })
+  }).catch(function() {});
+}
+
+function setIncline(pct) {
+  pct = parseFloat(pct);
+  document.getElementById('inclineSliderVal').textContent = pct.toFixed(1);
+  if (!host) return;
+  fetch(host + '/incline', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ percent: pct })
+  }).catch(function() {});
+}
+
+function adjustSpeed(delta) {
+  setSpeed(Math.max(0, Math.min(22, currentSpeed + delta)));
+}
+
+function adjustIncline(delta) {
+  setIncline(Math.max(-6, Math.min(40, currentIncline + delta)));
+}
+
+function emergencyStop() {
+  if (!host) return;
+  // Set speed and incline to 0 immediately
+  fetch(host + '/speed', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kph: 0 })
+  });
+  fetch(host + '/incline', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ percent: 0 })
+  });
+  fetch(host + '/workout/stop', { method: 'POST' });
+}
+
+// Auto-connect if we have a saved host
+if (saved) {
+  setTimeout(connectTreadmill, 500);
+}
+</script>
+</body>
+</html>

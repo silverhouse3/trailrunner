@@ -261,6 +261,7 @@ const App = {
     Media.init();
     VoiceCmd.init();
     VoiceCoach.init();
+    if (typeof VoiceCommands !== 'undefined' && VoiceCommands.supported) VoiceCommands.init();
     Streaks.init();
     WorkoutBuilder.seedDefaults();
 

@@ -407,6 +407,24 @@ var TM = {
     // Calories
     if (v.Calories !== undefined) data.calories = parseInt(v.Calories);
 
+    // Distance (from glassos_service gRPC — more accurate than JS estimate)
+    if (v.Distance !== undefined) {
+      var dist = parseFloat(v.Distance);
+      if (dist > 0) data.distanceKm = dist;
+    }
+
+    // Elapsed time (from glassos_service gRPC)
+    if (v.Elapsed !== undefined) {
+      var elapsed = parseInt(v.Elapsed);
+      if (elapsed > 0) data.elapsedSec = elapsed;
+    }
+
+    // Elevation gain (from glassos_service gRPC)
+    if (v.Elevation !== undefined) {
+      var elev = parseFloat(v.Elevation);
+      if (elev > 0) data.elevationGain = elev;
+    }
+
     // Watts
     if (v.Watts !== undefined) {
       var w = parseInt(v.Watts);
