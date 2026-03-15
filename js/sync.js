@@ -186,6 +186,11 @@ const Sync = {
       return false;
     }
 
+    return this._doUpload(run);
+  },
+
+  /** Internal upload — does NOT queue on failure (used by _processQueue to avoid loops) */
+  async _doUpload(run) {
     try {
       // Generate TCX (Strava prefers TCX for treadmill activities with HR data)
       const tcx = GPX.exportTCX({
@@ -275,21 +280,27 @@ const Sync = {
     console.log('[Sync] Run queued, queue size:', queue.length);
   },
 
+  _processingQueue: false,
   async _processQueue() {
+    // Guard against re-entrancy (uploadRun → _queueRun → _processQueue loop)
+    if (this._processingQueue) return;
     const queue = this._queue;
     if (!queue.length) return;
 
+    this._processingQueue = true;
     console.log('[Sync] Processing queue:', queue.length, 'runs');
     const remaining = [];
 
     for (const run of queue) {
-      const ok = await this.uploadRun(run);
+      // Call _doUpload directly (not uploadRun, which re-queues on failure)
+      const ok = await this._doUpload(run);
       if (!ok) remaining.push(run);
       // Small delay between uploads
       await new Promise(r => setTimeout(r, 1000));
     }
 
     this._queue = remaining;
+    this._processingQueue = false;
     if (remaining.length) {
       console.log('[Sync] Queue still has', remaining.length, 'runs pending');
     } else {

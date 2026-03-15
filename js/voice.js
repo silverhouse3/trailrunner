@@ -323,9 +323,14 @@ const VoiceCmd = {
 
   // ── Audio feedback ────────────────────────────────────────────────────────
 
+  _audioCtx: null,
   _playTone(freq, durationMs) {
     try {
-      var ctx = new (window.AudioContext || window.webkitAudioContext)();
+      // Reuse a single AudioContext to avoid Chrome's 6-context limit
+      if (!this._audioCtx || this._audioCtx.state === 'closed') {
+        this._audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      var ctx = this._audioCtx;
       var osc = ctx.createOscillator();
       var gain = ctx.createGain();
       osc.connect(gain);

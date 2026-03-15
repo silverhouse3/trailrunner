@@ -104,6 +104,8 @@ const Engine = {
       splits: [],
       _lastSplitKm: 0,
       _lastSplitElapsed: 0,
+      _splitHRSum: 0,
+      _splitHRSamples: 0,
 
       // Averages
       _hrSum: 0,
@@ -480,6 +482,8 @@ const Engine = {
     if (this.run.hr > 0) {
       this.run._hrSum += this.run.hr;
       this.run._hrSamples++;
+      this.run._splitHRSum += this.run.hr;
+      this.run._splitHRSamples++;
     }
 
     // ── Speed stats ──────────────────────────────────────────────────────
@@ -619,8 +623,9 @@ const Engine = {
     if (currentKm > this.run._lastSplitKm && currentKm > 0) {
       for (let k = this.run._lastSplitKm + 1; k <= currentKm; k++) {
         const splitElapsed = this.run.elapsed - this.run._lastSplitElapsed;
-        const avgHR = this.run._hrSamples > 0
-          ? Math.round(this.run._hrSum / this.run._hrSamples)
+        // Use per-split HR average (not cumulative run average)
+        const avgHR = this.run._splitHRSamples > 0
+          ? Math.round(this.run._splitHRSum / this.run._splitHRSamples)
           : 0;
         const paceSecPerKm = Math.round(splitElapsed);
 
@@ -633,6 +638,9 @@ const Engine = {
         });
 
         this.run._lastSplitElapsed = this.run.elapsed;
+        // Reset per-split HR counters for next split
+        this.run._splitHRSum = 0;
+        this.run._splitHRSamples = 0;
 
         // Notify UI
         if (this.onSplit) this.onSplit(k, splitElapsed, paceSecPerKm, avgHR);

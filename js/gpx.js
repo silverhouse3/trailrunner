@@ -134,6 +134,8 @@ const GPX = {
     xml += '    <trkseg>\n';
 
     pts.forEach(p => {
+      // Skip points with no GPS coordinates (free runs without a route)
+      if (p.lat == null || p.lon == null) return;
       xml += '      <trkpt lat="' + p.lat.toFixed(6) + '" lon="' + p.lon.toFixed(6) + '">\n';
       if (p.ele != null) xml += '        <ele>' + p.ele.toFixed(1) + '</ele>\n';
       if (p.time) xml += '        <time>' + p.time + '</time>\n';

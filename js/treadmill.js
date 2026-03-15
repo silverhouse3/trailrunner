@@ -43,6 +43,12 @@ var TM = {
 
   connect: function(customPort) {
     if (this.connected || this._connecting) {
+      // SAFETY: Don't disconnect if a workout is running — prevents accidental
+      // disconnection from double-tap or race condition mid-run
+      if (this._expectRunning || this.workoutState === 'RUNNING') {
+        console.warn('[TM] Ignoring disconnect — workout is running');
+        return;
+      }
       this.disconnect();
       return;
     }
@@ -263,10 +269,12 @@ var TM = {
             console.warn('[TM] Watchdog: gRPC disconnected — bridge may need restart');
           }
           // Workout state recovery: if app thinks workout should be running
-          // but bridge says IDLE, auto-restart the workout
+          // but bridge says IDLE, WARN but do NOT auto-restart.
+          // SAFETY: auto-restart could spin the belt if user fell off.
           if (self._expectRunning && data.workoutState === 'IDLE') {
-            console.warn('[TM] Watchdog: workout dropped to IDLE — auto-restarting');
-            self.startWorkout();
+            console.warn('[TM] Watchdog: workout dropped to IDLE — flagging for user');
+            self._expectRunning = false;
+            if (self.onWorkoutDropped) self.onWorkoutDropped();
           }
         })
         .catch(function() {
@@ -438,9 +446,12 @@ var TM = {
 
   /** Set belt speed (km/h). Rate-limited unless force=true (safety stops). */
   setSpeed: function(kmh, force) {
+    if (this._estopActive) return; // SAFETY: e-stop blocks all speed commands
     if (!this.connected) return;
     var kph = +(+kmh).toFixed(1);
     if (isNaN(kph)) return;
+    // SAFETY: hard clamp to machine maximum (X32i: 0–22 kph)
+    kph = Math.max(0, Math.min(22, kph));
     if (!force) {
       if (Math.abs(kph - this._lastSpeed) < 0.15) return;
       var now = Date.now();
@@ -454,6 +465,7 @@ var TM = {
 
   /** Set ramp incline (%). Rate-limited unless force=true (safety returns). */
   setIncline: function(pct, force) {
+    if (this._estopActive) return; // SAFETY: e-stop blocks all incline commands
     if (!this.connected) return;
     if (isNaN(pct)) return;
     var clamped = Math.max(-6, Math.min(40, pct));
@@ -478,16 +490,35 @@ var TM = {
     this._send({ values: { 'Fan Speed': r }, type: 'set' });
   },
 
-  /** Emergency stop — bypass rate limiter, immediately set speed to 0. */
+  /** Emergency stop — immediately set speed to 0, block further motor commands.
+   *  SAFETY: Speed goes to 0 FIRST (immediate danger), then incline after 500ms.
+   *  The _estopActive flag prevents any other code from sending speed/incline
+   *  commands until the user explicitly resumes or starts a new workout. */
+  _estopActive: false,
   emergencyStop: function() {
+    this._estopActive = true;
+    this._expectRunning = false;
+    // PRIORITY 1: Stop the belt immediately
     this._lastSpeed = 0;
     this._lastSpeedT = 0;
     this._send({ values: { KPH: 0 }, type: 'set' });
-    // Also flatten incline for safety
-    this._lastIncline = 0;
-    this._lastInclineT = 0;
-    this._send({ values: { Incline: 0 }, type: 'set' });
-    console.warn('[TM] EMERGENCY STOP');
+    // Send speed=0 again for redundancy
+    this._send({ values: { KPH: 0 }, type: 'set' });
+    console.warn('[TM] EMERGENCY STOP — belt speed zeroed');
+    // PRIORITY 2: Flatten incline after a short delay (belt stop is more urgent)
+    var self = this;
+    setTimeout(function() {
+      self._lastIncline = 0;
+      self._lastInclineT = 0;
+      self._send({ values: { Incline: 0 }, type: 'set' });
+      console.warn('[TM] EMERGENCY STOP — incline zeroed');
+    }, 500);
+    // Also send the workout stop command
+    this._send({ type: 'workout', action: 'stop' });
+  },
+  /** Clear e-stop flag — called when user explicitly starts a new workout */
+  clearEstop: function() {
+    this._estopActive = false;
   },
 
   // ── Workout lifecycle (gRPC via bridge) ────────────────────────────────

@@ -358,6 +358,8 @@ const App = {
 
   startRun() {
     document.getElementById('setupOverlay').style.display = 'none';
+    // Clear e-stop flag — user is explicitly starting a new run
+    TM.clearEstop();
     // Connect + start workout (user-initiated, safe to start belt)
     this._autoConnectBridge(true);
     Engine.startRun();
@@ -405,15 +407,22 @@ const App = {
       }
       return;
     }
-    // Save a callback so we optionally start the workout once connected
-    var origOnConnect = TM.onConnect;
-    TM.onConnect = function(port) {
-      if (origOnConnect) origOnConnect(port);
-      if (startWorkout && TM.workoutState === 'IDLE') {
-        console.log('[App] Auto-starting workout on bridge');
-        TM.startWorkout();
-      }
-    };
+    // Store the flag — onConnect handler checks it (no closure chain buildup)
+    this._pendingStartWorkout = startWorkout;
+    // Set onConnect only once (to the base handler + start-workout check)
+    if (!this._connectHandlerSet) {
+      this._connectHandlerSet = true;
+      var baseOnConnect = TM.onConnect;
+      var self = this;
+      TM.onConnect = function(port) {
+        if (baseOnConnect) baseOnConnect(port);
+        if (self._pendingStartWorkout && TM.workoutState === 'IDLE') {
+          console.log('[App] Auto-starting workout on bridge');
+          TM.startWorkout();
+        }
+        self._pendingStartWorkout = false;
+      };
+    }
     var settings = Store.getSettings();
     TM.connect(settings.wsPort);
   },
@@ -596,8 +605,9 @@ const App = {
   // ════════════════════════════════════════════════════════════════════════════
 
   emergencyStop() {
-    // Cancel any graceful ramp-down first — prevents it from fighting the stop
+    // SAFETY: Cancel ANY in-progress ramp FIRST — prevents it from fighting the stop
     if (Engine._decelTimer) { clearInterval(Engine._decelTimer); Engine._decelTimer = null; }
+    // Fire the emergency stop (sets _estopActive flag, blocks further motor commands)
     TM.emergencyStop();
     if (Engine.run && Engine.run.status === 'running') {
       Engine.pauseRun();
