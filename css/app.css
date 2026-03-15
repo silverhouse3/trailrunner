@@ -490,7 +490,7 @@ body { color: var(--text); font-family: 'Rajdhani', sans-serif; user-select: non
   display: flex; align-items: center; justify-content: center;
   opacity: 0; pointer-events: none; transition: opacity .3s; }
 .wb-overlay.show { opacity: 1; pointer-events: all; }
-.wb-panel { width: 680px; max-height: 90vh; background: #0f1d33; border-radius: 12px;
+.wb-panel { width: 780px; max-height: 600px; background: #0f1d33; border-radius: 12px;
   border: 1px solid #1e3050; overflow-y: auto; }
 .wb-content { padding: 16px; }
 .wb-header { display: flex; align-items: center; justify-content: space-between;
