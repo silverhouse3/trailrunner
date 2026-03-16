@@ -125,6 +125,15 @@ const UI = {
       // Zone cursor on gradient bar
       const pct = r.hr > 0 ? Math.max(0, Math.min(100, ((r.hr / r.maxHR) - 0.5) / 0.5 * 100)) : 0;
       css('zCur', 'left', pct.toFixed(1) + '%');
+
+      // Ambient HR zone glow — subtle colored border on root during workout
+      var rootEl = document.getElementById('rootApp');
+      if (rootEl && r.status === 'running') {
+        rootEl.style.boxShadow = 'inset 0 0 60px -20px ' + z.color + '33';
+      }
+    } else {
+      var rootEl2 = document.getElementById('rootApp');
+      if (rootEl2) rootEl2.style.boxShadow = 'none';
     }
 
     // ── Incline ──────────────────────────────────────────────────────────

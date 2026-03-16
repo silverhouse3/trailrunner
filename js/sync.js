@@ -384,6 +384,8 @@ const Sync = {
       calories: run.calories || 0,
       elevation_gain_m: run.elevGained || run.elevGain || 0,
       splits_count: run.splits ? run.splits.length : 0,
+      effort_score: run.effortScore || 0,
+      hr_zone_minutes: run.hrZoneMinutes || null,
     };
 
     try {
