@@ -303,6 +303,10 @@ window.VoiceCommands = (function() {
       speakEfficiency();
       return;
     }
+    if (matches(text, ['stride', 'stride length', 'how long is my stride'])) {
+      speakStride();
+      return;
+    }
 
     // ── Workout programme control ──
     if (matches(text, ['next', 'next segment', 'skip', 'skip segment'])) {
@@ -709,6 +713,27 @@ window.VoiceCommands = (function() {
     // EF of 0.06-0.08 is typical for recreational runners
     var efRating = ef > 0.08 ? 'excellent' : ef > 0.065 ? 'good' : ef > 0.05 ? 'average' : 'developing';
     speak('Efficiency factor: ' + (ef * 100).toFixed(1) + '. Rated ' + efRating + '.');
+  }
+
+  function speakStride() {
+    if (typeof Engine === 'undefined' || !Engine.run) {
+      speak('No active run');
+      return;
+    }
+    var stride = Engine.run.strideLength || 0;
+    var avgStride = Engine.getAvgStride();
+    if (stride <= 0) {
+      speak('Stride length data not available yet.');
+      return;
+    }
+    var msg = 'Current stride length: ' + stride.toFixed(2) + ' metres.';
+    if (avgStride > 0) {
+      msg += ' Average: ' + avgStride + ' metres.';
+      // Typical stride: 0.7-0.9m walking, 1.0-1.5m jogging, 1.5-2.0m running
+      var rating = avgStride >= 1.5 ? 'Strong stride' : avgStride >= 1.1 ? 'Good stride length' : 'Short stride, try increasing cadence';
+      msg += ' ' + rating + '.';
+    }
+    speak(msg);
   }
 
   function updateMicIcon(active) {

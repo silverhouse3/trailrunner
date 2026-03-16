@@ -179,8 +179,9 @@ const UI = {
     set('eleUnit', this.elevLabel());
     set('eleGain', '+' + this.convElev(r.elevGained) + this.elevLabel());
 
-    // ── Cadence ──────────────────────────────────────────────────────────
+    // ── Cadence + Stride ──────────────────────────────────────────────────
     set('cadVal', r.cadence > 0 ? r.cadence : '—');
+    set('strideVal', r.strideLength > 0 ? (r.strideLength.toFixed(2) + 'm stride') : '');
 
     // ── Power ───────────────────────────────────────────────────────────
     set('powerVal', r.power > 0 ? r.power : '—');

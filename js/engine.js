@@ -88,6 +88,7 @@ const Engine = {
       incline: 0,            // current incline %
       calories: 0,
       cadence: 0,
+      strideLength: 0,     // metres per stride
 
       // Route tracking
       routeProgress: 0,      // 0 → 1
@@ -130,6 +131,8 @@ const Engine = {
       _powerSum: 0,
       _powerSamples: 0,
       _powerMax: 0,
+      _strideSum: 0,
+      _strideSamples: 0,
 
       // Negative split tracking
       _consecutiveNegSplits: 0,
@@ -277,6 +280,7 @@ const Engine = {
       efficiencyFactor: r._efSamples.length > 0
         ? +(r._efSamples.reduce(function(a, b) { return a + b.ef; }, 0) / r._efSamples.length).toFixed(4)
         : null,
+      avgStride: r._strideSamples > 0 ? +(r._strideSum / r._strideSamples).toFixed(3) : null,
     };
 
     const saved = Store.saveRun(summary);
@@ -689,6 +693,16 @@ const Engine = {
       this.run.cadenceSource = null;
     }
 
+    // ── Stride length (m) from speed and cadence ───────────────────────
+    if (this.run.cadence > 0 && this.run.speed > 0) {
+      // stride_m = (speed_kmh * 1000/60) / cadence_spm
+      this.run.strideLength = (this.run.speed * 1000 / 60) / this.run.cadence;
+      this.run._strideSum += this.run.strideLength;
+      this.run._strideSamples++;
+    } else {
+      this.run.strideLength = 0;
+    }
+
     // ── Calorie estimate (if treadmill doesn't send calories) ────────────
     if (this.run.speedSource !== 'treadmill' || this.run.calories === 0) {
       // MET-based estimate: MET ≈ 1.0 + 0.17 × speed(km/h) + 0.1 × incline(%)
@@ -826,6 +840,9 @@ const Engine = {
         // Average power for this split
         var splitAvgPower = this.run._powerSamples > 0
           ? Math.round(this.run._powerSum / this.run._powerSamples) : 0;
+        // Average stride for this split
+        var splitAvgStride = this.run._strideSamples > 0
+          ? +(this.run._strideSum / this.run._strideSamples).toFixed(2) : 0;
 
         this.run.splits.push({
           km: k,
@@ -833,6 +850,7 @@ const Engine = {
           paceSecPerKm,
           avgHR,
           avgPower: splitAvgPower,
+          avgStride: splitAvgStride,
           elapsed: Math.round(this.run.elapsed),
           negativeSplit: isNegativeSplit,
         });
@@ -951,6 +969,12 @@ const Engine = {
   getAvgPower() {
     if (!this.run || this.run._powerSamples === 0) return 0;
     return Math.round(this.run._powerSum / this.run._powerSamples);
+  },
+
+  /** Get average stride length for the run so far (metres). */
+  getAvgStride() {
+    if (!this.run || this.run._strideSamples === 0) return 0;
+    return +(this.run._strideSum / this.run._strideSamples).toFixed(2);
   },
 
   /** Get effort color for display. */

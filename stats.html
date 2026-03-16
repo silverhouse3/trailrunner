@@ -1237,10 +1237,11 @@ a:hover { text-decoration: underline; }
         var paceStr = paceM + ':' + (paceS < 10 ? '0' : '') + paceS;
         var hrStr = sp.avgHR > 0 ? ' | ' + sp.avgHR + ' bpm' : '';
         var powerStr = sp.avgPower > 0 ? ' | ' + sp.avgPower + 'W' : '';
+        var strideStr = sp.avgStride > 0 ? ' | ' + sp.avgStride + 'm' : '';
         var negIcon = sp.negativeSplit ? ' <span style="color:var(--green)" title="Negative split">&#x2935;</span>' : '';
         html += '<div class="detail-split-row">' +
           '<span class="detail-split-km">km ' + sp.km + negIcon + '</span>' +
-          '<span class="detail-split-pace">' + paceStr + '/km' + hrStr + powerStr + '</span></div>';
+          '<span class="detail-split-pace">' + paceStr + '/km' + hrStr + powerStr + strideStr + '</span></div>';
       }
     } else {
       html += '<div style="color:var(--dim)">No split data</div>';
