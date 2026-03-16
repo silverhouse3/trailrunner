@@ -430,4 +430,15 @@ var FUN_FACTS = [
   { km: 7.28, text: "7.28km! The distance from 'I fancy a nice walk' to 'we should have brought waterproofs' in the Lake District." },
   { km: 8.28, text: "8.28km — the average distance between a British person and their nearest cup of tea." },
   { km: 9.28, text: "9.28km! The distance from thinking about the gym to actually going. You skipped the middleman. Legend." },
+
+  // ── Running science themed ──────────────────────────────────────────
+
+  { km: 1.8, text: "1.8km! At 180 steps per minute, that's about 3,240 steps. Your ground contact time per step is ~250ms. Your feet spent about 13.5 minutes on the ground and 4.5 minutes airborne. You're 25% bird." },
+  { km: 3.3, text: "3.3km! Your heart has beaten approximately 4,000 extra times to get here. Each beat sends about 70ml of blood — that's 280 litres of extra blood flow. Your heart is basically a fire hose." },
+  { km: 5.5, text: "5.5km! Your efficiency factor is being calculated. Elite runners can sustain an EF above 1.8 for an hour. If your EF is below 1.2, your body is basically using a diesel engine to power a bicycle." },
+  { km: 7.7, text: "7.7km! Your cardiac drift should be kicking in around now. When your heart rate creeps up despite constant speed, it means your blood is getting thicker. Drink water, you magnificent dehydrating gazelle." },
+  { km: 2.72, text: "2.72km! That's e kilometres — Euler's number. Your running power in watts approximately equals your mass times speed times 0.98. Math never lies; your legs might." },
+  { km: 4.44, text: "4.44km! By now your stride length has stabilised. The ideal cadence is 180 spm, which gives about a 1.1m stride at 12 km/h. If your stride is under 0.8m, you're technically shuffling." },
+  { km: 8.85, text: "8.85km! Your vertical oscillation — the bouncing — should be under 10cm for good form. If it's over 12cm, you're basically doing hurdles. On a treadmill. With no hurdles." },
+  { km: 6.45, text: "6.45km! Fun fact: your body has produced enough heat to boil about half a litre of water. You're a running kettle. Please don't whistle." },
 ];
