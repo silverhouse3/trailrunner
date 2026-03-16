@@ -493,10 +493,19 @@ const App = {
     this._exitFocusMode();
     VoiceCmd.stopListening();
     if (WorkoutSegments.active) WorkoutSegments.abort();
-    // Announce effort score after a brief pause (let "workout complete" play first)
+    // Announce effort score and PB after a brief pause
     var effortScore = Engine.getEffortScore();
     if (effortScore > 0) {
       setTimeout(function() { VoiceCoach.announceEffortScore(effortScore); }, 3000);
+    }
+    // Check for personal best
+    var route = Engine.route;
+    if (route && route.bestTime && Engine.run && Engine.run.elapsed <= route.bestTime) {
+      setTimeout(function() {
+        if (typeof VoiceCoach !== 'undefined') {
+          VoiceCoach.say('Personal best! Great run!', 'high');
+        }
+      }, 5000);
     }
   },
 

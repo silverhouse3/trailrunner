@@ -416,6 +416,23 @@ const UI = {
       effortLabelEl.textContent = Engine.getEffortLabel(effortScore);
     }
 
+    // Personal best indicator
+    var pbEl = document.getElementById('fPB');
+    if (pbEl) {
+      var route = Engine.route;
+      if (route && route.bestTime && r.elapsed <= route.bestTime) {
+        pbEl.textContent = '🏆 PERSONAL BEST!';
+        pbEl.style.display = '';
+      } else if (route && route.bestTime) {
+        var diff = r.elapsed - route.bestTime;
+        pbEl.textContent = '+' + Engine.fmtTime(diff) + ' from PB (' + Engine.fmtTime(route.bestTime) + ')';
+        pbEl.style.display = '';
+        pbEl.style.color = 'var(--dim)';
+      } else {
+        pbEl.style.display = 'none';
+      }
+    }
+
     document.getElementById('finishOverlay').classList.add('show');
   },
 
