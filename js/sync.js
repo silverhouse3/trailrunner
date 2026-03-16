@@ -213,7 +213,24 @@ const Sync = {
       formData.append('file', blob, 'trailrunner-' + run.id + '.tcx');
       formData.append('data_type', 'tcx');
       formData.append('name', (run.routeName || 'Treadmill Run') + ' — TrailRunner');
-      formData.append('description', 'Auto-synced from TrailRunner on NordicTrack X32i');
+      // Build rich description with workout stats
+      var desc = 'Auto-synced from TrailRunner on NordicTrack X32i\n';
+      if (run.avgSpeed) desc += 'Avg Speed: ' + run.avgSpeed.toFixed(1) + ' kph\n';
+      if (run.maxSpeed) desc += 'Max Speed: ' + run.maxSpeed.toFixed(1) + ' kph\n';
+      if (run.elevGained) desc += 'Elevation: +' + Math.round(run.elevGained) + 'm\n';
+      if (run.effortScore) {
+        var efLabel = typeof Engine !== 'undefined' ? Engine.getEffortLabel(run.effortScore) : '';
+        desc += 'Effort (TRIMP): ' + run.effortScore + (efLabel ? ' (' + efLabel + ')' : '') + '\n';
+      }
+      if (run.splits && run.splits.length) {
+        desc += '\nSplits:\n';
+        run.splits.forEach(function(s) {
+          var min = Math.floor(s.timeSec / 60);
+          var sec = s.timeSec % 60;
+          desc += 'Km ' + s.km + ': ' + min + ':' + String(sec).padStart(2, '0') + '\n';
+        });
+      }
+      formData.append('description', desc.trim());
       formData.append('trainer', '1'); // Mark as indoor/treadmill
       formData.append('activity_type', 'run');
 
