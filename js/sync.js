@@ -231,6 +231,11 @@ const Sync = {
         var driftLabel = run.cardiacDrift < 2 ? 'Stable' : run.cardiacDrift < 5 ? 'Minor' : run.cardiacDrift < 10 ? 'Moderate' : 'Significant';
         desc += 'Cardiac Drift: ' + run.cardiacDrift + '% (' + driftLabel + ')\n';
       }
+      if (run.efficiencyFactor) {
+        var efLabel = run.efficiencyFactor >= 1.8 ? 'Excellent' : run.efficiencyFactor >= 1.5 ? 'Good' : run.efficiencyFactor >= 1.2 ? 'Average' : 'Developing';
+        desc += 'Efficiency Factor: ' + run.efficiencyFactor.toFixed(2) + ' (' + efLabel + ')\n';
+      }
+      if (run.avgStride) desc += 'Avg Stride: ' + run.avgStride + 'm\n';
       if (run.splits && run.splits.length) {
         desc += '\nSplits:\n';
         run.splits.forEach(function(s) {
@@ -418,6 +423,7 @@ const Sync = {
       negative_splits: run.negativeSplits || 0,
       cardiac_drift_pct: run.cardiacDrift || 0,
       efficiency_factor: run.efficiencyFactor || 0,
+      avg_stride_m: run.avgStride || 0,
       hr_zone_minutes: run.hrZoneMinutes || null,
     };
 
