@@ -4,3 +4,37 @@ Thumbs.db
 node_modules/
 .env
 .env.local
+
+# Build artifacts
+twa-build/.gradle/
+twa-build/app/build/
+twa-build/jdk-*/
+twa-build/sdk/
+twa-build/keystore/
+
+# Android SDK/tools (large binaries)
+android-sdk/
+tools/platform-tools/
+tools/TrailRunner.apk
+tools/trailrunner-bridge
+tools/valinor_logs/
+tools/backup_*.txt
+
+# Bridge (binaries, build artifacts, protos)
+bridge/grpc-bridge/trailrunner-bridge
+bridge/grpc-bridge/trailrunner-bridge-amd64
+bridge/package-lock.json
+bridge/apk/build/
+bridge/protos/
+
+# Test output
+test-results/
+tests/screenshots/
+tests/overnight-results*
+
+# Screenshots/design assets (not source)
+*.png
+!design/*.png
+
+# Probe session data
+probe/
