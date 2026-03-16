@@ -307,6 +307,10 @@ window.VoiceCommands = (function() {
       speakStride();
       return;
     }
+    if (matches(text, ['dynamics', 'running dynamics', 'form', 'running form', 'ground contact'])) {
+      speakDynamics();
+      return;
+    }
 
     // ── Workout programme control ──
     if (matches(text, ['next', 'next segment', 'skip', 'skip segment'])) {
@@ -713,6 +717,33 @@ window.VoiceCommands = (function() {
     // EF of 0.06-0.08 is typical for recreational runners
     var efRating = ef > 0.08 ? 'excellent' : ef > 0.065 ? 'good' : ef > 0.05 ? 'average' : 'developing';
     speak('Efficiency factor: ' + (ef * 100).toFixed(1) + '. Rated ' + efRating + '.');
+  }
+
+  function speakDynamics() {
+    if (typeof Engine === 'undefined' || !Engine.run) {
+      speak('No active run');
+      return;
+    }
+    var parts = [];
+    if (Engine.run.cadence > 0) {
+      parts.push('Cadence: ' + Engine.run.cadence + ' steps per minute');
+    }
+    if (Engine.run.strideLength > 0) {
+      parts.push('Stride: ' + Engine.run.strideLength.toFixed(2) + ' metres');
+    }
+    if (Engine.run.gct > 0) {
+      parts.push('Ground contact: ' + Engine.run.gct + ' milliseconds');
+      var gctRating = Engine.run.gct < 250 ? 'elite' : Engine.run.gct < 280 ? 'excellent' : Engine.run.gct < 310 ? 'good' : 'could improve';
+      parts.push(gctRating);
+    }
+    if (Engine.run.vertOsc > 0) {
+      parts.push('Vertical oscillation: ' + Engine.run.vertOsc + ' centimetres');
+    }
+    if (parts.length === 0) {
+      speak('Running dynamics not available yet. Keep running!');
+    } else {
+      speak(parts.join('. ') + '.');
+    }
   }
 
   function speakStride() {

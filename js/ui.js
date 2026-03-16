@@ -179,9 +179,13 @@ const UI = {
     set('eleUnit', this.elevLabel());
     set('eleGain', '+' + this.convElev(r.elevGained) + this.elevLabel());
 
-    // ── Cadence + Stride ──────────────────────────────────────────────────
+    // ── Cadence + Running Dynamics ─────────────────────────────────────
     set('cadVal', r.cadence > 0 ? r.cadence : '—');
-    set('strideVal', r.strideLength > 0 ? (r.strideLength.toFixed(2) + 'm stride') : '');
+    var dynParts = [];
+    if (r.strideLength > 0) dynParts.push(r.strideLength.toFixed(2) + 'm');
+    if (r.gct > 0) dynParts.push(r.gct + 'ms');
+    if (r.vertOsc > 0) dynParts.push(r.vertOsc + 'cm');
+    set('strideVal', dynParts.join(' · '));
 
     // ── Power ───────────────────────────────────────────────────────────
     set('powerVal', r.power > 0 ? r.power : '—');

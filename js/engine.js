@@ -89,6 +89,8 @@ const Engine = {
       calories: 0,
       cadence: 0,
       strideLength: 0,     // metres per stride
+      gct: 0,              // ground contact time (ms)
+      vertOsc: 0,          // vertical oscillation (cm)
 
       // Route tracking
       routeProgress: 0,      // 0 → 1
@@ -701,6 +703,22 @@ const Engine = {
       this.run._strideSamples++;
     } else {
       this.run.strideLength = 0;
+    }
+
+    // ── Ground Contact Time estimate (ms) ────────────────────────────
+    // Based on cadence/speed research: GCT ≈ step_period - flight_time
+    // step_period = 60000/cadence (ms per step)
+    // Flight ratio increases with speed: ~0.35 at 6 kph → ~0.55 at 16 kph
+    if (this.run.cadence > 0 && this.run.speed > 1) {
+      var stepPeriod = 60000 / this.run.cadence; // ms per step
+      var flightRatio = Math.min(0.55, Math.max(0.25, 0.25 + (this.run.speed - 4) * 0.025));
+      this.run.gct = Math.round(stepPeriod * (1 - flightRatio));
+      // Vertical oscillation (cm) — estimated from GCT
+      // Elite ~6-8cm, recreational ~8-12cm
+      this.run.vertOsc = Math.max(4, +(6 + (this.run.gct - 200) * 0.04).toFixed(1));
+    } else {
+      this.run.gct = 0;
+      this.run.vertOsc = 0;
     }
 
     // ── Calorie estimate (if treadmill doesn't send calories) ────────────
