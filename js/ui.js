@@ -156,10 +156,20 @@ const UI = {
     set('distVal', this.convDist(distKm));
     set('distUnit', this.distLabel());
 
-    // Remaining (if on route)
+    // Remaining + ETA (if on route)
     if (Engine.hasRoute()) {
       const remKm = Math.max(0, Engine.route.totalDistKm - distKm);
-      set('distRem', this.convDist(remKm) + ' ' + this.distLabel() + ' left');
+      var remText = this.convDist(remKm) + ' ' + this.distLabel() + ' left';
+      // Append ETA if we have enough progress
+      if (r.routeProgress > 0.02 && r.elapsed > 10) {
+        var etaSec = Math.round((r.elapsed / r.routeProgress) - r.elapsed);
+        if (etaSec > 0 && etaSec < 36000) {
+          var etaM = Math.floor(etaSec / 60);
+          var etaS = etaSec % 60;
+          remText += ' · ~' + etaM + ':' + String(etaS).padStart(2, '0') + ' to go';
+        }
+      }
+      set('distRem', remText);
     } else {
       set('distRem', '');
     }

@@ -708,6 +708,35 @@ const App = {
     this._downloadFile(xml, 'trailrunner-' + Date.now() + '.tcx', 'application/vnd.garmin.tcx+xml');
   },
 
+  shareRunSummary(btn) {
+    if (!Engine.run) return;
+    var r = Engine.run;
+    var lines = [];
+    lines.push((r.routeName || 'Free Run') + ' — TrailRunner');
+    lines.push('Time: ' + Engine.fmtTime(r.elapsed));
+    lines.push('Distance: ' + (r.distanceM / 1000).toFixed(2) + ' km');
+    var avgSpd = r._speedSamples > 0 ? (r._speedSum / r._speedSamples).toFixed(1) : '0';
+    lines.push('Avg Speed: ' + avgSpd + ' kph');
+    var avgHR = Engine.getAvgHR();
+    if (avgHR > 0) lines.push('Avg HR: ' + avgHR + ' bpm');
+    lines.push('Calories: ' + Math.round(r.calories));
+    if (r.elevGained > 0) lines.push('Elevation: +' + Math.round(r.elevGained) + 'm');
+    var effort = Math.round(r._trimp || 0);
+    if (effort > 0) lines.push('Effort: ' + effort + ' (' + Engine.getEffortLabel(effort) + ')');
+    var text = lines.join('\n');
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function() {
+        if (btn) { var orig = btn.textContent; btn.textContent = 'COPIED!'; setTimeout(function() { btn.textContent = orig; }, 1500); }
+      }).catch(function() {
+        // Fallback for clipboard failures
+        prompt('Copy your run summary:', text);
+      });
+    } else {
+      prompt('Copy your run summary:', text);
+    }
+  },
+
   _updateRunButton() {
     const btn = document.getElementById('runBtn');
     if (!btn || !Engine.run) return;
