@@ -50,15 +50,6 @@ echo.
 
 echo  [1/4] Connecting to treadmill at %IP%:5555 ...
 %ADB% connect %IP%:5555
-if errorlevel 1 (
-    echo.
-    echo   [ERROR] Could not connect.
-    echo   If the treadmill is stuck, do a factory reset instead:
-    echo   Settings, Backup and reset, Factory data reset
-    echo.
-    pause
-    exit /b 1
-)
 echo.
 
 echo  [2/4] Re-enabling iFIT apps...

@@ -15,7 +15,7 @@ set OUTPUT=%~dp0valinor_logs
 REM Find ADB
 set ADB=
 if exist "%~dp0adb.exe" set ADB="%~dp0adb.exe"
-if exist "%~dp0platform-tools\adb.exe" set ADB="%~dp0platform-tools\adb.exe"
+if exist "D:\Nordic\platform-tools\adb.exe" set ADB="D:\Nordic\platform-tools\adb.exe"
 if "%ADB%"=="" (
     where adb.exe >nul 2>&1
     if not errorlevel 1 (

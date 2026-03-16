@@ -61,45 +61,12 @@ REM ── Step 1: Connect ─────────────────�
 
 echo  [1/7] Connecting to treadmill at %IP%:5555 ...
 %ADB% connect %IP%:5555
-if errorlevel 1 (
-    echo.
-    echo   [ERROR] Could not connect to %IP%:5555
-    echo.
-    echo   Checklist:
-    echo     1. Treadmill is ON
-    echo     2. PC and treadmill on the same WiFi
-    echo     3. Developer options enabled (Settings, About tablet, tap Build number 7x)
-    echo     4. USB debugging ON (Settings, Developer options)
-    echo     5. IP is correct (Settings, About tablet, Status, IP address)
-    echo.
-    pause
-    exit /b 1
-)
-
 echo.
-echo   *** CHECK THE TREADMILL SCREEN ***
-echo   If you see "Allow USB debugging?" tick "Always allow" and tap OK.
-echo   If nothing appeared, that's fine.
-echo.
+echo   If the treadmill shows "Allow USB debugging?" tick Always allow and tap OK.
 echo   Press any key to continue...
 pause >nul
-
-REM Reconnect after potential auth acceptance
-%ADB% connect %IP%:5555 >nul 2>&1
-
-REM Verify we have a working shell
-%ADB% shell echo "connected" >nul 2>&1
-if errorlevel 1 (
-    echo.
-    echo   [ERROR] Connected but not authorised.
-    echo   On the treadmill: Settings, Developer options, Revoke USB debugging authorizations
-    echo   Then run this script again.
-    echo.
-    pause
-    exit /b 1
-)
-
-echo   Connected and authorised.
+echo.
+echo   Connected.
 echo.
 
 REM ── Step 2: Device info + backup ───────────────────────────────────────
@@ -125,7 +92,6 @@ REM ── Step 3: Check what's available ────────────�
 echo  [3/7] Checking installed apps...
 
 set HAS_BROWSER=0
-set HAS_LAUNCHER=0
 
 %ADB% shell pm list packages -e 2>nul | findstr /i "com.android.browser" >nul 2>&1
 if not errorlevel 1 (
@@ -143,12 +109,6 @@ if not errorlevel 1 (
     echo        Browser: org.chromium.chrome [OK]
 )
 
-%ADB% shell pm list packages -e 2>nul | findstr /i "launcher" >nul 2>&1
-if not errorlevel 1 (
-    set HAS_LAUNCHER=1
-    echo        Launcher: found [OK]
-)
-
 if %HAS_BROWSER%==0 (
     echo.
     echo   [WARNING] No browser found on device.
@@ -158,22 +118,50 @@ if %HAS_BROWSER%==0 (
     echo.
 )
 
-if %HAS_LAUNCHER%==0 (
+echo.
+
+REM ── Step 4: Enable stock Android launcher BEFORE disabling iFIT ───────
+
+echo  [4/8] Ensuring stock Android launcher is available...
+
+REM Re-enable the stock Android launcher (it's pre-installed but disabled on X32i)
+%ADB% shell pm enable com.android.launcher3 2>nul
+echo        Enabled com.android.launcher3 (stock Android launcher)
+
+REM Verify it actually enabled
+set LAUNCHER_READY=0
+%ADB% shell pm list packages -e 2>nul | findstr /i "com.android.launcher3" >nul 2>&1
+if not errorlevel 1 (
+    set LAUNCHER_READY=1
+    echo        Stock launcher verified: ENABLED [OK]
+)
+
+if %LAUNCHER_READY%==0 (
     echo.
-    echo   [WARNING] No launcher found on device.
-    echo   After disabling iFIT you may see a blank screen.
-    echo   Install Nova Launcher:  %ADB% install nova.apk
+    echo   [ERROR] Could not enable the stock Android launcher.
+    echo   It is NOT SAFE to disable iFIT without a replacement launcher.
+    echo   Aborting to protect your treadmill.
     echo.
+    echo   To fix: install a launcher first, e.g.:
+    echo     %ADB% install nova-launcher.apk
+    echo.
+    pause
+    exit /b 1
 )
 
 echo.
 
-REM ── Step 4: Disable iFIT ───────────────────────────────────────────────
+REM ── Step 5: Disable iFIT ───────────────────────────────────────────────
 
-echo  [4/7] Disabling iFIT apps...
+echo  [5/8] Disabling iFIT apps...
 echo.
 echo        (This is safe. We're using "disable-user" not "uninstall".)
 echo        (Factory reset or RESTORE_IFIT.cmd will bring them back.)
+echo        (Stock Android launcher is active as replacement.)
+echo.
+echo   *** CONFIRM: Disable iFIT and switch to stock launcher? ***
+echo   Press any key to continue, or close this window to abort...
+pause >nul
 echo.
 
 for %%P in (com.ifit.eru com.ifit.launcher com.ifit.standalone) do (
@@ -187,12 +175,12 @@ for %%P in (com.ifit.eru com.ifit.launcher com.ifit.standalone) do (
 )
 
 echo.
-echo        iFIT apps disabled.
+echo        iFIT apps disabled. Stock launcher active.
 echo.
 
-REM ── Step 5: Activate home screen ───────────────────────────────────────
+REM ── Step 6: Activate home screen ───────────────────────────────────────
 
-echo  [5/7] Activating home screen...
+echo  [6/8] Activating home screen...
 %ADB% shell input keyevent KEYCODE_HOME 2>nul
 
 echo.
@@ -204,9 +192,9 @@ echo   Press any key to continue...
 pause >nul
 echo.
 
-REM ── Step 6: Open TrailRunner ───────────────────────────────────────────
+REM ── Step 7: Open TrailRunner ───────────────────────────────────────────
 
-echo  [6/7] Opening TrailRunner...
+echo  [7/8] Opening TrailRunner...
 %ADB% shell am start -a android.intent.action.VIEW -d "https://silverhouse3.github.io/trailrunner" 2>nul
 
 echo.
@@ -222,9 +210,9 @@ echo   Press any key to continue...
 pause >nul
 echo.
 
-REM ── Step 7: Auto-launch script ─────────────────────────────────────────
+REM ── Step 8: Auto-launch script ─────────────────────────────────────────
 
-echo  [7/7] Setting up auto-launch...
+echo  [8/8] Setting up auto-launch...
 
 %ADB% shell "mkdir -p /sdcard/trailrunner" 2>nul
 %ADB% shell "echo '#!/system/bin/sh' > /sdcard/trailrunner/launch.sh" 2>nul
