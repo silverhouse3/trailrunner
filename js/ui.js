@@ -395,6 +395,18 @@ const UI = {
     $('fCal', Math.round(r.calories));
     $('fElev', '+' + this.convElev(r.elevGained) + ' ' + this.elevLabel());
 
+    // Effort score (TRIMP)
+    var effortScore = Engine.getEffortScore();
+    var effortEl = document.getElementById('fEffort');
+    var effortLabelEl = document.getElementById('fEffortLabel');
+    if (effortEl) {
+      effortEl.textContent = effortScore > 0 ? effortScore : '—';
+      effortEl.style.color = Engine.getEffortColor(effortScore);
+    }
+    if (effortLabelEl && effortScore > 0) {
+      effortLabelEl.textContent = Engine.getEffortLabel(effortScore);
+    }
+
     document.getElementById('finishOverlay').classList.add('show');
   },
 

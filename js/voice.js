@@ -700,6 +700,15 @@ var VoiceCoach = {
     this.say(text, 'medium');
   },
 
+  announceEffortScore(score) {
+    if (score <= 0) return;
+    var label = Engine.getEffortLabel(score);
+    var text = 'Effort score: ' + score + '. ' + label + ' workout.';
+    if (score >= 200) text += ' That was a big effort!';
+    else if (score >= 100) text += ' Good work!';
+    this.say(text, 'medium');
+  },
+
   announceDistanceMilestone(distKm) {
     var text;
     if (distKm >= 42.195) text = 'Full marathon distance reached! Incredible!';

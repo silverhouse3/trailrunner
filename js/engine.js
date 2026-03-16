@@ -125,6 +125,12 @@ const Engine = {
       // Resume ramp-up tracking
       _resumeElapsed: null, // elapsed time at last resume (for gentle ramp-up)
 
+      // Effort score (Banister TRIMP — Training Impulse)
+      // Accumulates HR-weighted training load throughout the workout.
+      // Result: 0-50 easy, 50-100 moderate, 100-200 hard, 200+ very hard
+      _trimp: 0,
+      _hrZoneMinutes: { z1: 0, z2: 0, z3: 0, z4: 0, z5: 0 },
+
       // Settings snapshot
       maxHR: settings.maxHR,
       weight: settings.weight,
@@ -228,6 +234,8 @@ const Engine = {
       inclineMax: 0,
       splits: r.splits,
       trackPoints: r.trackPoints,
+      effortScore: Math.round(r._trimp || 0),
+      hrZoneMinutes: r._hrZoneMinutes || null,
     };
 
     const saved = Store.saveRun(summary);
@@ -492,6 +500,21 @@ const Engine = {
       this.run._hrSamples++;
       this.run._splitHRSum += this.run.hr;
       this.run._splitHRSamples++;
+
+      // ── TRIMP accumulation (Banister method) ────────────────────────
+      // TRIMP = duration(min) * HRr * 0.64 * e^(1.92 * HRr)
+      // where HRr = (HR - HRrest) / (HRmax - HRrest)
+      // Sampled every tick (0.25s) → convert to minutes
+      var maxHR = this.run.maxHR || 185;
+      var restHR = Math.round(maxHR * 0.42); // ~65 bpm for 155 maxHR
+      var hrr = Math.max(0, (this.run.hr - restHR) / (maxHR - restHR));
+      var tickMin = this.TICK_MS / 60000;
+      this.run._trimp += tickMin * hrr * 0.64 * Math.exp(1.92 * hrr);
+
+      // HR zone time tracking
+      var hrPct = this.run.hr / maxHR;
+      var zone = hrPct < 0.6 ? 'z1' : hrPct < 0.7 ? 'z2' : hrPct < 0.8 ? 'z3' : hrPct < 0.9 ? 'z4' : 'z5';
+      this.run._hrZoneMinutes[zone] += tickMin;
     }
 
     // ── Speed stats ──────────────────────────────────────────────────────
@@ -731,6 +754,34 @@ const Engine = {
   getAvgSpeed() {
     if (!this.run || this.run._speedSamples === 0) return 0;
     return +(this.run._speedSum / this.run._speedSamples).toFixed(1);
+  },
+
+  /** Get effort score (TRIMP) for the current run. */
+  getEffortScore() {
+    if (!this.run) return 0;
+    return Math.round(this.run._trimp || 0);
+  },
+
+  /** Get effort level label from TRIMP score. */
+  getEffortLabel(score) {
+    if (score === undefined) score = this.getEffortScore();
+    if (score < 25) return 'Recovery';
+    if (score < 75) return 'Easy';
+    if (score < 150) return 'Moderate';
+    if (score < 250) return 'Hard';
+    if (score < 400) return 'Very Hard';
+    return 'Extreme';
+  },
+
+  /** Get effort color for display. */
+  getEffortColor(score) {
+    if (score === undefined) score = this.getEffortScore();
+    if (score < 25) return '#6b7280';
+    if (score < 75) return '#22c55e';
+    if (score < 150) return '#3ecfff';
+    if (score < 250) return '#ffab00';
+    if (score < 400) return '#f97316';
+    return '#ff3d57';
   },
 
   /** Get interpolated lat/lon at current route position. */

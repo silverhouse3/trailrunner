@@ -481,6 +481,11 @@ const App = {
     this._exitFocusMode();
     VoiceCmd.stopListening();
     if (WorkoutSegments.active) WorkoutSegments.abort();
+    // Announce effort score after a brief pause (let "workout complete" play first)
+    var effortScore = Engine.getEffortScore();
+    if (effortScore > 0) {
+      setTimeout(function() { VoiceCoach.announceEffortScore(effortScore); }, 3000);
+    }
   },
 
   // ════════════════════════════════════════════════════════════════════════════

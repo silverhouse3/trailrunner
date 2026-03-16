@@ -127,7 +127,7 @@ a:hover { text-decoration: underline; }
   <div class="chart-title">RECENT RUNS</div>
   <table class="history-table" id="historyTable">
     <thead><tr>
-      <th>DATE</th><th>DISTANCE</th><th>TIME</th><th>AVG SPEED</th><th>TOP SPEED</th><th>AVG HR</th><th>CALORIES</th><th>SYNC</th>
+      <th>DATE</th><th>DISTANCE</th><th>TIME</th><th>AVG SPEED</th><th>TOP SPEED</th><th>AVG HR</th><th>EFFORT</th><th>CALORIES</th><th>SYNC</th>
     </tr></thead>
     <tbody id="historyBody"></tbody>
   </table>
@@ -146,6 +146,7 @@ a:hover { text-decoration: underline; }
   }
 
   function fmt(n, d) { return n != null ? n.toFixed(d || 0) : '—'; }
+  function effortColor(s) { return s < 25 ? '#6b7280' : s < 75 ? '#22c55e' : s < 150 ? '#3ecfff' : s < 250 ? '#ffab00' : s < 400 ? '#f97316' : '#ff3d57'; }
   function fmtTime(s) {
     if (!s) return '—';
     var h = Math.floor(s / 3600);
@@ -461,12 +462,13 @@ a:hover { text-decoration: underline; }
       '<td>' + fmt(r.avgSpeed, 1) + '</td>' +
       '<td>' + (ms > 0 ? fmt(ms, 1) : '—') + '</td>' +
       '<td>' + (hr > 0 ? fmt(hr) : '—') + '</td>' +
+      '<td>' + (r.effortScore > 0 ? '<span style="color:' + effortColor(r.effortScore) + '">' + r.effortScore + '</span>' : '—') + '</td>' +
       '<td>' + fmt(r.calories) + '</td>' +
       '<td>' + (synced ? '<span class="synced">Strava</span>' : '<span class="not-synced">—</span>') + '</td></tr>';
   });
 
   if (runs.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--dim);padding:32px">No runs recorded yet. Complete a workout to see your stats here.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--dim);padding:32px">No runs recorded yet. Complete a workout to see your stats here.</td></tr>';
   }
 })();
 </script>
