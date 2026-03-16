@@ -398,6 +398,16 @@ const App = {
     if (Engine.route && Engine.route.id) {
       var pastRuns = Store.getRunsForRoute(Engine.route.id);
       MilestoneTracker._lastRunSplits = (pastRuns.length > 0 && pastRuns[0].splits) ? pastRuns[0].splits : null;
+    } else if (Engine.run && Engine.run.routeName && Engine.run.routeName !== 'Free Run') {
+      // Workout-based comparison: find last run with same workout name
+      var allRuns = Store.getRuns();
+      var wkName = Engine.run.routeName;
+      for (var wi = 0; wi < allRuns.length; wi++) {
+        if (allRuns[wi].routeName === wkName && allRuns[wi].splits && allRuns[wi].splits.length > 0) {
+          MilestoneTracker._lastRunSplits = allRuns[wi].splits;
+          break;
+        }
+      }
     } else {
       MilestoneTracker._lastRunSplits = null;
     }

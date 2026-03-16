@@ -505,6 +505,10 @@ const WorkoutBuilder = {
     // Start the actual run if not already running
     if (!Engine.run || Engine.run.status !== 'running') {
       Engine.newRun();
+      // Tag the run with the workout name (enables comparison on finish)
+      if (Engine.run && w.name) {
+        Engine.run.routeName = w.name;
+      }
       Engine.startRun();
       TM.startWorkout();
     }
@@ -535,6 +539,7 @@ const WorkoutBuilder = {
         // Start tracking in Engine
         if (!Engine.run || Engine.run.status !== 'running') {
           Engine.newRun();
+          if (Engine.run && w.name) Engine.run.routeName = w.name;
           Engine.startRun();
         }
         // Also start WorkoutSegments for UI display
@@ -547,6 +552,7 @@ const WorkoutBuilder = {
         if (typeof WorkoutSegments !== 'undefined') WorkoutSegments.start(w);
         if (!Engine.run || Engine.run.status !== 'running') {
           Engine.newRun();
+          if (Engine.run && w.name) Engine.run.routeName = w.name;
           Engine.startRun();
           TM.startWorkout();
         }
@@ -557,6 +563,7 @@ const WorkoutBuilder = {
       if (typeof WorkoutSegments !== 'undefined') WorkoutSegments.start(w);
       if (!Engine.run || Engine.run.status !== 'running') {
         Engine.newRun();
+        if (Engine.run && w.name) Engine.run.routeName = w.name;
         Engine.startRun();
         TM.startWorkout();
       }
@@ -635,7 +642,7 @@ const WorkoutBuilder = {
   _getLibrary() {
     try {
       return JSON.parse(localStorage.getItem('tr_workouts') || '[]');
-    } catch { return []; }
+    } catch(e) { return []; }
   },
 
   _setLibrary(workouts) {

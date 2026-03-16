@@ -482,10 +482,19 @@ const UI = {
     var el = document.getElementById('fComparison');
     if (!el) return;
 
+    var pastRuns = null;
     var routeId = currentRun.routeId;
-    if (!routeId) { el.style.display = 'none'; return; }
-
-    var pastRuns = Store.getRunsForRoute(routeId);
+    if (routeId) {
+      pastRuns = Store.getRunsForRoute(routeId);
+    } else if (currentRun.routeName && currentRun.routeName !== 'Free Run') {
+      // For programmed workouts: match by name
+      var allRuns = Store.getRuns();
+      var rName = currentRun.routeName;
+      pastRuns = [];
+      for (var ri = 0; ri < allRuns.length; ri++) {
+        if (allRuns[ri].routeName === rName) pastRuns.push(allRuns[ri]);
+      }
+    }
     if (!pastRuns || pastRuns.length === 0) { el.style.display = 'none'; return; }
 
     // Current run values
@@ -499,7 +508,9 @@ const UI = {
     var lastRun = pastRuns[0]; // newest first
     var bestRun = null;
     for (var i = 0; i < pastRuns.length; i++) {
-      if (!bestRun || pastRuns[i].elapsed < bestRun.elapsed) {
+      var prElapsed = pastRuns[i].elapsed || pastRuns[i].elapsedSec || 0;
+      var brElapsed = bestRun ? (bestRun.elapsed || bestRun.elapsedSec || 0) : Infinity;
+      if (!bestRun || prElapsed < brElapsed) {
         bestRun = pastRuns[i];
       }
     }
@@ -523,8 +534,9 @@ const UI = {
 
     function section(label, compareRun) {
       if (!compareRun) return '';
+      var cmpElapsed = compareRun.elapsed || compareRun.elapsedSec || 0;
       var s = '<div class="cmp-section"><div class="cmp-label">' + label + '</div>';
-      s += '<div class="cmp-row"><span class="cmp-metric">Time</span>' + deltaStr(curElapsed, compareRun.elapsed, 'time', true) + '</div>';
+      s += '<div class="cmp-row"><span class="cmp-metric">Time</span>' + deltaStr(curElapsed, cmpElapsed, 'time', true) + '</div>';
       s += '<div class="cmp-row"><span class="cmp-metric">Avg Speed</span>' + deltaStr(curAvgSpeed, compareRun.avgSpeed, 'kph', false) + '</div>';
       if (curAvgHR > 0 && compareRun.avgHR > 0) {
         s += '<div class="cmp-row"><span class="cmp-metric">Avg HR</span>' + deltaStr(curAvgHR, compareRun.avgHR, 'bpm', true) + '</div>';
@@ -541,7 +553,7 @@ const UI = {
 
     html += section('vs Last Run', lastRun);
     // Only show best if it's different from last
-    if (bestRun && bestRun.id !== lastRun.id) {
+    if (bestRun && (bestRun.savedAt || bestRun.startedAt) !== (lastRun.savedAt || lastRun.startedAt)) {
       html += section('vs Best Run', bestRun);
     }
 
