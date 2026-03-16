@@ -176,6 +176,9 @@ for(var j=1;j<k.length;j++)k[j].style[prop]=g}})
     <canvas id="trackCanvas" style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;z-index:5"></canvas>
     <canvas id="ovalTrackCanvas" style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;z-index:5"></canvas>
 
+    <!-- Trail Cam Panel (POV video synced to treadmill speed) -->
+    <div id="trailCamPanel" onclick="if(typeof TrailCam!=='undefined')TrailCam.handleTap(event.clientX,event.clientY)" style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;z-index:5"></div>
+
     <!-- Media Player Panel (replaces map when active) -->
     <div class="media-panel" id="mediaPanel" style="display:none">
       <div class="media-now-playing">
@@ -246,6 +249,7 @@ for(var j=1;j<k.length;j++)k[j].style[prop]=g}})
       <button class="map-mode-btn" data-style="dark" onclick="App.setMapStyle('dark')" title="Dark">🌙</button>
       <button class="map-mode-btn" data-style="track" onclick="App.setMapStyle('track')" title="Track View">🎮</button>
       <button class="map-mode-btn" data-style="oval" onclick="App.setMapStyle('oval')" title="Oval Track">🟡</button>
+      <button class="map-mode-btn" data-style="trailcam" onclick="App.setMapStyle('trailcam')" title="Trail Cam">🎥</button>
       <button class="map-mode-btn" data-style="media" onclick="App.setMapStyle('media')" title="Media Player">📻</button>
       <!-- Street View hidden until free API alternative found -->
       <!-- <button class="map-mode-btn" data-style="street" onclick="App.setMapStyle('street')" title="Street View">📍</button> -->
@@ -448,6 +452,7 @@ for(var j=1;j<k.length;j++)k[j].style[prop]=g}})
     <div class="fm-item" onclick="App.setMapStyle('terrain');App.closeFocusMenu()"><span class="fm-item-icon">🏔</span> Terrain</div>
     <div class="fm-item" onclick="App.setMapStyle('track');App.closeFocusMenu()"><span class="fm-item-icon">🎮</span> Track View</div>
     <div class="fm-item" onclick="App.setMapStyle('oval');App.closeFocusMenu()"><span class="fm-item-icon">🟡</span> Oval Track</div>
+    <div class="fm-item" onclick="App.setMapStyle('trailcam');App.closeFocusMenu()"><span class="fm-item-icon">🎥</span> Trail Cam</div>
     <div class="fm-item" onclick="App.setMapStyle('media');App.closeFocusMenu()"><span class="fm-item-icon">📻</span> Media</div>
     <div class="fm-item" onclick="App.setMapStyle('street');App.closeFocusMenu()"><span class="fm-item-icon">📍</span> Street View</div>
     <div class="fm-divider"></div>
@@ -624,6 +629,7 @@ for(var j=1;j<k.length;j++)k[j].style[prop]=g}})
 <script src="js/trackview.js"></script>
 <script src="js/workout-segments.js"></script>
 <script src="js/oval-track.js"></script>
+<script src="js/trailcam.js"></script>
 <script src="js/fun-facts.js"></script>
 <script src="js/voice.js"></script>
 <script src="js/voice-commands.js"></script>

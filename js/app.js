@@ -102,6 +102,20 @@ const App = {
         }
       }
 
+      // Feed trail cam with current run data
+      if (typeof TrailCam !== 'undefined' && TrailCam.active && Engine.run) {
+        TrailCam.update({
+          distKm: (Engine.run.distanceM || 0) / 1000,
+          speedKmh: Engine.run.speed || 0,
+          incline: Engine.run.incline || 0,
+          hr: Engine.run.hr || 0,
+          power: Engine.run.power || 0,
+          elapsed: Engine.run.elapsed || 0,
+          driftPct: Engine.getDriftPct(),
+          ef: Engine.getEF(),
+        });
+      }
+
       // ── Update focus mode badges ────────────────────────────────────
       this._updateFocusBadges();
 
@@ -331,6 +345,7 @@ const App = {
     MapView.init('mapDiv');
     TrackView.init('trackCanvas');
     OvalTrack.init('ovalTrackCanvas');
+    if (typeof TrailCam !== 'undefined') TrailCam.init('trailCamPanel');
     Media.init();
     VoiceCmd.init();
     VoiceCoach.init();
@@ -1035,11 +1050,14 @@ const App = {
     // Hide all panels first
     TrackView.hide();
     OvalTrack.hide();
+    if (typeof TrailCam !== 'undefined') TrailCam.hide();
     mapDiv.style.display = 'none';
     if (mediaPanel) mediaPanel.style.display = 'none';
     if (streetPanel) streetPanel.style.display = 'none';
 
-    if (style === 'track') {
+    if (style === 'trailcam') {
+      if (typeof TrailCam !== 'undefined') TrailCam.show();
+    } else if (style === 'track') {
       TrackView.show();
     } else if (style === 'oval') {
       OvalTrack.show();
