@@ -183,6 +183,27 @@ const UI = {
     if (Engine.hasRoute()) {
       const pct = (r.routeProgress * 100).toFixed(1);
       css('routeProgress', 'width', pct + '%');
+
+      // PB pace indicator — are we on track to beat the best time?
+      var pbPaceEl = $('pbPace');
+      if (pbPaceEl && Engine.route.bestTime && r.routeProgress > 0.02 && r.elapsed > 10) {
+        var projectedTotal = r.elapsed / r.routeProgress;
+        var pbDiff = projectedTotal - Engine.route.bestTime;
+        var absD = Math.abs(Math.round(pbDiff));
+        var mD = Math.floor(absD / 60);
+        var sD = absD % 60;
+        var diffStr = (mD > 0 ? mD + ':' + String(sD).padStart(2, '0') : sD + 's');
+        if (pbDiff <= 0) {
+          pbPaceEl.textContent = 'PB: -' + diffStr;
+          pbPaceEl.style.color = 'var(--green)';
+        } else {
+          pbPaceEl.textContent = 'PB: +' + diffStr;
+          pbPaceEl.style.color = 'var(--red, #ff5f5f)';
+        }
+        pbPaceEl.style.display = '';
+      } else if (pbPaceEl) {
+        pbPaceEl.style.display = 'none';
+      }
     }
 
     // ── Ghost delta ──────────────────────────────────────────────────────

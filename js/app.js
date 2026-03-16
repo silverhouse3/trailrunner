@@ -409,6 +409,8 @@ const App = {
     if (!Engine.hasRoute()) {
       this.setMapStyle('oval');
     }
+    // Weekly summary on first run of the week
+    this._announceWeeklySummary();
   },
 
   freeRun() {
@@ -430,6 +432,78 @@ const App = {
     this.setMapStyle('oval');
     // Auto-open speed quick-select so user can pick their running speed
     setTimeout(() => this.toggleQS('speed'), 500);
+  },
+
+  /** Announce weekly summary on first run of the week */
+  _announceWeeklySummary() {
+    if (typeof VoiceCoach === 'undefined' || !VoiceCoach.config.enabled) return;
+    try {
+      var now = new Date();
+      var day = now.getDay();
+      var mondayOffset = day === 0 ? -6 : 1 - day;
+      var thisMonday = new Date(now);
+      thisMonday.setDate(now.getDate() + mondayOffset);
+      thisMonday.setHours(0, 0, 0, 0);
+      var thisWeekKey = thisMonday.toISOString().slice(0, 10);
+
+      // Check if we've already announced this week
+      var announced = localStorage.getItem('tr_weekly_announced');
+      if (announced === thisWeekKey) return;
+
+      // Get last week's stats
+      var lastMonday = new Date(thisMonday);
+      lastMonday.setDate(lastMonday.getDate() - 7);
+      var lastMondayKey = lastMonday.toISOString().slice(0, 10);
+
+      var runs = Store.getRuns();
+      var lastWeekRuns = [];
+      var twoWeeksAgoRuns = [];
+      var twoWeeksAgoMonday = new Date(lastMonday);
+      twoWeeksAgoMonday.setDate(twoWeeksAgoMonday.getDate() - 7);
+
+      runs.forEach(function(r) {
+        var d = new Date(r.savedAt || r.date);
+        if (d >= lastMonday && d < thisMonday) lastWeekRuns.push(r);
+        else if (d >= twoWeeksAgoMonday && d < lastMonday) twoWeeksAgoRuns.push(r);
+      });
+
+      if (lastWeekRuns.length === 0) {
+        localStorage.setItem('tr_weekly_announced', thisWeekKey);
+        return;
+      }
+
+      var totalDist = 0;
+      var totalTime = 0;
+      lastWeekRuns.forEach(function(r) {
+        totalDist += (r.distanceKm || 0);
+        totalTime += (r.elapsed || r.elapsedSec || 0);
+      });
+
+      var text = 'Weekly recap. Last week you ran ' + lastWeekRuns.length +
+        (lastWeekRuns.length === 1 ? ' time' : ' times') +
+        ' covering ' + totalDist.toFixed(1) + ' kilometres.';
+
+      if (twoWeeksAgoRuns.length > 0) {
+        var prevDist = 0;
+        twoWeeksAgoRuns.forEach(function(r) { prevDist += (r.distanceKm || 0); });
+        if (totalDist > prevDist) {
+          text += ' That\'s ' + (totalDist - prevDist).toFixed(1) + ' K more than the week before. Nice progress!';
+        } else if (totalDist < prevDist) {
+          text += ' ' + (prevDist - totalDist).toFixed(1) + ' K less than the week before. Let\'s get after it!';
+        } else {
+          text += ' Same distance as the week before. Consistent!';
+        }
+      }
+
+      // Announce after 3 seconds (let the run settle)
+      setTimeout(function() {
+        VoiceCoach.say(text, 'low');
+      }, 3000);
+
+      localStorage.setItem('tr_weekly_announced', thisWeekKey);
+    } catch(e) {
+      // Silently fail — not critical
+    }
   },
 
   /** Auto-connect to bridge. Only starts a workout if startWorkout=true
