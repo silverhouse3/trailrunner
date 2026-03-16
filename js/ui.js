@@ -433,11 +433,93 @@ const UI = {
       }
     }
 
+    // Run comparison (vs last and best on same route)
+    this._renderComparison(r);
+
     document.getElementById('finishOverlay').classList.add('show');
   },
 
   hideRunComplete() {
     document.getElementById('finishOverlay').classList.remove('show');
+  },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // RUN COMPARISON
+  // ════════════════════════════════════════════════════════════════════════════
+
+  _renderComparison(currentRun) {
+    var el = document.getElementById('fComparison');
+    if (!el) return;
+
+    var routeId = currentRun.routeId;
+    if (!routeId) { el.style.display = 'none'; return; }
+
+    var pastRuns = Store.getRunsForRoute(routeId);
+    if (!pastRuns || pastRuns.length === 0) { el.style.display = 'none'; return; }
+
+    // Current run values
+    var curAvgSpeed = currentRun._speedSamples > 0 ? +(currentRun._speedSum / currentRun._speedSamples).toFixed(1) : 0;
+    var curAvgHR = currentRun._hrSamples > 0 ? Math.round(currentRun._hrSum / currentRun._hrSamples) : 0;
+    var curEffort = Math.round(currentRun._trimp || 0);
+    var curElapsed = Math.round(currentRun.elapsed);
+    var curCal = Math.round(currentRun.calories);
+
+    // Find last run and best run
+    var lastRun = pastRuns[0]; // newest first
+    var bestRun = null;
+    for (var i = 0; i < pastRuns.length; i++) {
+      if (!bestRun || pastRuns[i].elapsed < bestRun.elapsed) {
+        bestRun = pastRuns[i];
+      }
+    }
+
+    var html = '';
+
+    function deltaStr(cur, prev, unit, lowerIsBetter) {
+      if (prev == null || prev === 0) return '<span class="cmp-delta neutral">—</span>';
+      var diff = cur - prev;
+      var abs = Math.abs(diff);
+      var sign = diff > 0 ? '+' : diff < 0 ? '-' : '';
+      var cls = diff === 0 ? 'neutral' : (lowerIsBetter ? (diff < 0 ? 'better' : 'worse') : (diff > 0 ? 'better' : 'worse'));
+      var val;
+      if (unit === 'time') {
+        val = Engine.fmtTime(abs);
+      } else {
+        val = abs.toFixed(unit === 'bpm' || unit === 'kcal' ? 0 : 1);
+      }
+      return '<span class="cmp-delta ' + cls + '">' + sign + val + (unit !== 'time' ? ' ' + unit : '') + '</span>';
+    }
+
+    function section(label, compareRun) {
+      if (!compareRun) return '';
+      var s = '<div class="cmp-section"><div class="cmp-label">' + label + '</div>';
+      s += '<div class="cmp-row"><span class="cmp-metric">Time</span>' + deltaStr(curElapsed, compareRun.elapsed, 'time', true) + '</div>';
+      s += '<div class="cmp-row"><span class="cmp-metric">Avg Speed</span>' + deltaStr(curAvgSpeed, compareRun.avgSpeed, 'kph', false) + '</div>';
+      if (curAvgHR > 0 && compareRun.avgHR > 0) {
+        s += '<div class="cmp-row"><span class="cmp-metric">Avg HR</span>' + deltaStr(curAvgHR, compareRun.avgHR, 'bpm', true) + '</div>';
+      }
+      if (curEffort > 0 && compareRun.effortScore > 0) {
+        s += '<div class="cmp-row"><span class="cmp-metric">Effort</span>' + deltaStr(curEffort, compareRun.effortScore, '', true) + '</div>';
+      }
+      if (curCal > 0 && compareRun.calories > 0) {
+        s += '<div class="cmp-row"><span class="cmp-metric">Calories</span>' + deltaStr(curCal, compareRun.calories, 'kcal', false) + '</div>';
+      }
+      s += '</div>';
+      return s;
+    }
+
+    html += section('vs Last Run', lastRun);
+    // Only show best if it's different from last
+    if (bestRun && bestRun.id !== lastRun.id) {
+      html += section('vs Best Run', bestRun);
+    }
+
+    if (html) {
+      el.innerHTML = html;
+      el.style.display = '';
+    } else {
+      el.style.display = 'none';
+    }
   },
 
   // ════════════════════════════════════════════════════════════════════════════

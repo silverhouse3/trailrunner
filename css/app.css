@@ -294,6 +294,19 @@ body { color: var(--text); font-family: 'Rajdhani', sans-serif; user-select: non
 .finish-btn.secondary { background: transparent; border: 1px solid var(--cyan); color: var(--cyan); }
 .finish-btn.ghost { background: transparent; border: 1px solid var(--border); color: var(--dim); }
 
+/* ══ RUN COMPARISON ══════════════════════════════════════════════════════ */
+.cmp-section { margin-bottom: 8px; }
+.cmp-label { font-family: 'Orbitron', sans-serif; font-size: 10px; color: var(--dim);
+  letter-spacing: .12em; text-transform: uppercase; margin-bottom: 4px; }
+.cmp-row { display: flex; justify-content: space-between; align-items: center;
+  padding: 4px 0; font-size: 13px; border-bottom: 1px solid rgba(255,255,255,.06); }
+.cmp-metric { color: var(--dim); font-size: 11px; }
+.cmp-delta { font-family: 'Orbitron', sans-serif; font-size: 12px; font-weight: 700; }
+.cmp-delta.better { color: var(--green); }
+.cmp-delta.worse { color: var(--red, #ff5f5f); }
+.cmp-delta.neutral { color: var(--dim); }
+html:not(.has-flex-gap) .cmp-row > * + * { margin-left: 8px; }
+
 /* ══ KM TOAST ═════════════════════════════════════════════════════════════ */
 .km-toast { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
   background: rgba(9,11,16,.92); border: 1px solid var(--green); border-radius: 8px;
