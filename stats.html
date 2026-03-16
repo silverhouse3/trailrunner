@@ -125,6 +125,11 @@ a:hover { text-decoration: underline; }
 </div>
 
 <div class="chart-section">
+  <div class="chart-title">HR ZONE DISTRIBUTION (ALL RUNS)</div>
+  <div id="hrZoneChart"></div>
+</div>
+
+<div class="chart-section">
   <div class="chart-title">ACTIVITY HEATMAP (12 WEEKS)</div>
   <div class="heatmap" id="heatmap"></div>
 </div>
@@ -456,6 +461,40 @@ a:hover { text-decoration: underline; }
     paceEl.innerHTML = '<div style="color:var(--dim);text-align:center;padding:40px">Need 2+ runs to show pace trend</div>';
     paceEl.style.height = 'auto';
     paceEl.style.border = 'none';
+  }
+
+  // ── HR Zone Distribution ──
+  var hrZoneEl = document.getElementById('hrZoneChart');
+  var zoneTotal = { z1: 0, z2: 0, z3: 0, z4: 0, z5: 0 };
+  var hasZoneData = false;
+  runs.forEach(function(r) {
+    if (r.hrZoneMinutes) {
+      hasZoneData = true;
+      zoneTotal.z1 += (r.hrZoneMinutes.z1 || 0);
+      zoneTotal.z2 += (r.hrZoneMinutes.z2 || 0);
+      zoneTotal.z3 += (r.hrZoneMinutes.z3 || 0);
+      zoneTotal.z4 += (r.hrZoneMinutes.z4 || 0);
+      zoneTotal.z5 += (r.hrZoneMinutes.z5 || 0);
+    }
+  });
+  if (hasZoneData) {
+    var zoneNames = ['Z1 Warm-up', 'Z2 Fat Burn', 'Z3 Aerobic', 'Z4 Threshold', 'Z5 Max'];
+    var zoneColors = ['#6b7280', '#22c55e', '#fbbf24', '#f97316', '#ef4444'];
+    var zoneKeys = ['z1', 'z2', 'z3', 'z4', 'z5'];
+    var maxZone = Math.max(zoneTotal.z1, zoneTotal.z2, zoneTotal.z3, zoneTotal.z4, zoneTotal.z5, 1);
+    var zoneHtml = '';
+    for (var zi = 0; zi < 5; zi++) {
+      var mins = Math.round(zoneTotal[zoneKeys[zi]]);
+      var pct = (mins / maxZone * 100).toFixed(0);
+      var isSmall = pct < 15;
+      zoneHtml += '<div class="chart-bar-row">' +
+        '<div class="chart-bar-label">' + zoneNames[zi] + '</div>' +
+        '<div class="chart-bar' + (isSmall ? ' outside' : '') + '" style="width:' + Math.max(2, pct) + '%;background:' + zoneColors[zi] + '">' +
+        '<span class="chart-bar-val">' + mins + ' min</span></div></div>';
+    }
+    hrZoneEl.innerHTML = zoneHtml;
+  } else {
+    hrZoneEl.innerHTML = '<div style="color:var(--dim);text-align:center;padding:20px">No HR zone data yet — connect a heart rate monitor</div>';
   }
 
   // ── Activity heatmap (12 weeks) ──
