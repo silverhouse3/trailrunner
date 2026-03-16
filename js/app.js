@@ -215,6 +215,23 @@ const App = {
       this.finishRun();
     };
 
+    Engine.onHRRecovery = (hrr) => {
+      // Update the finish overlay with HRR result
+      var el = document.getElementById('fHRR');
+      if (el) {
+        var rating = hrr.drop >= 40 ? 'Excellent' : hrr.drop >= 25 ? 'Good' : hrr.drop >= 12 ? 'Average' : 'Below avg';
+        var color = hrr.drop >= 40 ? '#69f0ae' : hrr.drop >= 25 ? '#3ecfff' : hrr.drop >= 12 ? '#ffb74d' : '#ff5f5f';
+        el.innerHTML = '<span style="color:var(--dim)">HR Recovery (1 min): </span>' +
+          '<span style="color:' + color + '">' + hrr.hrAtFinish + ' → ' + hrr.hrAfter60s + ' bpm ' +
+          '(<strong>-' + hrr.drop + '</strong> bpm · ' + rating + ')</span>';
+        el.style.display = '';
+      }
+      if (typeof VoiceCoach !== 'undefined') {
+        var ratingText = hrr.drop >= 40 ? 'excellent' : hrr.drop >= 25 ? 'good' : hrr.drop >= 12 ? 'average' : 'below average';
+        VoiceCoach.say('Heart rate recovery: ' + ratingText + '. Dropped ' + hrr.drop + ' beats.', 'medium');
+      }
+    };
+
     Engine.onAutoPause = () => {
       UI.showPause();
       this._updateRunButton();

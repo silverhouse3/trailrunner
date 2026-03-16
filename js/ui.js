@@ -467,6 +467,24 @@ const UI = {
     // Run comparison (vs last and best on same route)
     this._renderComparison(r);
 
+    // HR Recovery indicator
+    var hrrEl = document.getElementById('fHRR');
+    if (hrrEl) {
+      if (r._hrRecovery) {
+        // Already completed (rare — only if < 60s since recovery started)
+        var drop = r._hrRecovery.drop;
+        var rating = drop >= 40 ? 'Excellent' : drop >= 25 ? 'Good' : drop >= 12 ? 'Average' : 'Below avg';
+        var color = drop >= 40 ? '#69f0ae' : drop >= 25 ? '#3ecfff' : drop >= 12 ? '#ffb74d' : '#ff5f5f';
+        hrrEl.innerHTML = '<span style="color:var(--dim)">HR Recovery (1 min): </span><span style="color:' + color + '">' + r._hrRecovery.hrAtFinish + ' → ' + r._hrRecovery.hrAfter60s + ' bpm (-' + drop + ' · ' + rating + ')</span>';
+        hrrEl.style.display = '';
+      } else if (r._recoveryStart && r.hr > 30) {
+        hrrEl.innerHTML = '<span style="color:var(--dim)">Measuring HR Recovery... stay still for 60 seconds</span>';
+        hrrEl.style.display = '';
+      } else {
+        hrrEl.style.display = 'none';
+      }
+    }
+
     document.getElementById('finishOverlay').classList.add('show');
   },
 
