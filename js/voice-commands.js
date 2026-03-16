@@ -21,6 +21,11 @@
 //   "motivation"             → Speak next badge progress
 //   "next" / "skip"          → Skip to next workout segment
 //   "what segment"           → Speak current segment info
+//   "play music" / "radio on"→ Start/resume radio
+//   "stop music" / "mute"    → Stop radio
+//   "volume up" / "louder"   → Volume +15%
+//   "volume down" / "quieter"→ Volume -15%
+//   "next station"           → Switch to next radio station
 //   "emergency" / "help"     → Emergency stop
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -272,6 +277,33 @@ window.VoiceCommands = (function() {
           speak('No workout programme active');
         }
       }
+      return;
+    }
+
+    // ── Media control ──
+    if (matches(text, ['play music', 'music on', 'radio on', 'play radio'])) {
+      showFeedback('🎵 Playing', 'info');
+      if (typeof Media !== 'undefined') Media.play();
+      return;
+    }
+    if (matches(text, ['stop music', 'music off', 'radio off', 'mute', 'quiet'])) {
+      showFeedback('🔇 Stopped', 'info');
+      if (typeof Media !== 'undefined') Media.stop();
+      return;
+    }
+    if (matches(text, ['volume up', 'louder'])) {
+      showFeedback('🔊 Volume up', 'info');
+      if (typeof Media !== 'undefined') Media.adjustVolume(0.15);
+      return;
+    }
+    if (matches(text, ['volume down', 'quieter'])) {
+      showFeedback('🔉 Volume down', 'info');
+      if (typeof Media !== 'undefined') Media.adjustVolume(-0.15);
+      return;
+    }
+    if (matches(text, ['next station', 'next channel', 'change station'])) {
+      showFeedback('📻 Next station', 'info');
+      if (typeof Media !== 'undefined') Media.nextStation();
       return;
     }
 

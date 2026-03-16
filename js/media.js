@@ -101,6 +101,21 @@ const Media = {
     if (icon) icon.textContent = vol === 0 ? '🔇' : vol < 0.4 ? '🔈' : vol < 0.7 ? '🔉' : '🔊';
   },
 
+  adjustVolume(delta) {
+    var current = this.audio ? this.audio.volume : 0.7;
+    this.setVolume(current + delta);
+  },
+
+  nextStation() {
+    if (!this.stations.length) return;
+    var idx = 0;
+    if (this.currentStation) {
+      idx = this.stations.findIndex(function(s) { return s.name === this.currentStation.name; }.bind(this));
+      idx = (idx + 1) % this.stations.length;
+    }
+    this.play(this.stations[idx]);
+  },
+
   // ════════════════════════════════════════════════════════════════════════
   // RENDERING
   // ════════════════════════════════════════════════════════════════════════
