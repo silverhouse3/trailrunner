@@ -186,7 +186,9 @@ const Sync = {
       return false;
     }
 
-    return this._doUpload(run);
+    var ok = await this._doUpload(run);
+    if (!ok) this._queueRun(run);
+    return ok;
   },
 
   /** Internal upload — does NOT queue on failure (used by _processQueue to avoid loops) */
@@ -251,14 +253,16 @@ const Sync = {
       } else {
         const err = await resp.text();
         console.error('[Sync] Upload failed:', resp.status, err);
-        if (resp.status !== 409) { // 409 = duplicate, don't retry
-          this._queueRun(run);
+        // Return 'duplicate' for 409 so callers know not to retry
+        if (resp.status === 409) {
+          console.log('[Sync] Duplicate detected — marking as synced');
+          this._markSynced(run.id, 'strava', 'dup');
+          return true;
         }
         return false;
       }
     } catch (err) {
       console.error('[Sync] Upload error:', err);
-      this._queueRun(run);
       return false;
     }
   },
