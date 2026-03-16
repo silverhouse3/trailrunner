@@ -106,15 +106,19 @@ const WorkoutBuilder = {
         </div>
       ` : ''}
 
+      ${all.length === 0 ? this._renderTemplates() : ''}
+
       <div class="wb-section-title">ALL WORKOUTS (${all.length})
         <button class="wb-add-btn" onclick="WorkoutBuilder._mode='pick-type';WorkoutBuilder._render()">+ NEW</button>
       </div>
       <div class="wb-list">
         ${all.length === 0
-          ? '<div class="wb-empty">No saved workouts yet. Tap + NEW to create one.</div>'
+          ? '<div class="wb-empty">No saved workouts yet. Try a template above or tap + NEW.</div>'
           : all.map(w => this._renderWorkoutCard(w)).join('')
         }
       </div>
+
+      ${all.length > 0 ? this._renderTemplates() : ''}
     `;
   },
 
@@ -146,6 +150,131 @@ const WorkoutBuilder = {
         </div>
       </div>
     `;
+  },
+
+  // ── Templates ────────────────────────────────────────────────────────
+
+  TEMPLATES: [
+    {
+      name: 'Easy 30', desc: '30 min easy pace', type: 'programmed', icon: '🏃',
+      speedUnit: 'kph', distanceUnit: 'km',
+      warmUp: { enabled: true, duration: 180, speed: 5, incline: 0 },
+      coolDown: { enabled: true, duration: 120, speed: 5, incline: 0 },
+      segments: [
+        { distance: 4, speed: 8, incline: 0, label: 'Easy' },
+      ],
+    },
+    {
+      name: 'C25K Week 1', desc: 'Walk 60s / Run 90s × 8', type: 'interval-time', icon: '🌱',
+      speedUnit: 'kph', distanceUnit: 'km', rounds: 8,
+      warmUp: { enabled: true, duration: 300, speed: 5, incline: 0 },
+      coolDown: { enabled: true, duration: 300, speed: 5, incline: 0 },
+      segments: [
+        { label: 'Run', duration: 90, speed: 8, incline: 0 },
+        { label: 'Walk', duration: 60, speed: 5, incline: 0 },
+      ],
+    },
+    {
+      name: '5 × 1 min', desc: '1 min fast / 2 min recovery', type: 'interval-time', icon: '⚡',
+      speedUnit: 'kph', distanceUnit: 'km', rounds: 5,
+      warmUp: { enabled: true, duration: 300, speed: 6, incline: 0 },
+      coolDown: { enabled: true, duration: 180, speed: 5, incline: 0 },
+      segments: [
+        { label: 'Fast', duration: 60, speed: 12, incline: 0 },
+        { label: 'Recover', duration: 120, speed: 6, incline: 0 },
+      ],
+    },
+    {
+      name: 'Tempo Run', desc: '10 min warm-up, 20 min tempo, 5 min cooldown', type: 'programmed', icon: '🔥',
+      speedUnit: 'kph', distanceUnit: 'km',
+      warmUp: { enabled: true, duration: 600, speed: 7, incline: 0 },
+      coolDown: { enabled: true, duration: 300, speed: 6, incline: 0 },
+      segments: [
+        { distance: 3.5, speed: 10.5, incline: 1, label: 'Tempo' },
+      ],
+    },
+    {
+      name: 'Pyramid', desc: '1-2-3-2-1 min fast intervals', type: 'interval-time', icon: '🔺',
+      speedUnit: 'kph', distanceUnit: 'km', rounds: 1,
+      warmUp: { enabled: true, duration: 300, speed: 6, incline: 0 },
+      coolDown: { enabled: true, duration: 180, speed: 5, incline: 0 },
+      segments: [
+        { label: 'Fast 1', duration: 60, speed: 11, incline: 0 },
+        { label: 'Recover', duration: 90, speed: 6, incline: 0 },
+        { label: 'Fast 2', duration: 120, speed: 11, incline: 0 },
+        { label: 'Recover', duration: 90, speed: 6, incline: 0 },
+        { label: 'Fast 3', duration: 180, speed: 11, incline: 0 },
+        { label: 'Recover', duration: 90, speed: 6, incline: 0 },
+        { label: 'Fast 2', duration: 120, speed: 11, incline: 0 },
+        { label: 'Recover', duration: 90, speed: 6, incline: 0 },
+        { label: 'Fast 1', duration: 60, speed: 11, incline: 0 },
+      ],
+    },
+    {
+      name: 'Hill Repeats', desc: '6 × 90s incline push', type: 'interval-time', icon: '⛰',
+      speedUnit: 'kph', distanceUnit: 'km', rounds: 6,
+      warmUp: { enabled: true, duration: 300, speed: 7, incline: 0 },
+      coolDown: { enabled: true, duration: 180, speed: 5, incline: 0 },
+      segments: [
+        { label: 'Hill', duration: 90, speed: 9, incline: 8 },
+        { label: 'Flat', duration: 120, speed: 7, incline: 0 },
+      ],
+    },
+    {
+      name: 'HIIT 20/40', desc: '20s sprint / 40s rest × 10', type: 'interval-time', icon: '💥',
+      speedUnit: 'kph', distanceUnit: 'km', rounds: 10,
+      warmUp: { enabled: true, duration: 300, speed: 6, incline: 0 },
+      coolDown: { enabled: true, duration: 180, speed: 4, incline: 0 },
+      segments: [
+        { label: 'Sprint', duration: 20, speed: 15, incline: 0 },
+        { label: 'Rest', duration: 40, speed: 5, incline: 0 },
+      ],
+    },
+    {
+      name: 'Fat Burn Zone', desc: 'HR Zone 2 — 30 min steady', type: 'interval-hr', icon: '❤',
+      speedUnit: 'kph', distanceUnit: 'km', rounds: 1, holdTime: 1800,
+      warmUp: { enabled: true, duration: 300, speed: 6, incline: 0 },
+      coolDown: { enabled: true, duration: 180, speed: 5, incline: 0 },
+      segments: [
+        { label: 'Fat Burn', targetZone: 2, speed: 8, incline: 1 },
+      ],
+    },
+  ],
+
+  _renderTemplates() {
+    var html = '<div class="wb-section-title">TEMPLATES</div><div class="wb-list">';
+    for (var i = 0; i < this.TEMPLATES.length; i++) {
+      var t = this.TEMPLATES[i];
+      html += '<div class="wb-card wb-template" onclick="WorkoutBuilder._useTemplate(' + i + ')">';
+      html += '<div class="wb-card-top">';
+      html += '<span class="wb-card-icon">' + t.icon + '</span>';
+      html += '<span class="wb-card-name">' + t.name + '</span>';
+      html += '<span class="wb-card-dist" style="color:#bb86fc">Template</span>';
+      html += '</div>';
+      html += '<div class="wb-card-bottom">';
+      html += '<span class="wb-card-meta">' + t.desc + '</span>';
+      html += '</div></div>';
+    }
+    html += '</div>';
+    return html;
+  },
+
+  _useTemplate(idx) {
+    var t = this.TEMPLATES[idx];
+    if (!t) return;
+    // Clone template into library with new ID
+    var w = JSON.parse(JSON.stringify(t));
+    w.id = 'w_' + Date.now();
+    w.timesCompleted = 0;
+    w.bestTime = null;
+    w.lastUsed = null;
+    delete w.desc;
+    delete w.icon;
+    var lib = this._getLibrary();
+    lib.push(w);
+    this._setLibrary(lib);
+    // Start it
+    this._startWorkout(w.id);
   },
 
   // ── Type Picker ───────────────────────────────────────────────────────

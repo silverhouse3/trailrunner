@@ -290,6 +290,37 @@ a:hover { text-decoration: underline; }
     { value: fmt(totalElevGain), label: 'TOTAL ELEVATION', sub: 'm gained', cls: 'green' },
   ];
 
+  // Estimated VO2max — ACSM running equation: VO2 = 0.2*S + 0.9*S*G + 3.5
+  // where S = speed in m/min, G = fractional grade
+  // VO2max ≈ VO2 / (%HRmax) — Jack Daniels method
+  // Use best recent run (highest speed with HR data) for estimate
+  var vo2max = 0;
+  var vo2Runs = runs.filter(function(r) {
+    return (r.avgSpeed || 0) > 5 && (r.avgHR || 0) > 80 && (r.distanceKm || 0) > 1;
+  });
+  if (vo2Runs.length > 0) {
+    // Use the run with the highest average speed (best performance)
+    var bestRun = vo2Runs.reduce(function(a, b) {
+      return (a.avgSpeed || 0) > (b.avgSpeed || 0) ? a : b;
+    });
+    var speedMperMin = (bestRun.avgSpeed * 1000) / 60; // kph → m/min
+    var grade = (bestRun.inclineMax || bestRun.avgIncline || 0) / 100; // fractional
+    var vo2 = 0.2 * speedMperMin + 0.9 * speedMperMin * grade + 3.5; // mL/kg/min
+    var settings = {};
+    try { settings = JSON.parse(localStorage.getItem('tr_settings') || '{}'); } catch(e) {}
+    var maxHRSetting = settings.maxHR || 185;
+    var hrFraction = bestRun.avgHR / maxHRSetting;
+    if (hrFraction > 0.5 && hrFraction <= 1.0) {
+      vo2max = Math.round(vo2 / hrFraction);
+      // Sanity check — VO2max should be 15-90 for humans
+      if (vo2max < 15 || vo2max > 90) vo2max = 0;
+    }
+  }
+  if (vo2max > 0) {
+    var vo2Label = vo2max >= 55 ? 'Excellent' : vo2max >= 45 ? 'Good' : vo2max >= 35 ? 'Average' : 'Fair';
+    cards.push({ value: vo2max, label: 'EST. VO2MAX', sub: vo2Label, cls: 'purple' });
+  }
+
   var grid = document.getElementById('summaryCards');
   cards.forEach(function(c) {
     grid.innerHTML += '<div class="card ' + c.cls + '">' +

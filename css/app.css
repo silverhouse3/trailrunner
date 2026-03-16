@@ -553,6 +553,8 @@ html:not(.has-flex-gap) .cmp-row > * + * { margin-left: 8px; }
 .wb-card-edit, .wb-card-del { background: none; border: none; font-size: 13px; cursor: pointer;
   padding: 2px 6px; opacity: .5; }
 .wb-card-edit:hover, .wb-card-del:hover { opacity: 1; }
+.wb-card.wb-template { border-color: rgba(187,134,252,.3); background: linear-gradient(135deg, rgba(187,134,252,.06), rgba(62,207,255,.03)); }
+.wb-card.wb-template:hover { border-color: var(--purple, #bb86fc); }
 .wb-empty { font-size: 11px; color: var(--dim); text-align: center; padding: 16px; }
 
 .wb-form { padding: 8px 0; }
