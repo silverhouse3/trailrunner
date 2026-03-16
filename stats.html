@@ -135,7 +135,10 @@ a:hover { text-decoration: underline; }
 </div>
 
 <div class="chart-section">
-  <div class="chart-title">RECENT RUNS</div>
+  <div class="chart-title" style="display:flex;align-items:center;justify-content:space-between">
+    <span>RECENT RUNS</span>
+    <button onclick="exportCSV()" style="background:var(--bg3);border:1px solid var(--border);color:var(--cyan);border-radius:6px;padding:4px 12px;font-size:11px;font-family:'Rajdhani',sans-serif;font-weight:700;cursor:pointer;letter-spacing:.05em">EXPORT CSV</button>
+  </div>
   <table class="history-table" id="historyTable">
     <thead><tr>
       <th>DATE</th><th>DISTANCE</th><th>TIME</th><th>AVG SPEED</th><th>TOP SPEED</th><th>AVG HR</th><th>EFFORT</th><th>CALORIES</th><th>SYNC</th>
@@ -575,6 +578,39 @@ a:hover { text-decoration: underline; }
     tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--dim);padding:32px">No runs recorded yet. Complete a workout to see your stats here.</td></tr>';
   }
 })();
+
+function exportCSV() {
+  var runs;
+  try { runs = JSON.parse(localStorage.getItem('trailrunner_runs') || '[]'); } catch { runs = []; }
+  if (!runs.length) { alert('No runs to export'); return; }
+
+  var headers = ['Date','Route','Distance (km)','Time (sec)','Avg Speed (kph)','Max Speed (kph)','Avg HR','Calories','Effort Score','Elevation (m)'];
+  var csv = headers.join(',') + '\n';
+  runs.forEach(function(r) {
+    var date = r.savedAt || r.date || '';
+    var row = [
+      date,
+      '"' + (r.routeName || 'Free Run').replace(/"/g, '""') + '"',
+      r.distanceKm || (r.distanceM ? (r.distanceM / 1000).toFixed(2) : 0),
+      r.elapsedSec || r.elapsed || 0,
+      r.avgSpeed || 0,
+      r.maxSpeed || 0,
+      r.avgHR || 0,
+      r.calories || 0,
+      r.effortScore || 0,
+      r.elevGained || 0
+    ];
+    csv += row.join(',') + '\n';
+  });
+
+  var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'trailrunner-runs-' + new Date().toISOString().slice(0, 10) + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
 </script>
 </body>
 </html>
