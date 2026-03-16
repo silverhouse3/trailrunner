@@ -61,7 +61,10 @@ const WorkoutBuilder = {
     if (!c) return;
     if (this._mode === 'browse')    c.innerHTML = this._renderBrowse();
     else if (this._mode === 'pick-type') c.innerHTML = this._renderTypePicker();
-    else if (this._mode === 'edit') c.innerHTML = this._renderEditor();
+    else if (this._mode === 'edit') {
+      c.innerHTML = this._renderEditor();
+      this._updateSummary();
+    }
   },
 
   // ── Browse Library ────────────────────────────────────────────────────
@@ -284,6 +287,9 @@ const WorkoutBuilder = {
           }
         </div>
 
+        <!-- Workout summary -->
+        <div class="wb-summary" id="wbSummary" style="padding:8px 0;font-size:11px;color:var(--dim,#4a6785);font-family:'JetBrains Mono',monospace"></div>
+
         <!-- Warm-up / Cool-down -->
         <div class="wb-section-title">WARM-UP & COOL-DOWN</div>
         <div class="wb-bookend-row">
@@ -292,7 +298,7 @@ const WorkoutBuilder = {
           </label>
           <input class="wb-seg-input" type="number" id="wbWarmUpDur" min="60" max="600" step="30" value="${(w.warmUp && w.warmUp.duration) || 180}" style="width:60px"> sec
           <span class="wb-seg-unit">@ </span>
-          <input class="wb-seg-input" type="number" id="wbWarmUpSpd" step="0.5" value="${(w.warmUp && w.warmUp.speed) || 4.8}" style="width:60px"> kph
+          <input class="wb-seg-input" type="number" id="wbWarmUpSpd" step="0.5" value="${this._displayBookendSpeed((w.warmUp && w.warmUp.speed) || 4.8, sUnit)}" style="width:60px"> ${sUnit}
         </div>
         <div class="wb-bookend-row">
           <label class="wb-toggle-label">
@@ -300,7 +306,7 @@ const WorkoutBuilder = {
           </label>
           <input class="wb-seg-input" type="number" id="wbCoolDownDur" min="60" max="600" step="30" value="${(w.coolDown && w.coolDown.duration) || 120}" style="width:60px"> sec
           <span class="wb-seg-unit">@ </span>
-          <input class="wb-seg-input" type="number" id="wbCoolDownSpd" step="0.5" value="${(w.coolDown && w.coolDown.speed) || 4.8}" style="width:60px"> kph
+          <input class="wb-seg-input" type="number" id="wbCoolDownSpd" step="0.5" value="${this._displayBookendSpeed((w.coolDown && w.coolDown.speed) || 4.8, sUnit)}" style="width:60px"> ${sUnit}
           <label class="wb-toggle-label" style="margin-left:12px">
             <input type="checkbox" id="wbCoolDownMandatory" ${w.coolDown && w.coolDown.mandatory ? 'checked' : ''}> Mandatory
           </label>
@@ -402,6 +408,7 @@ const WorkoutBuilder = {
     } else {
       seg[field] = value;
     }
+    this._updateSummary();
   },
 
   _saveWorkout() {
@@ -418,20 +425,22 @@ const WorkoutBuilder = {
     const holdEl = document.getElementById('wbHoldTime');
     if (holdEl) w.holdTime = parseInt(holdEl.value) || 30;
 
-    // Warm-up
+    // Warm-up (convert display speed back to kph for storage)
+    var wuDisplaySpeed = document.getElementById('wbWarmUpSpd')?.value || '4.8';
     w.warmUp = {
       enabled: document.getElementById('wbWarmUp')?.checked || false,
       duration: parseInt(document.getElementById('wbWarmUpDur')?.value) || 180,
-      speed: parseFloat(document.getElementById('wbWarmUpSpd')?.value) || 4.8,
+      speed: this._parseBookendSpeed(wuDisplaySpeed, w.speedUnit || 'mph'),
       incline: 0,
       rampUp: true,
     };
 
-    // Cool-down
+    // Cool-down (convert display speed back to kph for storage)
+    var cdDisplaySpeed = document.getElementById('wbCoolDownSpd')?.value || '4.8';
     w.coolDown = {
       enabled: document.getElementById('wbCoolDown')?.checked || false,
       duration: parseInt(document.getElementById('wbCoolDownDur')?.value) || 120,
-      speed: parseFloat(document.getElementById('wbCoolDownSpd')?.value) || 4.8,
+      speed: this._parseBookendSpeed(cdDisplaySpeed, w.speedUnit || 'mph'),
       incline: 0,
       mandatory: document.getElementById('wbCoolDownMandatory')?.checked || false,
     };
@@ -745,6 +754,51 @@ const WorkoutBuilder = {
   // ══════════════════════════════════════════════════════════════════════════
   // HELPERS
   // ══════════════════════════════════════════════════════════════════════════
+
+  /** Update the workout summary line in the editor */
+  _updateSummary() {
+    var el = document.getElementById('wbSummary');
+    if (!el || !this._editing) return;
+    var w = this._editing;
+    var segs = this._segments;
+    var sUnit = this.units[w.speedUnit || 'mph'];
+    var totalDist = 0; // km
+    var totalTime = 0; // seconds
+
+    if (w.warmUp && w.warmUp.enabled !== false) totalTime += w.warmUp.duration || 180;
+    if (w.coolDown && w.coolDown.enabled !== false) totalTime += w.coolDown.duration || 120;
+
+    if (w.type === 'programmed') {
+      for (var i = 0; i < segs.length; i++) {
+        var speedKph = sUnit ? sUnit.toKph(segs[i].speed) : segs[i].speed;
+        var distKm = (w.distanceUnit === 'km') ? segs[i].distance : segs[i].distance * 1.60934;
+        totalDist += distKm;
+        totalTime += speedKph > 0 ? (distKm / speedKph) * 3600 : 0;
+      }
+      var displayDist = w.distanceUnit === 'km' ? totalDist.toFixed(1) + ' km' : (totalDist / 1.60934).toFixed(1) + ' mi';
+      el.textContent = 'Total: ' + displayDist + ' · ~' + Math.round(totalTime / 60) + ' min';
+    } else if (w.type === 'interval-time') {
+      var roundTime = segs.reduce(function(s, seg) { return s + (seg.duration || 0); }, 0);
+      totalTime += roundTime * (w.rounds || 8);
+      el.textContent = (w.rounds || 8) + ' rounds × ' + Math.round(roundTime) + 's = ~' + Math.round(totalTime / 60) + ' min';
+    } else {
+      el.textContent = (w.rounds || 4) + ' rounds (HR-controlled timing)';
+    }
+  },
+
+  /** Display a kph speed value in the workout's speed unit */
+  _displayBookendSpeed(kph, sUnit) {
+    var u = this.units[sUnit];
+    if (!u) return (+kph).toFixed(1);
+    return u.fmt(u.fromKph(kph));
+  },
+
+  /** Convert a display speed value back to kph for storage */
+  _parseBookendSpeed(displayVal, sUnit) {
+    var u = this.units[sUnit];
+    if (!u) return parseFloat(displayVal) || 4.8;
+    return u.toKph(displayVal);
+  },
 
   _timeAgo(timestamp) {
     const diff = Date.now() - timestamp;
