@@ -191,6 +191,13 @@ const Engine = {
     this._stopTicker();
     if (this.workout) this.workout = null;
 
+    // Start HR recovery tracking (measures HR drop over 60 seconds post-finish)
+    if (this.run.hr > 30) {
+      this.run._hrAtFinish = this.run.hr;
+      this.run._recoveryStart = Date.now();
+      this._startRecoveryTimer();
+    }
+
     if (speed < 0.5 && incline < 0.5) {
       // Already stopped — just zero everything
       TM.setSpeed(0, true);
@@ -207,6 +214,7 @@ const Engine = {
   discardRun() {
     this._stopTicker();
     if (this._decelTimer) { clearInterval(this._decelTimer); this._decelTimer = null; }
+    if (this._hrRecoveryTimer) { clearInterval(this._hrRecoveryTimer); this._hrRecoveryTimer = null; }
 
     // SAFETY: always return to zero on discard too
     TM.setSpeed(0, true);
@@ -240,6 +248,7 @@ const Engine = {
       trackPoints: r.trackPoints,
       effortScore: Math.round(r._trimp || 0),
       hrZoneMinutes: r._hrZoneMinutes || null,
+      hrRecovery: r._hrRecovery || null,
     };
 
     const saved = Store.saveRun(summary);
@@ -872,6 +881,47 @@ const Engine = {
   // ════════════════════════════════════════════════════════════════════════════
 
   _decelTimer: null,
+
+  // ── HR Recovery Timer ──────────────────────────────────────────────────────
+
+  _hrRecoveryTimer: null,
+
+  /**
+   * After finishing a run, monitor HR for 60 seconds to compute HRR1
+   * (heart rate recovery in 1 minute). A strong recovery indicator:
+   *   Excellent: >= 40 bpm drop
+   *   Good:      >= 25 bpm drop
+   *   Average:   >= 12 bpm drop
+   *   Below avg: < 12 bpm drop
+   */
+  _startRecoveryTimer: function() {
+    if (this._hrRecoveryTimer) clearInterval(this._hrRecoveryTimer);
+    var self = this;
+    this._hrRecoveryTimer = setInterval(function() {
+      if (!self.run || !self.run._recoveryStart) {
+        clearInterval(self._hrRecoveryTimer);
+        self._hrRecoveryTimer = null;
+        return;
+      }
+      var elapsed = (Date.now() - self.run._recoveryStart) / 1000;
+      if (elapsed >= 60 && self.run.hr > 0) {
+        self.run._hrRecovery = {
+          hrAtFinish: self.run._hrAtFinish,
+          hrAfter60s: self.run.hr,
+          drop: self.run._hrAtFinish - self.run.hr,
+        };
+        clearInterval(self._hrRecoveryTimer);
+        self._hrRecoveryTimer = null;
+        console.log('[Engine] HR Recovery (1min): ' + self.run._hrRecovery.drop + ' bpm drop');
+        if (self.onHRRecovery) self.onHRRecovery(self.run._hrRecovery);
+      }
+      // Timeout after 2 minutes if HR data stops
+      if (elapsed > 120) {
+        clearInterval(self._hrRecoveryTimer);
+        self._hrRecoveryTimer = null;
+      }
+    }, 2000);
+  },
 
   /**
    * Smoothly ramp speed and incline from start to end values over `duration` seconds.

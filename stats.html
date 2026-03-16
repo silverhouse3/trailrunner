@@ -131,6 +131,21 @@ a:hover { text-decoration: underline; }
 .expand-arrow { display: inline-block; transition: transform .2s; margin-right: 4px; font-size: 10px; color: var(--dim); }
 .expand-arrow.open { transform: rotate(90deg); }
 
+/* Fitness / fatigue chart */
+.fitness-chart { position: relative; overflow: hidden; margin-bottom: 4px; }
+.fitness-chart svg { width: 100%; height: 160px; display: block; }
+.fitness-readiness { display: flex; align-items: center; gap: 16px; margin-top: 10px; padding: 12px 16px; background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; }
+.readiness-score { font-family: 'Orbitron', sans-serif; font-size: 28px; font-weight: 700; min-width: 60px; text-align: center; }
+.readiness-info { flex: 1; }
+.readiness-label { font-size: 14px; font-weight: 600; }
+.readiness-desc { font-size: 11px; color: var(--dim); font-family: 'JetBrains Mono', monospace; margin-top: 2px; }
+.fitness-legend { display: flex; gap: 16px; margin-top: 8px; font-size: 11px; color: var(--dim); }
+.fitness-legend span { display: flex; align-items: center; gap: 4px; }
+.fitness-legend .swatch { width: 16px; height: 3px; border-radius: 2px; display: inline-block; }
+
+/* HRR badge in detail */
+.hrr-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; margin-left: 4px; }
+
 /* Back link */
 .back-link { display: inline-block; margin-bottom: 16px; font-size: 14px; }
 </style>
@@ -151,6 +166,17 @@ a:hover { text-decoration: underline; }
   <div class="chart-title">WEEKLY TRAINING LOAD</div>
   <div id="loadChart"></div>
   <div id="loadInsight" style="font-size:11px;color:var(--dim);font-family:'JetBrains Mono',monospace;margin-top:8px;padding:0 4px"></div>
+</div>
+
+<div class="chart-section">
+  <div class="chart-title">FITNESS / FATIGUE</div>
+  <div class="fitness-chart" id="fitnessChart"></div>
+  <div id="fitnessReadiness"></div>
+  <div class="fitness-legend">
+    <span><div class="swatch" style="background:#bb86fc"></div> Fitness (CTL)</span>
+    <span><div class="swatch" style="background:#ff5f5f"></div> Fatigue (ATL)</span>
+    <span><div class="swatch" style="background:#3ecfff"></div> Form (TSB)</span>
+  </div>
 </div>
 
 <div class="chart-section">
@@ -358,6 +384,16 @@ a:hover { text-decoration: underline; }
     if ((hardest.effortScore || 0) > 0) {
       prs.push({ label: 'HARDEST WORKOUT', value: hardest.effortScore + ' TRIMP', date: fmtDate(hardest.savedAt) });
     }
+
+    // Best HR Recovery (HRR1)
+    var bestHRR = runs.reduce(function(best, r) {
+      var drop = r.hrRecovery ? (r.hrRecovery.drop || 0) : 0;
+      var bestDrop = best.hrRecovery ? (best.hrRecovery.drop || 0) : 0;
+      return drop > bestDrop ? r : best;
+    }, runs[0]);
+    if (bestHRR.hrRecovery && bestHRR.hrRecovery.drop > 0) {
+      prs.push({ label: 'BEST HR RECOVERY', value: bestHRR.hrRecovery.drop + ' bpm/min', date: fmtDate(bestHRR.savedAt) });
+    }
   }
 
   var prGrid = document.getElementById('prGrid');
@@ -426,6 +462,175 @@ a:hover { text-decoration: underline; }
       'This week: <span style="color:' + trendColor + '">' + Math.round(thisWeekLoad) + ' (' + loadLabel(thisWeekLoad) + ', ' + trendStr + ' vs last week)</span>' +
       ' · 4-week avg: ' + Math.round(avg4w);
   }
+
+  // ── Fitness / Fatigue Model (CTL / ATL / TSB) ──
+  // CTL (Chronic Training Load) = 42-day exponentially weighted moving average of daily TRIMP
+  // ATL (Acute Training Load)   = 7-day EWMA of daily TRIMP
+  // TSB (Training Stress Balance) = CTL - ATL (positive = fresh, negative = fatigued)
+  (function() {
+    var fitnessEl = document.getElementById('fitnessChart');
+    var readinessEl = document.getElementById('fitnessReadiness');
+    if (!fitnessEl || runs.length < 2) {
+      if (fitnessEl) fitnessEl.innerHTML = '<div style="color:var(--dim);text-align:center;padding:30px">Need 2+ runs with effort data</div>';
+      return;
+    }
+
+    // Build daily TRIMP map
+    var dailyTrimp = {};
+    var hasEffort = false;
+    runs.forEach(function(r) {
+      var dateStr = (r.savedAt || r.date || '').slice(0, 10);
+      if (!dateStr) return;
+      if (!dailyTrimp[dateStr]) dailyTrimp[dateStr] = 0;
+      dailyTrimp[dateStr] += (r.effortScore || 0);
+      if (r.effortScore > 0) hasEffort = true;
+    });
+
+    if (!hasEffort) {
+      fitnessEl.innerHTML = '<div style="color:var(--dim);text-align:center;padding:30px">No effort data yet — connect a heart rate monitor</div>';
+      return;
+    }
+
+    // Calculate CTL/ATL/TSB for last 90 days
+    var today = new Date();
+    today.setHours(0, 0, 0, 0);
+    var start = new Date(today);
+    start.setDate(start.getDate() - 89);
+    var data = [];
+    var ctl = 0, atl = 0;
+
+    for (var d = new Date(start); d <= today; d.setDate(d.getDate() + 1)) {
+      var key = d.getFullYear() + '-' +
+        String(d.getMonth() + 1).padStart(2, '0') + '-' +
+        String(d.getDate()).padStart(2, '0');
+      var trimp = dailyTrimp[key] || 0;
+      ctl = ctl + (trimp - ctl) * (1 / 42);
+      atl = atl + (trimp - atl) * (1 / 7);
+      data.push({ date: key, ctl: ctl, atl: atl, tsb: ctl - atl });
+    }
+
+    // Display last 60 days
+    var display = data.slice(-60);
+    if (display.length < 2) return;
+
+    // SVG dimensions
+    var svgW = 700, svgH = 160;
+    var padL = 38, padR = 8, padT = 12, padB = 22;
+    var chartW = svgW - padL - padR;
+    var chartH = svgH - padT - padB;
+
+    // Y range
+    var minY = Infinity, maxY = -Infinity;
+    display.forEach(function(p) {
+      var vals = [p.ctl, p.atl, p.tsb];
+      for (var v = 0; v < vals.length; v++) {
+        if (vals[v] < minY) minY = vals[v];
+        if (vals[v] > maxY) maxY = vals[v];
+      }
+    });
+    var yRange = (maxY - minY) || 1;
+    minY -= yRange * 0.15;
+    maxY += yRange * 0.15;
+    yRange = maxY - minY;
+
+    function yP(val) { return padT + chartH * (1 - (val - minY) / yRange); }
+    function xP(i) { return padL + (i / (display.length - 1)) * chartW; }
+
+    // Build polyline strings
+    var ctlPts = '', atlPts = '', tsbPts = '';
+    for (var i = 0; i < display.length; i++) {
+      var x = xP(i).toFixed(1);
+      ctlPts += x + ',' + yP(display[i].ctl).toFixed(1) + ' ';
+      atlPts += x + ',' + yP(display[i].atl).toFixed(1) + ' ';
+      tsbPts += x + ',' + yP(display[i].tsb).toFixed(1) + ' ';
+    }
+
+    // Zero line for TSB
+    var zeroY = yP(0).toFixed(1);
+
+    // X-axis labels (every ~15 days)
+    var xLabels = '';
+    var step = Math.max(1, Math.floor(display.length / 4));
+    for (var xi = 0; xi < display.length; xi += step) {
+      xLabels += '<text x="' + xP(xi).toFixed(1) + '" y="' + (svgH - 4) + '" fill="#4a6785" font-size="9" text-anchor="middle" font-family="JetBrains Mono,monospace">' + fmtShortDate(display[xi].date) + '</text>';
+    }
+    // Always label last point
+    xLabels += '<text x="' + xP(display.length - 1).toFixed(1) + '" y="' + (svgH - 4) + '" fill="#4a6785" font-size="9" text-anchor="end" font-family="JetBrains Mono,monospace">' + fmtShortDate(display[display.length - 1].date) + '</text>';
+
+    // Y-axis labels
+    var yLabels = '';
+    for (var yi = 0; yi <= 4; yi++) {
+      var yVal = minY + yRange * yi / 4;
+      var yPos = yP(yVal).toFixed(1);
+      yLabels += '<text x="' + (padL - 4) + '" y="' + (parseFloat(yPos) + 3) + '" fill="#4a6785" font-size="9" text-anchor="end" font-family="JetBrains Mono,monospace">' + Math.round(yVal) + '</text>';
+      yLabels += '<line x1="' + padL + '" y1="' + yPos + '" x2="' + (svgW - padR) + '" y2="' + yPos + '" stroke="#1e3050" stroke-width="0.5"/>';
+    }
+
+    // TSB fill (green above zero, red below)
+    var tsbFill = '';
+    // Above zero fill (positive = fresh)
+    var abovePts = padL + ',' + zeroY + ' ';
+    for (var fi = 0; fi < display.length; fi++) {
+      var fv = Math.max(display[fi].tsb, 0);
+      abovePts += xP(fi).toFixed(1) + ',' + yP(fv).toFixed(1) + ' ';
+    }
+    abovePts += (svgW - padR) + ',' + zeroY;
+    tsbFill += '<polygon points="' + abovePts + '" fill="rgba(62,207,255,.08)"/>';
+
+    // Below zero fill (negative = fatigued)
+    var belowPts = padL + ',' + zeroY + ' ';
+    for (var fi2 = 0; fi2 < display.length; fi2++) {
+      var fv2 = Math.min(display[fi2].tsb, 0);
+      belowPts += xP(fi2).toFixed(1) + ',' + yP(fv2).toFixed(1) + ' ';
+    }
+    belowPts += (svgW - padR) + ',' + zeroY;
+    tsbFill += '<polygon points="' + belowPts + '" fill="rgba(255,61,87,.06)"/>';
+
+    var svg = '<svg viewBox="0 0 ' + svgW + ' ' + svgH + '" preserveAspectRatio="xMidYMid meet">';
+    svg += yLabels;
+    svg += '<line x1="' + padL + '" y1="' + zeroY + '" x2="' + (svgW - padR) + '" y2="' + zeroY + '" stroke="#4a6785" stroke-width="0.5" stroke-dasharray="4,3"/>';
+    svg += tsbFill;
+    svg += '<polyline points="' + ctlPts + '" fill="none" stroke="#bb86fc" stroke-width="2" stroke-linejoin="round"/>';
+    svg += '<polyline points="' + atlPts + '" fill="none" stroke="#ff5f5f" stroke-width="1.5" stroke-linejoin="round" stroke-dasharray="4,2"/>';
+    svg += '<polyline points="' + tsbPts + '" fill="none" stroke="#3ecfff" stroke-width="2" stroke-linejoin="round"/>';
+    // Current values dots
+    var lastIdx = display.length - 1;
+    svg += '<circle cx="' + xP(lastIdx).toFixed(1) + '" cy="' + yP(display[lastIdx].ctl).toFixed(1) + '" r="4" fill="#bb86fc"/>';
+    svg += '<circle cx="' + xP(lastIdx).toFixed(1) + '" cy="' + yP(display[lastIdx].atl).toFixed(1) + '" r="4" fill="#ff5f5f"/>';
+    svg += '<circle cx="' + xP(lastIdx).toFixed(1) + '" cy="' + yP(display[lastIdx].tsb).toFixed(1) + '" r="4" fill="#3ecfff"/>';
+    svg += xLabels;
+    svg += '</svg>';
+    fitnessEl.innerHTML = svg;
+
+    // Readiness indicator
+    var current = display[lastIdx];
+    var tsb = current.tsb;
+    var readinessColor, readinessLabel, readinessDesc;
+    if (tsb > 15) {
+      readinessColor = '#3ecfff'; readinessLabel = 'Peaked';
+      readinessDesc = 'Well rested — ideal for a race or hard session';
+    } else if (tsb > 5) {
+      readinessColor = '#69f0ae'; readinessLabel = 'Fresh';
+      readinessDesc = 'Good recovery balance — ready for quality work';
+    } else if (tsb > -10) {
+      readinessColor = '#ffe066'; readinessLabel = 'Neutral';
+      readinessDesc = 'Normal training load — keep building';
+    } else if (tsb > -25) {
+      readinessColor = '#ffb74d'; readinessLabel = 'Tired';
+      readinessDesc = 'Accumulated fatigue — consider an easy day';
+    } else {
+      readinessColor = '#ff5f5f'; readinessLabel = 'Fatigued';
+      readinessDesc = 'High fatigue — recovery needed to avoid overtraining';
+    }
+
+    readinessEl.innerHTML =
+      '<div class="readiness-score" style="color:' + readinessColor + '">' + Math.round(tsb) + '</div>' +
+      '<div class="readiness-info">' +
+        '<div class="readiness-label" style="color:' + readinessColor + '">' + readinessLabel + '</div>' +
+        '<div class="readiness-desc">' + readinessDesc + '</div>' +
+        '<div class="readiness-desc" style="margin-top:4px">Fitness: ' + current.ctl.toFixed(1) + ' · Fatigue: ' + current.atl.toFixed(1) + ' · Form: ' + tsb.toFixed(1) + '</div>' +
+      '</div>';
+  })();
 
   // ── Weekly distance chart ──
   var weeks = {};
@@ -788,6 +993,20 @@ a:hover { text-decoration: underline; }
       html += '<div style="color:var(--dim)">No HR zone data</div>';
     }
     html += '</div></div>';
+
+    // HRR (Heart Rate Recovery)
+    if (r.hrRecovery && r.hrRecovery.drop != null) {
+      var drop = r.hrRecovery.drop;
+      var hrrRating = drop >= 40 ? 'Excellent' : drop >= 25 ? 'Good' : drop >= 12 ? 'Average' : 'Below avg';
+      var hrrColor = drop >= 40 ? '#69f0ae' : drop >= 25 ? '#3ecfff' : drop >= 12 ? '#ffb74d' : '#ff5f5f';
+      html += '<div style="margin-top:8px;font-size:11px;font-family:JetBrains Mono,monospace;padding:6px 0;border-top:1px solid rgba(30,48,80,.5)">';
+      html += '<span style="color:var(--dim)">HR Recovery (1 min): </span>';
+      html += '<span style="color:' + hrrColor + '">' + r.hrRecovery.hrAtFinish + ' → ' + r.hrRecovery.hrAfter60s + ' bpm ';
+      html += '(-' + drop + ' bpm)</span>';
+      html += '<span class="hrr-badge" style="background:' + hrrColor + '22;color:' + hrrColor + '">' + hrrRating + '</span>';
+      html += '</div>';
+    }
+
     return html;
   }
 

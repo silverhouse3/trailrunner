@@ -20,6 +20,8 @@
 //   "effort" / "training load"→ Speak current effort score
 //   "pace" / "pb pace"       → Speak PB pace projection
 //   "eta" / "how long"       → Speak estimated time remaining
+//   "recovery" / "hrr"       → Speak heart rate recovery (post-run)
+//   "fitness" / "readiness"  → Speak fitness/fatigue model status
 //   "motivation"             → Speak next badge progress
 //   "next" / "skip"          → Skip to next workout segment
 //   "what segment"           → Speak current segment info
@@ -264,6 +266,14 @@ window.VoiceCommands = (function() {
       speakETA();
       return;
     }
+    if (matches(text, ['recovery', 'heart rate recovery', 'hrr', 'how is my recovery'])) {
+      speakHRRecovery();
+      return;
+    }
+    if (matches(text, ['fitness', 'form', 'readiness', 'am i fresh', 'fatigue'])) {
+      speakFitness();
+      return;
+    }
     if (matches(text, ['motivation', 'motivate me', 'encourage', 'badges'])) {
       speakMotivation();
       return;
@@ -504,6 +514,56 @@ window.VoiceCommands = (function() {
     var elapsed = Math.round(r.elapsed);
     var mins = Math.floor(elapsed / 60);
     speak('You have covered ' + distKm + ' K M in ' + mins + ' minutes');
+  }
+
+  function speakHRRecovery() {
+    if (!Engine.run) { speak('No run data'); return; }
+    var hrr = Engine.run._hrRecovery;
+    if (hrr) {
+      var rating = hrr.drop >= 40 ? 'excellent' : hrr.drop >= 25 ? 'good' : hrr.drop >= 12 ? 'average' : 'below average';
+      speak('Heart rate recovery is ' + rating + '. Your heart rate dropped ' + hrr.drop + ' beats in one minute, from ' + hrr.hrAtFinish + ' to ' + hrr.hrAfter60s);
+    } else if (Engine.run.status === 'finished' && Engine.run._recoveryStart) {
+      var secLeft = Math.max(0, Math.round(60 - (Date.now() - Engine.run._recoveryStart) / 1000));
+      if (secLeft > 0) {
+        speak('Still measuring recovery. ' + secLeft + ' seconds remaining');
+      } else {
+        speak('No heart rate data received during recovery');
+      }
+    } else {
+      speak('Heart rate recovery is measured after finishing a run');
+    }
+  }
+
+  function speakFitness() {
+    // Calculate CTL/ATL/TSB from stored runs
+    try {
+      var runs = JSON.parse(localStorage.getItem('tr_runs') || '[]');
+      if (runs.length < 2) { speak('Need more runs to calculate fitness'); return; }
+      var dailyTrimp = {};
+      var hasEffort = false;
+      for (var i = 0; i < runs.length; i++) {
+        var dateStr = (runs[i].savedAt || '').slice(0, 10);
+        if (!dateStr) continue;
+        if (!dailyTrimp[dateStr]) dailyTrimp[dateStr] = 0;
+        dailyTrimp[dateStr] += (runs[i].effortScore || 0);
+        if (runs[i].effortScore > 0) hasEffort = true;
+      }
+      if (!hasEffort) { speak('No effort data yet. Connect a heart rate monitor'); return; }
+      var today = new Date(); today.setHours(0,0,0,0);
+      var start = new Date(today); start.setDate(start.getDate() - 89);
+      var ctl = 0, atl = 0;
+      for (var d = new Date(start); d <= today; d.setDate(d.getDate() + 1)) {
+        var key = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+        var trimp = dailyTrimp[key] || 0;
+        ctl += (trimp - ctl) / 42;
+        atl += (trimp - atl) / 7;
+      }
+      var tsb = ctl - atl;
+      var label = tsb > 15 ? 'peaked and well rested' : tsb > 5 ? 'fresh' : tsb > -10 ? 'neutral' : tsb > -25 ? 'tired' : 'fatigued';
+      speak('Your form is ' + label + '. Fitness ' + Math.round(ctl) + ', fatigue ' + Math.round(atl) + ', form ' + Math.round(tsb));
+    } catch(e) {
+      speak('Could not calculate fitness data');
+    }
   }
 
   function speakMotivation() {
