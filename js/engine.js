@@ -131,6 +131,10 @@ const Engine = {
       _trimp: 0,
       _hrZoneMinutes: { z1: 0, z2: 0, z3: 0, z4: 0, z5: 0 },
 
+      // Auto-pause detection
+      _zeroSpeedSince: 0,  // timestamp when speed first dropped to 0
+      _autoPaused: false,   // currently auto-paused?
+
       // Settings snapshot
       maxHR: settings.maxHR,
       weight: settings.weight,
@@ -391,6 +395,17 @@ const Engine = {
     if (data.calories != null && data.calories > 0) {
       this.run.calories = data.calories;
     }
+
+    // Auto-resume: if auto-paused and belt starts moving again, resume
+    if (this.run._autoPaused && data.speed != null && data.speed > 0.5) {
+      this.run._autoPaused = false;
+      this.run._zeroSpeedSince = 0;
+      this.run._resumeElapsed = this.run.elapsed;
+      this.run.status = 'running';
+      this._lastTickTime = Date.now();
+      this._startTicker();
+      if (this.onAutoResume) this.onAutoResume();
+    }
   },
 
   /** Called when FTMS BLE sends data (read-only fallback). */
@@ -406,6 +421,17 @@ const Engine = {
     if (data.hr != null && data.hr > 30 && data.hr < 220 && this.run.hrSource !== 'ble') {
       this.run.hr = data.hr;
       this.run.hrSource = 'ftms';
+    }
+
+    // Auto-resume for FTMS source
+    if (this.run._autoPaused && data.speed != null && data.speed > 0.5) {
+      this.run._autoPaused = false;
+      this.run._zeroSpeedSince = 0;
+      this.run._resumeElapsed = this.run.elapsed;
+      this.run.status = 'running';
+      this._lastTickTime = Date.now();
+      this._startTicker();
+      if (this.onAutoResume) this.onAutoResume();
     }
   },
 
@@ -522,6 +548,26 @@ const Engine = {
       this.run._speedSum += this.run.speed;
       this.run._speedSamples++;
       if (this.run.speed > this.run._speedMax) this.run._speedMax = this.run.speed;
+    }
+
+    // ── Auto-pause: pause timer when treadmill belt stops ────────────────
+    // Only when receiving real treadmill data (not simulation/free run)
+    if (this.run.speedSource === 'treadmill' || this.run.speedSource === 'ftms') {
+      if (this.run.speed < 0.3) {
+        if (this.run._zeroSpeedSince === 0) {
+          this.run._zeroSpeedSince = Date.now();
+        } else if (!this.run._autoPaused && Date.now() - this.run._zeroSpeedSince > 3000) {
+          // Belt stopped for 3+ seconds — auto-pause timer
+          this.run._autoPaused = true;
+          this._stopTicker();
+          this.run.status = 'paused';
+          if (this.onAutoPause) this.onAutoPause();
+          return; // skip the rest of tick
+        }
+      } else {
+        this.run._zeroSpeedSince = 0;
+        // Auto-resume handled in onTreadmillData() since ticker is stopped during auto-pause
+      }
     }
 
     // ── Cadence: prefer mic-detected, fall back to speed estimate ────────
@@ -946,4 +992,6 @@ const Engine = {
   onSplit: null,
   onRunComplete: null,
   onCooldownComplete: null,
+  onAutoPause: null,
+  onAutoResume: null,
 };

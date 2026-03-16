@@ -19,6 +19,8 @@
 //   "total distance"         → Speak total distance
 //   "effort" / "training load"→ Speak current effort score
 //   "motivation"             → Speak next badge progress
+//   "next" / "skip"          → Skip to next workout segment
+//   "what segment"           → Speak current segment info
 //   "emergency" / "help"     → Emergency stop
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -249,6 +251,27 @@ window.VoiceCommands = (function() {
     }
     if (matches(text, ['motivation', 'motivate me', 'encourage', 'badges'])) {
       speakMotivation();
+      return;
+    }
+
+    // ── Workout programme control ──
+    if (matches(text, ['next', 'next segment', 'skip', 'skip segment'])) {
+      showFeedback('⏭ Next segment', 'info');
+      if (typeof WorkoutSegments !== 'undefined' && WorkoutSegments.skipToNextSegment) {
+        WorkoutSegments.skipToNextSegment();
+      }
+      return;
+    }
+    if (matches(text, ['what segment', 'current segment', 'where am i'])) {
+      if (typeof WorkoutSegments !== 'undefined' && WorkoutSegments.getCurrentSegment) {
+        var seg = WorkoutSegments.getCurrentSegment();
+        if (seg) {
+          speak('Segment ' + (seg.index + 1) + ': ' + (seg.label || 'unnamed') +
+            '. Speed ' + (seg.speed || 0).toFixed(1) + '. Incline ' + (seg.incline || 0) + ' percent.');
+        } else {
+          speak('No workout programme active');
+        }
+      }
       return;
     }
 

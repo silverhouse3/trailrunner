@@ -215,6 +215,18 @@ const App = {
       this.finishRun();
     };
 
+    Engine.onAutoPause = () => {
+      UI.showPause();
+      this._updateRunButton();
+      if (typeof VoiceCoach !== 'undefined') VoiceCoach.say('Auto paused. Belt stopped.', 'medium');
+    };
+
+    Engine.onAutoResume = () => {
+      UI.hidePause();
+      this._updateRunButton();
+      if (typeof VoiceCoach !== 'undefined') VoiceCoach.say('Resumed.', 'low');
+    };
+
     // ── Wire WorkoutSegments callbacks ──────────────────────────────────
     WorkoutSegments.onSegmentChange = (newSeg, oldSeg) => {
       console.log('[App] Segment change:', newSeg);
