@@ -82,6 +82,8 @@ const App = {
           speedKmh: Engine.run.speed || 0,
           incline: Engine.run.incline || 0,
           hr: Engine.run.hr || 0,
+          power: Engine.run.power || 0,
+          elapsed: Engine.run.elapsed || 0,
           elevProfile: Engine.resampled,
         });
         // Sync ghost position
@@ -129,6 +131,7 @@ const App = {
           }
           OvalTrack.setSpeedKph(Engine.run.speed || 0);
           OvalTrack.setHR(Engine.run.hr || 0, this._cachedSettings.maxHR || 185);
+          OvalTrack.setPower(Engine.run.power || 0, Engine.getAvgPower());
 
           // Segment info
           var seg = WorkoutSegments.getCurrentSegment();
@@ -180,6 +183,7 @@ const App = {
         }
         OvalTrack.setSpeedKph(Engine.run.speed || 0);
         OvalTrack.setHR(Engine.run.hr || 0, this._cachedSettings.maxHR || 185);
+        OvalTrack.setPower(Engine.run.power || 0, Engine.getAvgPower());
 
         // Ghost on oval track
         if (Engine.ghostEnabled && Engine.ghost && Engine.hasRoute()) {

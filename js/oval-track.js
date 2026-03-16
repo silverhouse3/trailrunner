@@ -65,6 +65,10 @@ var OvalTrack = {
   _hrMax: 190,
   _hrZoneColour: null,
 
+  // ── Power state ───────────────────────────────────────────────────────────
+  _powerWatts: 0,
+  _avgPowerWatts: 0,
+
   // ── Distance display state ─────────────────────────────────────────────────
   _distMode: 'segment',  // 'segment' or 'total'
   _distFadeTime: 0,      // timestamp when display was last updated
@@ -162,6 +166,11 @@ var OvalTrack = {
 
   setHRZoneColour: function(colour) {
     this._hrZoneColour = colour || null;
+  },
+
+  setPower: function(watts, avgWatts) {
+    this._powerWatts = watts || 0;
+    this._avgPowerWatts = avgWatts || 0;
   },
 
   // ── Distance display API ───────────────────────────────────────────────────
@@ -356,6 +365,11 @@ var OvalTrack = {
     // ── HR zone gauge ────────────────────────────────────────────────
     if (this.config.showHRGauge && this._hrBpm > 0) {
       this._drawHRGauge(c, W, H);
+    }
+
+    // ── Power gauge (bottom left) ──────────────────────────────────
+    if (this._powerWatts > 0) {
+      this._drawPowerGauge(c, W, H);
     }
 
     // ── Score display ──────────────────────────────────────────────
@@ -765,6 +779,87 @@ var OvalTrack = {
     c.textAlign = 'left';
     c.textBaseline = 'middle';
     c.fillText(zoneName, gaugeX + gaugeW + 10, gaugeY + gaugeH / 2);
+  },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // POWER GAUGE — bottom-left widget
+  // ════════════════════════════════════════════════════════════════════════════
+
+  _drawPowerGauge: function(c, W, H) {
+    var watts = this._powerWatts;
+    var avgW = this._avgPowerWatts;
+    var gaugeW = 140;
+    var gaugeH = 12;
+    var gaugeX = 30;
+    var gaugeY = H - 60;
+
+    // Power zones: 0-100 easy, 100-200 moderate, 200-300 hard, 300+ max
+    var zones = [
+      { label: 'Easy',  color: '#22c55e', max: 100 },
+      { label: 'Mod',   color: '#fbbf24', max: 200 },
+      { label: 'Hard',  color: '#f97316', max: 300 },
+      { label: 'Max',   color: '#ef4444', max: 500 },
+    ];
+
+    // Draw zone bar
+    var totalRange = 500;
+    for (var i = 0; i < zones.length; i++) {
+      var zMin = i === 0 ? 0 : zones[i - 1].max;
+      var zMax = zones[i].max;
+      var zx = gaugeX + (zMin / totalRange) * gaugeW;
+      var zw = ((zMax - zMin) / totalRange) * gaugeW;
+      c.fillStyle = zones[i].color;
+      if (i === 0) {
+        this._roundRectSide(c, zx, gaugeY, zw, gaugeH, 4, 'left');
+      } else if (i === zones.length - 1) {
+        this._roundRectSide(c, zx, gaugeY, zw, gaugeH, 4, 'right');
+      } else {
+        c.fillRect(zx, gaugeY, zw, gaugeH);
+      }
+    }
+
+    // Current power marker (triangle)
+    var pFrac = Math.min(1, watts / totalRange);
+    var markerX = gaugeX + pFrac * gaugeW;
+    c.fillStyle = '#ffffff';
+    c.beginPath();
+    c.moveTo(markerX, gaugeY - 2);
+    c.lineTo(markerX - 5, gaugeY - 9);
+    c.lineTo(markerX + 5, gaugeY - 9);
+    c.closePath();
+    c.fill();
+
+    // Average power marker (small line)
+    if (avgW > 0) {
+      var avgFrac = Math.min(1, avgW / totalRange);
+      var avgX = gaugeX + avgFrac * gaugeW;
+      c.strokeStyle = 'rgba(255,255,255,0.5)';
+      c.lineWidth = 2;
+      c.beginPath();
+      c.moveTo(avgX, gaugeY);
+      c.lineTo(avgX, gaugeY + gaugeH);
+      c.stroke();
+    }
+
+    // Determine zone color for text
+    var zoneColor = '#22c55e';
+    for (var j = 0; j < zones.length; j++) {
+      if (watts <= zones[j].max) { zoneColor = zones[j].color; break; }
+    }
+
+    // Watts text (left of gauge)
+    c.font = 'bold 18px "Orbitron", sans-serif';
+    c.fillStyle = zoneColor;
+    c.textAlign = 'left';
+    c.textBaseline = 'middle';
+    c.fillText(watts + 'W', gaugeX, gaugeY - 18);
+
+    // Avg watts (right of main value)
+    if (avgW > 0) {
+      c.font = '12px "JetBrains Mono", monospace';
+      c.fillStyle = this.COLORS.textDim;
+      c.fillText('avg ' + avgW + 'W', gaugeX + 80, gaugeY - 18);
+    }
   },
 
   // ════════════════════════════════════════════════════════════════════════════
