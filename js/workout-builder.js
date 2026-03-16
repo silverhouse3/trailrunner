@@ -321,6 +321,37 @@ const WorkoutBuilder = {
         { label: 'Fat Burn', targetZone: 2, speed: 8, incline: 1 },
       ],
     },
+    {
+      name: 'Drift Test', desc: '30 min constant pace — measure cardiac drift', type: 'programmed', icon: '💧',
+      speedUnit: 'kph', distanceUnit: 'km',
+      warmUp: { enabled: true, duration: 600, speed: 7, incline: 0 },
+      coolDown: { enabled: true, duration: 180, speed: 5, incline: 0 },
+      segments: [
+        { distance: 4, speed: 9.5, incline: 1, label: 'Steady State' },
+      ],
+    },
+    {
+      name: 'EF Builder', desc: 'Progressive build — improve efficiency', type: 'programmed', icon: '📈',
+      speedUnit: 'kph', distanceUnit: 'km',
+      warmUp: { enabled: true, duration: 300, speed: 6, incline: 0 },
+      coolDown: { enabled: true, duration: 180, speed: 5, incline: 0 },
+      segments: [
+        { distance: 1.5, speed: 8, incline: 0, label: 'Easy' },
+        { distance: 1.5, speed: 9, incline: 0, label: 'Moderate' },
+        { distance: 1.5, speed: 10, incline: 0, label: 'Steady' },
+        { distance: 1, speed: 11, incline: 0, label: 'Push' },
+      ],
+    },
+    {
+      name: 'Cadence Drill', desc: 'Short bursts at high cadence', type: 'interval-time', icon: '🦵',
+      speedUnit: 'kph', distanceUnit: 'km', rounds: 6,
+      warmUp: { enabled: true, duration: 300, speed: 7, incline: 0 },
+      coolDown: { enabled: true, duration: 180, speed: 5, incline: 0 },
+      segments: [
+        { label: 'Quick Feet', duration: 30, speed: 13, incline: 0 },
+        { label: 'Normal Pace', duration: 90, speed: 8, incline: 0 },
+      ],
+    },
   ],
 
   _renderTemplates() {
