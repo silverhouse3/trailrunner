@@ -87,6 +87,18 @@ a:hover { text-decoration: underline; }
 .synced { color: var(--green); font-size: 10px; }
 .not-synced { color: var(--dim); font-size: 10px; }
 
+/* Route breakdown */
+.rb-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.rb-card { background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+.rb-name { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rb-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; font-size: 12px; }
+.rb-stat { display: flex; justify-content: space-between; }
+.rb-stat-l { color: var(--dim); }
+.rb-stat-v { font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+.rb-trend { margin-top: 6px; font-size: 10px; color: var(--dim); border-top: 1px solid var(--border); padding-top: 6px; }
+.rb-trend .better { color: var(--green); }
+.rb-trend .worse { color: var(--red); }
+
 /* Back link */
 .back-link { display: inline-block; margin-bottom: 16px; font-size: 14px; }
 </style>
@@ -132,6 +144,11 @@ a:hover { text-decoration: underline; }
 <div class="chart-section">
   <div class="chart-title">ACTIVITY HEATMAP (12 WEEKS)</div>
   <div class="heatmap" id="heatmap"></div>
+</div>
+
+<div class="chart-section">
+  <div class="chart-title">ROUTE BREAKDOWN</div>
+  <div id="routeBreakdown"></div>
 </div>
 
 <div class="chart-section">
@@ -295,6 +312,14 @@ a:hover { text-decoration: underline; }
     var elevVal = mostElev.elevGained || mostElev.elevGain || 0;
     if (elevVal > 0) {
       prs.push({ label: 'MOST ELEVATION', value: fmt(elevVal) + ' m', date: fmtDate(mostElev.savedAt) });
+    }
+
+    // Highest effort (TRIMP)
+    var hardest = runs.reduce(function(best, r) {
+      return (r.effortScore || 0) > (best.effortScore || 0) ? r : best;
+    }, runs[0]);
+    if ((hardest.effortScore || 0) > 0) {
+      prs.push({ label: 'HARDEST WORKOUT', value: hardest.effortScore + ' TRIMP', date: fmtDate(hardest.savedAt) });
     }
   }
 
@@ -555,6 +580,80 @@ a:hover { text-decoration: underline; }
   hmHtml += ' More</div>';
   heatmapEl.innerHTML = hmHtml;
 
+  // ── Route breakdown ──
+  var rbEl = document.getElementById('routeBreakdown');
+  var routeMap = {};
+  runs.forEach(function(r) {
+    var rid = r.routeId || r.routeName || 'Free Run';
+    if (!routeMap[rid]) routeMap[rid] = { name: r.routeName || 'Free Run', runs: [] };
+    routeMap[rid].runs.push(r);
+  });
+
+  var routeIds = Object.keys(routeMap);
+  // Sort by most runs first
+  routeIds.sort(function(a, b) { return routeMap[b].runs.length - routeMap[a].runs.length; });
+
+  if (routeIds.length > 0) {
+    var rbHtml = '<div class="rb-grid">';
+    routeIds.forEach(function(rid) {
+      var info = routeMap[rid];
+      var rr = info.runs;
+      var count = rr.length;
+
+      // Best and worst times
+      var bestTime = Infinity, worstTime = 0;
+      var totalSpd = 0, totalHR = 0, hrN = 0, totalEffort = 0;
+      rr.forEach(function(r) {
+        var t = r.elapsedSec || r.elapsed || 0;
+        if (t > 0 && t < bestTime) bestTime = t;
+        if (t > worstTime) worstTime = t;
+        totalSpd += (r.avgSpeed || 0);
+        if (r.avgHR > 0) { totalHR += r.avgHR; hrN++; }
+        totalEffort += (r.effortScore || 0);
+      });
+      if (bestTime === Infinity) bestTime = 0;
+      var avgSpd = count > 0 ? (totalSpd / count).toFixed(1) : '—';
+      var avgHRVal = hrN > 0 ? Math.round(totalHR / hrN) : 0;
+      var avgEffort = count > 0 ? Math.round(totalEffort / count) : 0;
+
+      // Trend (last vs first)
+      var trendHtml = '';
+      if (count >= 2) {
+        var latest = rr[0]; // newest first
+        var previous = rr[1];
+        var latestTime = latest.elapsedSec || latest.elapsed || 0;
+        var prevTime = previous.elapsedSec || previous.elapsed || 0;
+        if (latestTime > 0 && prevTime > 0) {
+          var diff = latestTime - prevTime;
+          var cls = diff < 0 ? 'better' : diff > 0 ? 'worse' : '';
+          var sign = diff > 0 ? '+' : diff < 0 ? '-' : '';
+          trendHtml = '<div class="rb-trend">Last vs prev: <span class="' + cls + '">' + sign + fmtTime(Math.abs(diff)) + '</span></div>';
+        }
+      }
+
+      rbHtml += '<div class="rb-card">';
+      rbHtml += '<div class="rb-name">' + info.name + '</div>';
+      rbHtml += '<div class="rb-stats">';
+      rbHtml += '<div class="rb-stat"><span class="rb-stat-l">Runs</span><span class="rb-stat-v">' + count + '</span></div>';
+      rbHtml += '<div class="rb-stat"><span class="rb-stat-l">Best</span><span class="rb-stat-v">' + fmtTime(bestTime) + '</span></div>';
+      rbHtml += '<div class="rb-stat"><span class="rb-stat-l">Avg Speed</span><span class="rb-stat-v">' + avgSpd + ' kph</span></div>';
+      if (avgHRVal > 0) {
+        rbHtml += '<div class="rb-stat"><span class="rb-stat-l">Avg HR</span><span class="rb-stat-v">' + avgHRVal + ' bpm</span></div>';
+      }
+      rbHtml += '<div class="rb-stat"><span class="rb-stat-l">Avg Effort</span><span class="rb-stat-v" style="color:' + effortColor(avgEffort) + '">' + avgEffort + '</span></div>';
+      if (count >= 2) {
+        rbHtml += '<div class="rb-stat"><span class="rb-stat-l">Slowest</span><span class="rb-stat-v">' + fmtTime(worstTime) + '</span></div>';
+      }
+      rbHtml += '</div>';
+      rbHtml += trendHtml;
+      rbHtml += '</div>';
+    });
+    rbHtml += '</div>';
+    rbEl.innerHTML = rbHtml;
+  } else {
+    rbEl.innerHTML = '<div style="color:var(--dim);text-align:center;padding:20px">No route data yet</div>';
+  }
+
   // ── History table ──
   var tbody = document.getElementById('historyBody');
   runs.slice(0, 30).forEach(function(r) {
@@ -581,7 +680,7 @@ a:hover { text-decoration: underline; }
 
 function exportCSV() {
   var runs;
-  try { runs = JSON.parse(localStorage.getItem('trailrunner_runs') || '[]'); } catch { runs = []; }
+  try { runs = JSON.parse(localStorage.getItem('tr_runs') || '[]'); } catch(e) { runs = []; }
   if (!runs.length) { alert('No runs to export'); return; }
 
   var headers = ['Date','Route','Distance (km)','Time (sec)','Avg Speed (kph)','Max Speed (kph)','Avg HR','Calories','Effort Score','Elevation (m)'];

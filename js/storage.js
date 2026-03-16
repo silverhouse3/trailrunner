@@ -8,7 +8,7 @@ const Store = {
     try {
       const raw = localStorage.getItem('tr_' + key);
       return raw ? JSON.parse(raw) : fallback;
-    } catch { return fallback; }
+    } catch(e) { return fallback; }
   },
 
   _set(key, value) {
@@ -17,7 +17,7 @@ const Store = {
   },
 
   _del(key) {
-    try { localStorage.removeItem('tr_' + key); } catch {}
+    try { localStorage.removeItem('tr_' + key); } catch(e) {}
   },
 
   // ── Routes ────────────────────────────────────────────────────────────────
