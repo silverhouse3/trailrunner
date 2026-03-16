@@ -194,6 +194,18 @@ const UI = {
     set('avgPace', Engine.getAvgPace());
     set('avgHR', Engine.getAvgHR() > 0 ? ('Avg ❤ ' + Engine.getAvgHR()) : '');
 
+    // ── Cardiac Drift / EF ─────────────────────────────────────────────
+    var driftPct = Engine.getDriftPct();
+    var efValue = Engine.getEF();
+    if (driftPct > 0 || efValue > 0) {
+      set('driftVal', driftPct > 0 ? driftPct.toFixed(1) : '—');
+      var driftEl = $('driftVal');
+      if (driftEl && driftPct > 0) {
+        driftEl.style.color = driftPct < 3 ? '#69f0ae' : driftPct < 5 ? '#3ecfff' : driftPct < 8 ? '#ffb74d' : '#ff5f5f';
+      }
+      set('efVal', efValue > 0 ? ('EF ' + efValue.toFixed(2)) : '');
+    }
+
     // ── Route progress bar ───────────────────────────────────────────────
     if (Engine.hasRoute()) {
       const pct = (r.routeProgress * 100).toFixed(1);

@@ -39,6 +39,8 @@ var Streaks = {
     { id: 'power_300',     name: '300W Powerhouse', icon: '\uD83D\uDCA5', condition: function(d, s) { return (s.avgPower || 0) >= 300; } },
     { id: 'total_100k',    name: '100K Total',      icon: '\uD83C\uDF0D', condition: function(d)    { return d.totalDistanceKm >= 100; } },
     { id: 'ultra',         name: 'Ultra Runner',    icon: '\uD83C\uDFD4\uFE0F', condition: function(d, s) { return s.distanceKm >= 50; } },
+    { id: 'well_hydrated', name: 'Well Hydrated',   icon: '\uD83D\uDCA7', condition: function(d, s) { return s.cardiacDrift != null && s.cardiacDrift < 3 && s.distanceKm >= 5; } },
+    { id: 'ef_elite',      name: 'EF Elite',        icon: '\uD83C\uDFC6', condition: function(d, s) { return (s.efficiencyFactor || 0) >= 2.0; } },
   ],
 
   // ── Init ──────────────────────────────────────────────────────────────────

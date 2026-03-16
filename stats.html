@@ -150,6 +150,15 @@ a:hover { text-decoration: underline; }
 #racePredictions .pr-card { background: linear-gradient(135deg, rgba(62,207,255,.08), rgba(0,230,118,.04)); border-color: var(--cyan); }
 #racePredictions .pr-label { color: var(--cyan); }
 
+/* Drift chart */
+.drift-bar-row { display: flex; align-items: center; margin-bottom: 4px; }
+.drift-bar-label { width: 80px; font-size: 10px; color: var(--dim); font-family: 'JetBrains Mono', monospace; flex-shrink: 0; }
+.drift-bar { height: 20px; border-radius: 3px; position: relative; min-width: 2px; }
+.drift-bar-val { position: absolute; right: 6px; top: 2px; font-size: 10px; font-family: 'JetBrains Mono', monospace; color: rgba(255,255,255,.8); }
+.drift-bar.outside .drift-bar-val { right: auto; left: calc(100% + 6px); color: var(--dim); }
+.drift-threshold { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--orange); opacity: .5; z-index: 1; }
+.drift-threshold-label { position: absolute; top: -14px; font-size: 9px; color: var(--orange); transform: translateX(-50%); white-space: nowrap; }
+
 /* Back link */
 .back-link { display: inline-block; margin-bottom: 16px; font-size: 14px; }
 </style>
@@ -206,6 +215,16 @@ a:hover { text-decoration: underline; }
 <div class="chart-section">
   <div class="chart-title">POWER TREND (watts)</div>
   <div class="pace-chart" id="powerChart"></div>
+</div>
+
+<div class="chart-section">
+  <div class="chart-title">EFFICIENCY FACTOR TREND</div>
+  <div class="pace-chart" id="efChart"></div>
+</div>
+
+<div class="chart-section">
+  <div class="chart-title">CARDIAC DRIFT HISTORY</div>
+  <div id="driftChart" style="min-height:60px"></div>
 </div>
 
 <div class="chart-section">
@@ -344,6 +363,17 @@ a:hover { text-decoration: underline; }
     cards.push({ value: Math.round(totalPowerSum / powerRunCount), label: 'AVG POWER', sub: 'watts', cls: 'cyan' });
   }
 
+  // Average Efficiency Factor across runs that have EF data
+  var totalEF = 0, efCount = 0;
+  runs.forEach(function(r) {
+    if (r.efficiencyFactor > 0) { totalEF += r.efficiencyFactor; efCount++; }
+  });
+  if (efCount > 0) {
+    var avgEF = (totalEF / efCount).toFixed(2);
+    var efRating = avgEF >= 1.8 ? 'Excellent' : avgEF >= 1.5 ? 'Good' : avgEF >= 1.2 ? 'Average' : 'Developing';
+    cards.push({ value: avgEF, label: 'AVG EF', sub: efRating, cls: 'purple' });
+  }
+
   var grid = document.getElementById('summaryCards');
   cards.forEach(function(c) {
     grid.innerHTML += '<div class="card ' + c.cls + '">' +
@@ -471,6 +501,23 @@ a:hover { text-decoration: underline; }
     }, runs[0]);
     if ((bestNegSplits.negativeSplits || 0) > 0) {
       prs.push({ label: 'MOST NEG. SPLITS', value: bestNegSplits.negativeSplits, date: fmtDate(bestNegSplits.savedAt) });
+    }
+
+    // Best Efficiency Factor (highest EF)
+    var bestEFRun = runs.reduce(function(best, r) {
+      return (r.efficiencyFactor || 0) > (best.efficiencyFactor || 0) ? r : best;
+    }, runs[0]);
+    if ((bestEFRun.efficiencyFactor || 0) > 0) {
+      prs.push({ label: 'BEST EF', value: bestEFRun.efficiencyFactor.toFixed(2), date: fmtDate(bestEFRun.savedAt) });
+    }
+
+    // Lowest Cardiac Drift (best hydration/pacing discipline)
+    var driftRuns = runs.filter(function(r) { return r.cardiacDrift != null && r.cardiacDrift >= 0; });
+    if (driftRuns.length > 0) {
+      var lowestDrift = driftRuns.reduce(function(best, r) {
+        return r.cardiacDrift < best.cardiacDrift ? r : best;
+      }, driftRuns[0]);
+      prs.push({ label: 'LOWEST DRIFT', value: lowestDrift.cardiacDrift.toFixed(1) + '%', date: fmtDate(lowestDrift.savedAt) });
     }
   }
 
@@ -892,6 +939,77 @@ a:hover { text-decoration: underline; }
     powerChartEl.style.border = 'none';
   }
 
+  // ── Efficiency Factor Trend Chart ──
+  var efChartEl = document.getElementById('efChart');
+  var efRuns = runs.filter(function(r) {
+    return (r.efficiencyFactor || 0) > 0;
+  }).slice(0, 20).reverse(); // oldest first
+
+  if (efRuns.length >= 2) {
+    var efs = efRuns.map(function(r) { return r.efficiencyFactor; });
+    var minEF = Math.min.apply(null, efs);
+    var maxEF = Math.max.apply(null, efs);
+    var efRange = maxEF - minEF;
+    if (efRange < 0.3) { minEF -= 0.15; maxEF += 0.15; efRange = maxEF - minEF; }
+    var efPadTop = 10, efPadBot = 20, efPadLeft = 40;
+    var efChartH = 120;
+
+    for (var eyi = 0; eyi <= 4; eyi++) {
+      var efYVal = minEF + (efRange * eyi / 4);
+      var efYPos = efPadTop + ((efChartH - efPadTop - efPadBot) * (1 - eyi / 4));
+      efChartEl.innerHTML += '<span class="pace-label-y" style="top:' + efYPos + 'px">' + efYVal.toFixed(2) + '</span>';
+    }
+    for (var ei = 0; ei < efs.length; ei++) {
+      var efX = efPadLeft + ((ei / (efs.length - 1)) * (100 - efPadLeft - 5));
+      var efYPct = (efs[ei] - minEF) / efRange;
+      var efY = efPadTop + ((efChartH - efPadTop - efPadBot) * (1 - efYPct));
+      var efDotColor = efs[ei] >= 1.8 ? '#69f0ae' : efs[ei] >= 1.5 ? '#3ecfff' : efs[ei] >= 1.2 ? '#ffb74d' : '#ff5f5f';
+      efChartEl.innerHTML += '<div class="pace-dot" style="left:' + efX + '%;top:' + efY +
+        'px;background:' + efDotColor + '" title="EF ' + efs[ei].toFixed(2) + '"></div>';
+      if (ei === 0 || ei === efs.length - 1 || ei % 5 === 0) {
+        efChartEl.innerHTML += '<span class="pace-label-x" style="left:' + efX + '%">' +
+          fmtShortDate(efRuns[ei].savedAt || efRuns[ei].date) + '</span>';
+      }
+    }
+  } else {
+    efChartEl.innerHTML = '<div style="color:var(--dim);text-align:center;padding:40px">EF data will appear after 2+ runs with HR data</div>';
+    efChartEl.style.height = 'auto';
+    efChartEl.style.border = 'none';
+  }
+
+  // ── Cardiac Drift History ──
+  var driftChartEl = document.getElementById('driftChart');
+  var driftRuns = runs.filter(function(r) {
+    return r.cardiacDrift != null;
+  }).slice(0, 15).reverse(); // oldest first
+
+  if (driftRuns.length >= 1) {
+    var maxDriftVal = 0;
+    driftRuns.forEach(function(r) {
+      if (r.cardiacDrift > maxDriftVal) maxDriftVal = r.cardiacDrift;
+    });
+    if (maxDriftVal < 8) maxDriftVal = 8; // ensure 5% threshold line visible
+    var driftScale = maxDriftVal * 1.2; // headroom
+
+    // 5% threshold marker
+    var threshPct = (5 / driftScale * 100).toFixed(1);
+    driftChartEl.style.position = 'relative';
+    driftChartEl.innerHTML = '<div class="drift-threshold" style="left:' + threshPct + '%">' +
+      '<span class="drift-threshold-label">5% warning</span></div>';
+
+    driftRuns.forEach(function(r) {
+      var pct = (r.cardiacDrift / driftScale * 100).toFixed(1);
+      var isSmall = pct < 12;
+      var dColor = r.cardiacDrift < 3 ? 'rgba(105,240,174,.7)' : r.cardiacDrift < 5 ? 'rgba(62,207,255,.7)' : r.cardiacDrift < 8 ? 'rgba(255,183,77,.7)' : 'rgba(255,95,95,.7)';
+      driftChartEl.innerHTML += '<div class="drift-bar-row">' +
+        '<div class="drift-bar-label">' + fmtShortDate(r.savedAt || r.date) + '</div>' +
+        '<div class="drift-bar' + (isSmall ? ' outside' : '') + '" style="width:' + Math.max(pct, 1) + '%;background:' + dColor + '">' +
+        '<span class="drift-bar-val">' + r.cardiacDrift.toFixed(1) + '%</span></div></div>';
+    });
+  } else {
+    driftChartEl.innerHTML = '<div style="color:var(--dim);text-align:center;padding:20px">Cardiac drift data will appear after your next 10+ min run</div>';
+  }
+
   // ── Pace Trend ──
   var paceEl = document.getElementById('paceChart');
   var paceRuns = runs.filter(function(r) {
@@ -1181,6 +1299,30 @@ a:hover { text-decoration: underline; }
       html += '</div>';
     }
 
+    // Cardiac drift + Efficiency Factor
+    var showDriftRow = (r.cardiacDrift != null) || (r.efficiencyFactor > 0);
+    if (showDriftRow) {
+      html += '<div style="margin-top:8px;font-size:11px;font-family:JetBrains Mono,monospace;padding:6px 0;border-top:1px solid rgba(30,48,80,.5)">';
+      if (r.efficiencyFactor > 0) {
+        var efVal = r.efficiencyFactor.toFixed(2);
+        var efColor = efVal >= 1.8 ? '#69f0ae' : efVal >= 1.5 ? '#3ecfff' : efVal >= 1.2 ? '#ffb74d' : '#ff5f5f';
+        var efLabel = efVal >= 1.8 ? 'Excellent' : efVal >= 1.5 ? 'Good' : efVal >= 1.2 ? 'Average' : 'Developing';
+        html += '<span style="color:var(--dim)">EF: </span>';
+        html += '<span style="color:' + efColor + '">' + efVal + '</span>';
+        html += '<span class="hrr-badge" style="background:' + efColor + '22;color:' + efColor + '">' + efLabel + '</span>';
+        html += '&nbsp;&nbsp;';
+      }
+      if (r.cardiacDrift != null) {
+        var driftVal = r.cardiacDrift;
+        var driftColor = driftVal < 3 ? '#69f0ae' : driftVal < 5 ? '#3ecfff' : driftVal < 8 ? '#ffb74d' : '#ff5f5f';
+        var driftLabel = driftVal < 3 ? 'Minimal' : driftVal < 5 ? 'Normal' : driftVal < 8 ? 'Moderate' : 'High';
+        html += '<span style="color:var(--dim)">Drift: </span>';
+        html += '<span style="color:' + driftColor + '">' + driftVal.toFixed(1) + '%</span>';
+        html += '<span class="hrr-badge" style="background:' + driftColor + '22;color:' + driftColor + '">' + driftLabel + '</span>';
+      }
+      html += '</div>';
+    }
+
     return html;
   }
 
@@ -1236,7 +1378,7 @@ function exportCSV() {
   try { runs = JSON.parse(localStorage.getItem('tr_runs') || '[]'); } catch(e) { runs = []; }
   if (!runs.length) { alert('No runs to export'); return; }
 
-  var headers = ['Date','Route','Distance (km)','Time (sec)','Avg Speed (kph)','Max Speed (kph)','Avg HR','Calories','Effort Score','Elevation (m)'];
+  var headers = ['Date','Route','Distance (km)','Time (sec)','Avg Speed (kph)','Max Speed (kph)','Avg HR','Calories','Effort Score','Elevation (m)','Avg Power (W)','Cardiac Drift (%)','Efficiency Factor'];
   var csv = headers.join(',') + '\n';
   runs.forEach(function(r) {
     var date = r.savedAt || r.date || '';
@@ -1250,7 +1392,10 @@ function exportCSV() {
       r.avgHR || 0,
       r.calories || 0,
       r.effortScore || 0,
-      r.elevGained || 0
+      r.elevGained || 0,
+      r.avgPower || 0,
+      r.cardiacDrift != null ? r.cardiacDrift : '',
+      r.efficiencyFactor || ''
     ];
     csv += row.join(',') + '\n';
   });

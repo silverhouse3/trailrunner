@@ -375,6 +375,15 @@ for(var j=1;j<k.length;j++)k[j].style[prop]=g}})
       <div class="ms2" id="avgHR"></div>
     </div>
 
+    <!-- Drift / EF -->
+    <div class="mcard" style="--ac:var(--orange)" id="driftCard">
+      <div class="ml">DRIFT / EF</div>
+      <div class="mrow">
+        <div><span class="mv" id="driftVal" style="font-size:18px">—</span><span class="mu">%</span></div>
+      </div>
+      <div class="ms2" id="efVal"></div>
+    </div>
+
     <!-- Control Mode (moved from bottom strip to here) -->
     <div class="mcard wide" style="display:flex;flex-direction:row;align-items:center;gap:6px;padding:6px 8px" data-gap="6px">
       <button class="mode-btn active" data-mode="route" onclick="App.setControlMode('route')">🏔 ROUTE</button>

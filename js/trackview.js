@@ -99,6 +99,8 @@ const TrackView = {
     this.runner.hr = data.hr || 0;
     this.runner.power = data.power || 0;
     this.runner.elapsed = data.elapsed || 0;
+    this.runner.driftPct = data.driftPct || 0;
+    this.runner.ef = data.ef || 0;
 
     // Update elevation slice (1km behind to 1km ahead)
     if (data.elevProfile) {
@@ -586,6 +588,24 @@ const TrackView = {
     c.fillStyle = '#aaccee';
     c.textAlign = 'right';
     c.fillText(this.runner.distKm.toFixed(2) + ' km', W - pad, pad + 20);
+
+    // Drift / EF (below distance, top right)
+    var drift = this.runner.driftPct || 0;
+    var ef = this.runner.ef || 0;
+    if (drift > 0 || ef > 0) {
+      var topY = pad + 36;
+      c.font = '11px "JetBrains Mono", monospace';
+      c.textAlign = 'right';
+      if (ef > 0) {
+        c.fillStyle = ef >= 1.8 ? '#69f0ae' : ef >= 1.5 ? '#3ecfff' : ef >= 1.2 ? '#ffb74d' : '#ff5f5f';
+        c.fillText('EF ' + ef.toFixed(2), W - pad, topY);
+        topY += 14;
+      }
+      if (drift > 0) {
+        c.fillStyle = drift < 3 ? '#69f0ae' : drift < 5 ? '#3ecfff' : drift < 8 ? '#ffb74d' : '#ff5f5f';
+        c.fillText('DRIFT ' + drift.toFixed(1) + '%', W - pad, topY);
+      }
+    }
 
     // Ghost summary (top left)
     if (this.ghosts.length > 0) {

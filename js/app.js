@@ -84,6 +84,8 @@ const App = {
           hr: Engine.run.hr || 0,
           power: Engine.run.power || 0,
           elapsed: Engine.run.elapsed || 0,
+          driftPct: Engine.getDriftPct(),
+          ef: Engine.getEF(),
           elevProfile: Engine.resampled,
         });
         // Sync ghost position
