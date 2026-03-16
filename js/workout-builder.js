@@ -80,6 +80,8 @@ const WorkoutBuilder = {
         <button class="wb-close" onclick="WorkoutBuilder.close()">✕</button>
       </div>
 
+      ${this._renderSuggestion()}
+
       <div class="wb-types">
         <button class="wb-type-btn" onclick="WorkoutBuilder._startFreeRun()">
           <div class="wb-type-icon">▶</div>
@@ -150,6 +152,86 @@ const WorkoutBuilder = {
         </div>
       </div>
     `;
+  },
+
+  // ── Smart Suggestion ─────────────────────────────────────────────────
+
+  _renderSuggestion() {
+    try {
+      var runs = JSON.parse(localStorage.getItem('tr_runs') || '[]');
+      if (runs.length < 3) return '';
+
+      // Calculate TSB (same algorithm as stats page)
+      var dailyTrimp = {};
+      var hasEffort = false;
+      for (var i = 0; i < runs.length; i++) {
+        var dateStr = (runs[i].savedAt || '').slice(0, 10);
+        if (!dateStr) continue;
+        if (!dailyTrimp[dateStr]) dailyTrimp[dateStr] = 0;
+        dailyTrimp[dateStr] += (runs[i].effortScore || 0);
+        if (runs[i].effortScore > 0) hasEffort = true;
+      }
+      if (!hasEffort) return '';
+
+      var today = new Date(); today.setHours(0,0,0,0);
+      var start = new Date(today); start.setDate(start.getDate() - 89);
+      var ctl = 0, atl = 0;
+      for (var d = new Date(start); d <= today; d.setDate(d.getDate() + 1)) {
+        var key = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+        var trimp = dailyTrimp[key] || 0;
+        ctl += (trimp - ctl) / 42;
+        atl += (trimp - atl) / 7;
+      }
+      var tsb = ctl - atl;
+
+      // Days since last run
+      var lastDate = (runs[0].savedAt || '').slice(0, 10);
+      var todayStr = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
+      var daysSince = 0;
+      if (lastDate) {
+        var lp = lastDate.split('-');
+        var lastMs = new Date(parseInt(lp[0]), parseInt(lp[1])-1, parseInt(lp[2])).getTime();
+        daysSince = Math.round((today.getTime() - lastMs) / 86400000);
+      }
+
+      // Determine suggestion
+      var sugIcon, sugTitle, sugDesc, sugAction, sugColor;
+      if (daysSince >= 3) {
+        sugIcon = '🌱'; sugTitle = 'Welcome Back Run';
+        sugDesc = daysSince + ' days off — start easy to get back in rhythm';
+        sugAction = 0; // Easy 30 template
+        sugColor = '#69f0ae';
+      } else if (tsb > 10) {
+        sugIcon = '🔥'; sugTitle = 'You\'re Fresh — Push It!';
+        sugDesc = 'TSB +' + Math.round(tsb) + ' — great day for intervals or a tempo run';
+        sugAction = 2; // 5×1min
+        sugColor = '#ff5f5f';
+      } else if (tsb > 0) {
+        sugIcon = '⚡'; sugTitle = 'Ready to Train';
+        sugDesc = 'Good recovery balance — quality session or steady run';
+        sugAction = 3; // Tempo Run
+        sugColor = '#3ecfff';
+      } else if (tsb > -15) {
+        sugIcon = '💪'; sugTitle = 'Building Fitness';
+        sugDesc = 'Normal load — keep pushing or take it easy';
+        sugAction = 0; // Easy 30
+        sugColor = '#ffe066';
+      } else {
+        sugIcon = '😴'; sugTitle = 'Recovery Day';
+        sugDesc = 'TSB ' + Math.round(tsb) + ' — your body needs an easy day';
+        sugAction = 0; // Easy 30
+        sugColor = '#ffb74d';
+      }
+
+      return '<div class="wb-suggestion" style="background:linear-gradient(135deg,' + sugColor + '11,' + sugColor + '05);border:1px solid ' + sugColor + '33;border-radius:10px;padding:12px 16px;margin-bottom:12px;cursor:pointer" onclick="WorkoutBuilder._useTemplate(' + sugAction + ')">' +
+        '<div style="display:flex;align-items:center;gap:8px">' +
+          '<span style="font-size:24px">' + sugIcon + '</span>' +
+          '<div><div style="font-size:14px;font-weight:700;color:' + sugColor + '">' + sugTitle + '</div>' +
+          '<div style="font-size:11px;color:var(--dim);font-family:JetBrains Mono,monospace">' + sugDesc + '</div></div>' +
+        '</div></div>';
+    } catch(e) {
+      return '';
+    }
   },
 
   // ── Templates ────────────────────────────────────────────────────────
