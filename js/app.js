@@ -394,6 +394,13 @@ const App = {
     this._autoConnectBridge(true);
     Engine.startRun();
     MilestoneTracker.reset();
+    // Load last run's splits for real-time comparison
+    if (Engine.route && Engine.route.id) {
+      var pastRuns = Store.getRunsForRoute(Engine.route.id);
+      MilestoneTracker._lastRunSplits = (pastRuns.length > 0 && pastRuns[0].splits) ? pastRuns[0].splits : null;
+    } else {
+      MilestoneTracker._lastRunSplits = null;
+    }
     this._updateRunButton();
     this._updateFloatingControls();
     this._enterFocusMode();

@@ -514,6 +514,32 @@ const UI = {
       html += section('vs Best Run', bestRun);
     }
 
+    // Split-by-split comparison vs last run
+    var curSplits = currentRun.splits;
+    var lastSplits = lastRun.splits;
+    if (curSplits && lastSplits && curSplits.length > 0 && lastSplits.length > 0) {
+      var maxKm = Math.min(curSplits.length, lastSplits.length);
+      if (maxKm > 0) {
+        html += '<div class="cmp-section"><div class="cmp-label">SPLITS vs Last</div>';
+        for (var si = 0; si < maxKm; si++) {
+          var curTime = curSplits[si].timeSec || 0;
+          var lastTime = lastSplits[si].timeSec || 0;
+          if (curTime > 0 && lastTime > 0) {
+            var splitDiff = curTime - lastTime;
+            var splitCls = splitDiff < 0 ? 'better' : splitDiff > 0 ? 'worse' : 'neutral';
+            var splitSign = splitDiff > 0 ? '+' : splitDiff < 0 ? '-' : '';
+            var absDiff = Math.abs(splitDiff);
+            var diffMin = Math.floor(absDiff / 60);
+            var diffSec = Math.floor(absDiff % 60);
+            var diffStr = diffMin > 0 ? diffMin + ':' + String(diffSec).padStart(2, '0') : diffSec + 's';
+            html += '<div class="cmp-row"><span class="cmp-metric">Km ' + curSplits[si].km + '</span>' +
+              '<span class="cmp-delta ' + splitCls + '">' + splitSign + diffStr + '</span></div>';
+          }
+        }
+        html += '</div>';
+      }
+    }
+
     if (html) {
       el.innerHTML = html;
       el.style.display = '';

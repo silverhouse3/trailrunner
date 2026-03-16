@@ -880,6 +880,9 @@ var MilestoneTracker = {
 
   // ── Split summary (called from Engine.onSplit) ─────────────────────────
 
+  // Last run's splits for comparison (set by app.js at run start)
+  _lastRunSplits: null,
+
   onSplit(splitNum, unit, timeSec, avgHR, maxHR) {
     if (!this.config.splitSummary) return;
     var zone = 0;
@@ -888,13 +891,40 @@ var MilestoneTracker = {
       zone = pct < 0.6 ? 1 : pct < 0.7 ? 2 : pct < 0.8 ? 3 : pct < 0.9 ? 4 : 5;
     }
     VoiceCoach.announceSplit(splitNum, unit, timeSec, avgHR, zone);
+
+    // Compare vs last run split
+    var deltaText = '';
+    var deltaColor = '';
+    if (this._lastRunSplits && this._lastRunSplits.length > 0) {
+      var matchSplit = null;
+      for (var si = 0; si < this._lastRunSplits.length; si++) {
+        if (this._lastRunSplits[si].km === splitNum) { matchSplit = this._lastRunSplits[si]; break; }
+      }
+      if (matchSplit && matchSplit.timeSec > 0) {
+        var diff = timeSec - matchSplit.timeSec;
+        var absDiff = Math.abs(Math.round(diff));
+        if (absDiff >= 1) {
+          var sign = diff > 0 ? '+' : '-';
+          deltaText = ' (' + sign + absDiff + 's vs last)';
+          deltaColor = diff < 0 ? '#22c55e' : '#ff5f5f';
+          // Voice announce the comparison
+          if (diff < -2) {
+            VoiceCoach.say(absDiff + ' seconds faster than last time!', 'low');
+          } else if (diff > 2) {
+            VoiceCoach.say(absDiff + ' seconds slower than last time.', 'low');
+          }
+        }
+      }
+    }
+
     var unitLabel = unit === 'mi' ? 'mile' : 'km';
     var mins = Math.floor(timeSec / 60);
     var secs = Math.floor(timeSec % 60);
     var timeStr = mins + ':' + (secs < 10 ? '0' : '') + secs;
-    var popupText = unitLabel + ' ' + splitNum + ': ' + timeStr;
-    if (zone > 0) popupText += ' (Z' + zone + ')';
-    this._showPopup(popupText, this._getZoneColor(zone));
+    var popupText = unitLabel + ' ' + splitNum + ': ' + timeStr + deltaText;
+    if (zone > 0) popupText += ' Z' + zone;
+    var color = deltaColor || this._getZoneColor(zone);
+    this._showPopup(popupText, color);
   },
 
   // ── Visual popup ───────────────────────────────────────────────────────
