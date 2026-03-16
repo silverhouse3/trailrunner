@@ -25,6 +25,9 @@
 //   "motivation"             → Speak next badge progress
 //   "next" / "skip"          → Skip to next workout segment
 //   "what segment"           → Speak current segment info
+//   "power" / "watts"        → Speak current running power
+//   "race prediction"        → Predict 5K/10K/HM times (Riegel formula)
+//   "splits" / "my splits"   → Speak split summary + negative split count
 //   "play music" / "radio on"→ Start/resume radio
 //   "stop music" / "mute"    → Stop radio
 //   "volume up" / "louder"   → Volume +15%
@@ -276,6 +279,18 @@ window.VoiceCommands = (function() {
     }
     if (matches(text, ['motivation', 'motivate me', 'encourage', 'badges'])) {
       speakMotivation();
+      return;
+    }
+    if (matches(text, ['power', 'watts', 'wattage', 'running power'])) {
+      speakPower();
+      return;
+    }
+    if (matches(text, ['race prediction', 'predict', 'race time', 'what could i run'])) {
+      speakRacePrediction();
+      return;
+    }
+    if (matches(text, ['splits', 'negative splits', 'my splits', 'split times'])) {
+      speakSplits();
       return;
     }
 
@@ -569,6 +584,85 @@ window.VoiceCommands = (function() {
   function speakMotivation() {
     if (typeof Streaks === 'undefined') return;
     var msg = Streaks.getMotivationMessage();
+    speak(msg);
+  }
+
+  function speakPower() {
+    if (typeof Engine === 'undefined' || !Engine.run) {
+      speak('No active run');
+      return;
+    }
+    var power = Engine.getPower();
+    var avg = Engine.getAvgPower();
+    if (power <= 0 && avg <= 0) {
+      speak('Power data building up. Keep running!');
+    } else {
+      speak('Current power: ' + power + ' watts. Average: ' + avg + ' watts.');
+    }
+  }
+
+  function speakRacePrediction() {
+    // Riegel formula: T2 = T1 × (D2/D1)^1.06
+    try {
+      var runs = JSON.parse(localStorage.getItem('tr_runs') || '[]');
+      if (runs.length === 0) { speak('No run data for predictions'); return; }
+      // Find best pace run with at least 2km
+      var bestPace = Infinity;
+      var bestDist = 0;
+      var bestTime = 0;
+      for (var i = 0; i < runs.length; i++) {
+        var r = runs[i];
+        var dist = r.distanceKm || (r.distanceM || 0) / 1000;
+        var elapsed = r.elapsedSec || r.elapsed || 0;
+        if (dist >= 2 && elapsed > 0) {
+          var pace = elapsed / dist;
+          if (pace < bestPace) {
+            bestPace = pace;
+            bestDist = dist;
+            bestTime = elapsed;
+          }
+        }
+      }
+      if (bestDist < 2) { speak('Need at least a 2 K run for predictions'); return; }
+      var predict5k = bestTime * Math.pow(5 / bestDist, 1.06);
+      var predict10k = bestTime * Math.pow(10 / bestDist, 1.06);
+      var predictHalf = bestTime * Math.pow(21.1 / bestDist, 1.06);
+      var fmtTime = function(s) {
+        var h = Math.floor(s / 3600);
+        var m = Math.floor((s % 3600) / 60);
+        var sec = Math.round(s % 60);
+        if (h > 0) return h + ' hours ' + m + ' minutes';
+        return m + ' minutes ' + sec + ' seconds';
+      };
+      speak('Based on your best pace, predicted 5 K: ' + fmtTime(predict5k) +
+        '. 10 K: ' + fmtTime(predict10k) +
+        '. Half marathon: ' + fmtTime(predictHalf));
+    } catch(e) {
+      speak('Could not calculate race predictions');
+    }
+  }
+
+  function speakSplits() {
+    if (typeof Engine === 'undefined' || !Engine.run) {
+      speak('No active run');
+      return;
+    }
+    var splits = Engine.run.splits;
+    if (!splits || splits.length === 0) {
+      speak('No splits yet. Keep running!');
+      return;
+    }
+    var negCount = 0;
+    for (var i = 0; i < splits.length; i++) {
+      if (splits[i].negativeSplit) negCount++;
+    }
+    var last = splits[splits.length - 1];
+    var mins = Math.floor(last.timeSec / 60);
+    var secs = last.timeSec % 60;
+    var msg = splits.length + ' splits completed. Last K M: ' + mins + ' minutes ' + secs + ' seconds.';
+    if (negCount > 0) {
+      msg += ' ' + negCount + ' negative splits. Nice pacing!';
+    }
     speak(msg);
   }
 

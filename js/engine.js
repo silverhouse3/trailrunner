@@ -125,6 +125,15 @@ const Engine = {
       // Resume ramp-up tracking
       _resumeElapsed: null, // elapsed time at last resume (for gentle ramp-up)
 
+      // Running power (watts) — mechanical power model
+      power: 0,             // instantaneous watts
+      _powerSum: 0,
+      _powerSamples: 0,
+      _powerMax: 0,
+
+      // Negative split tracking
+      _consecutiveNegSplits: 0,
+
       // Effort score (Banister TRIMP — Training Impulse)
       // Accumulates HR-weighted training load throughout the workout.
       // Result: 0-50 easy, 50-100 moderate, 100-200 hard, 200+ very hard
@@ -249,6 +258,9 @@ const Engine = {
       effortScore: Math.round(r._trimp || 0),
       hrZoneMinutes: r._hrZoneMinutes || null,
       hrRecovery: r._hrRecovery || null,
+      avgPower: r._powerSamples > 0 ? Math.round(r._powerSum / r._powerSamples) : 0,
+      maxPower: Math.round(r._powerMax || 0),
+      negativeSplits: r.splits.filter(function(s) { return s.negativeSplit; }).length,
     };
 
     const saved = Store.saveRun(summary);
@@ -559,6 +571,23 @@ const Engine = {
       if (this.run.speed > this.run._speedMax) this.run._speedMax = this.run.speed;
     }
 
+    // ── Running power (watts) ──────────────────────────────────────────
+    // Mechanical model: P = mass × velocity × (Ecr + g × grade)
+    // Ecr (energy cost of running) ≈ 0.98 J/(kg·m) on flat treadmill belt
+    // grade as fraction (10% → 0.10), downhill clamped to -3%
+    if (this.run.speed > 0.5) {
+      var grade = Math.max(-0.03, (this.run.incline || 0) / 100);
+      this.run.power = Math.round(
+        this.run.weight * speedMs * (0.98 + 9.81 * grade)
+      );
+      if (this.run.power < 0) this.run.power = 0;
+      this.run._powerSum += this.run.power;
+      this.run._powerSamples++;
+      if (this.run.power > this.run._powerMax) this.run._powerMax = this.run.power;
+    } else {
+      this.run.power = 0;
+    }
+
     // ── Auto-pause: pause timer when treadmill belt stops ────────────────
     // Only when receiving real treadmill data (not simulation/free run)
     if (this.run.speedSource === 'treadmill' || this.run.speedSource === 'ftms') {
@@ -716,12 +745,30 @@ const Engine = {
           : 0;
         const paceSecPerKm = Math.round(splitElapsed);
 
+        // Detect negative split (current km faster than previous km)
+        var isNegativeSplit = false;
+        if (this.run.splits.length > 0) {
+          var prevSplit = this.run.splits[this.run.splits.length - 1];
+          if (splitElapsed < prevSplit.timeSec) {
+            isNegativeSplit = true;
+            this.run._consecutiveNegSplits++;
+          } else {
+            this.run._consecutiveNegSplits = 0;
+          }
+        }
+
+        // Average power for this split
+        var splitAvgPower = this.run._powerSamples > 0
+          ? Math.round(this.run._powerSum / this.run._powerSamples) : 0;
+
         this.run.splits.push({
           km: k,
           timeSec: Math.round(splitElapsed),
           paceSecPerKm,
           avgHR,
+          avgPower: splitAvgPower,
           elapsed: Math.round(this.run.elapsed),
+          negativeSplit: isNegativeSplit,
         });
 
         this.run._lastSplitElapsed = this.run.elapsed;
@@ -729,8 +776,8 @@ const Engine = {
         this.run._splitHRSum = 0;
         this.run._splitHRSamples = 0;
 
-        // Notify UI
-        if (this.onSplit) this.onSplit(k, splitElapsed, paceSecPerKm, avgHR);
+        // Notify UI (pass negative split flag)
+        if (this.onSplit) this.onSplit(k, splitElapsed, paceSecPerKm, avgHR, isNegativeSplit);
       }
       this.run._lastSplitKm = currentKm;
     }
@@ -826,6 +873,18 @@ const Engine = {
     if (score < 250) return 'Hard';
     if (score < 400) return 'Very Hard';
     return 'Extreme';
+  },
+
+  /** Get current running power in watts. */
+  getPower() {
+    if (!this.run) return 0;
+    return this.run.power || 0;
+  },
+
+  /** Get average power for the run so far. */
+  getAvgPower() {
+    if (!this.run || this.run._powerSamples === 0) return 0;
+    return Math.round(this.run._powerSum / this.run._powerSamples);
   },
 
   /** Get effort color for display. */

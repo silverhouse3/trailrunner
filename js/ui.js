@@ -182,6 +182,11 @@ const UI = {
     // ── Cadence ──────────────────────────────────────────────────────────
     set('cadVal', r.cadence > 0 ? r.cadence : '—');
 
+    // ── Power ───────────────────────────────────────────────────────────
+    set('powerVal', r.power > 0 ? r.power : '—');
+    var avgP = Engine.getAvgPower();
+    set('avgPowerVal', avgP > 0 ? ('avg ' + avgP + 'W') : '');
+
     // ── Calories ─────────────────────────────────────────────────────────
     set('calVal', Math.round(r.calories));
 
@@ -466,6 +471,31 @@ const UI = {
 
     // Run comparison (vs last and best on same route)
     this._renderComparison(r);
+
+    // Power summary
+    var powerEl = document.getElementById('fPower');
+    if (powerEl) {
+      var avgPow = Engine.getAvgPower();
+      if (avgPow > 0) {
+        powerEl.innerHTML = '<span style="color:var(--dim)">Power: </span><span style="color:var(--cyan)">' + avgPow + 'W avg</span>';
+        if (r._powerMax > 0) powerEl.innerHTML += ' <span style="color:var(--dim)">/ ' + Math.round(r._powerMax) + 'W peak</span>';
+        powerEl.style.display = '';
+      } else {
+        powerEl.style.display = 'none';
+      }
+    }
+
+    // Negative splits
+    var negSplitEl = document.getElementById('fNegSplits');
+    if (negSplitEl) {
+      var negCount = r.splits.filter(function(s) { return s.negativeSplit; }).length;
+      if (negCount > 0) {
+        negSplitEl.innerHTML = '<span style="color:var(--green)">' + negCount + ' negative split' + (negCount > 1 ? 's' : '') + ' — great pacing!</span>';
+        negSplitEl.style.display = '';
+      } else {
+        negSplitEl.style.display = 'none';
+      }
+    }
 
     // HR Recovery indicator
     var hrrEl = document.getElementById('fHRR');

@@ -198,12 +198,22 @@ const App = {
       }
     };
 
-    Engine.onSplit = (km, timeSec, pace, hr) => {
+    Engine.onSplit = (km, timeSec, pace, hr, isNegativeSplit) => {
       UI.showSplitToast(km, timeSec, pace, hr);
       if (UI.splitsOpen) UI.renderSplits();
       // Feed milestone tracker with split data
       var settings = Store.getSettings();
       MilestoneTracker.onSplit(km, settings.distUnit || 'km', timeSec, hr, settings.maxHR || 185);
+      // Announce negative split
+      if (isNegativeSplit) {
+        var prevSplit = Engine.run.splits.length >= 2 ? Engine.run.splits[Engine.run.splits.length - 2] : null;
+        var diff = prevSplit ? prevSplit.timeSec - timeSec : 0;
+        VoiceCoach.say('Negative split! ' + Math.round(diff) + ' seconds faster than the last K.', 'medium');
+        MilestoneTracker._showPopup('NEGATIVE SPLIT! ' + Math.round(diff) + 's faster', '#22c55e');
+        if (Engine.run._consecutiveNegSplits >= 3) {
+          VoiceCoach.say(Engine.run._consecutiveNegSplits + ' negative splits in a row. Strong finish!', 'low');
+        }
+      }
     };
 
     Engine.onRunComplete = () => {
@@ -606,6 +616,22 @@ const App = {
     if (effortScore > 0) {
       setTimeout(function() { VoiceCoach.announceEffortScore(effortScore); }, 3000);
     }
+    // Announce power summary
+    var avgPower = Engine.getAvgPower();
+    if (avgPower > 0) {
+      setTimeout(function() {
+        VoiceCoach.say('Average power: ' + avgPower + ' watts.', 'low');
+      }, 4000);
+    }
+    // Announce negative splits
+    if (Engine.run && Engine.run.splits) {
+      var negCount = Engine.run.splits.filter(function(s) { return s.negativeSplit; }).length;
+      if (negCount >= 2) {
+        setTimeout(function() {
+          VoiceCoach.say(negCount + ' negative splits. Excellent pacing!', 'low');
+        }, 6000);
+      }
+    }
     // Check for personal best
     var route = Engine.route;
     if (route && route.bestTime && Engine.run && Engine.run.elapsed <= route.bestTime) {
@@ -677,6 +703,8 @@ const App = {
         maxSpeed: saved.maxSpeed || 0,
         calories: saved.calories || 0,
         ghostDelta: Engine.ghostEnabled && Engine.ghost ? (Engine.ghost.elapsed - saved.elapsed) : 0,
+        avgPower: saved.avgPower || 0,
+        negativeSplits: saved.negativeSplits || 0,
       };
       var newBadges = Streaks.recordWorkout(summary);
       if (newBadges && newBadges.length > 0) {

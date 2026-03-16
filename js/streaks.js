@@ -34,6 +34,11 @@ var Streaks = {
     { id: 'early_bird',     name: 'Early Bird',      icon: '\uD83C\uDF05', condition: function(d, s) { return s.hour < 7; } },
     { id: 'night_owl',      name: 'Night Owl',       icon: '\uD83E\uDD89', condition: function(d, s) { return s.hour >= 21; } },
     { id: 'calorie_burner', name: '500 Cal Burn',    icon: '\uD83D\uDD25', condition: function(d, s) { return s.calories >= 500; } },
+    { id: 'negative_split', name: 'Negative Splitter', icon: '\u2935\uFE0F', condition: function(d, s) { return (s.negativeSplits || 0) >= 3; } },
+    { id: 'power_200',     name: '200W Runner',    icon: '\u26A1', condition: function(d, s) { return (s.avgPower || 0) >= 200; } },
+    { id: 'power_300',     name: '300W Powerhouse', icon: '\uD83D\uDCA5', condition: function(d, s) { return (s.avgPower || 0) >= 300; } },
+    { id: 'total_100k',    name: '100K Total',      icon: '\uD83C\uDF0D', condition: function(d)    { return d.totalDistanceKm >= 100; } },
+    { id: 'ultra',         name: 'Ultra Runner',    icon: '\uD83C\uDFD4\uFE0F', condition: function(d, s) { return s.distanceKm >= 50; } },
   ],
 
   // ── Init ──────────────────────────────────────────────────────────────────
@@ -266,6 +271,17 @@ var Streaks = {
         return { progress: 0, remaining: 'Work out after 9pm' };
       case 'calorie_burner':
         return { progress: 0, remaining: 'Burn 500+ calories in one workout' };
+      case 'negative_split':
+        return { progress: 0, remaining: 'Run 3+ negative splits in one workout' };
+      case 'power_200':
+        return { progress: 0, remaining: 'Average 200W+ in a workout' };
+      case 'power_300':
+        return { progress: 0, remaining: 'Average 300W+ in a workout' };
+      case 'total_100k':
+        var rem100 = Math.max(0, 100 - d.totalDistanceKm);
+        return { progress: d.totalDistanceKm / 100, remaining: rem100.toFixed(1) + ' km to go' };
+      case 'ultra':
+        return { progress: 0, remaining: 'Complete a 50K run' };
       default:
         return null;
     }

@@ -152,6 +152,8 @@ for(var j=1;j<k.length;j++)k[j].style[prop]=g}})
   </div>
   <div id="fPB" style="display:none;font-family:'Orbitron',sans-serif;font-size:18px;font-weight:700;color:var(--green);letter-spacing:.1em;margin:8px 0"></div>
   <div id="fComparison" style="display:none;width:100%;max-width:420px;margin:12px auto 0"></div>
+  <div id="fPower" style="display:none;font-size:13px;font-family:'JetBrains Mono',monospace;margin:4px 0"></div>
+  <div id="fNegSplits" style="display:none;font-size:13px;font-family:'JetBrains Mono',monospace;margin:4px 0"></div>
   <div id="fHRR" style="display:none;font-size:13px;font-family:'JetBrains Mono',monospace;margin:8px 0;padding:8px 16px;background:rgba(30,48,80,.2);border-radius:8px;border:1px solid rgba(30,48,80,.4)"></div>
   <div class="finish-btns">
     <button class="finish-btn primary" onclick="App.saveAndNewRun()">SAVE RUN</button>
@@ -345,6 +347,15 @@ for(var j=1;j<k.length;j++)k[j].style[prop]=g}})
       <div class="mrow">
         <div><span class="mv" id="cadVal" style="font-size:18px">—</span><span class="mu">spm</span></div>
       </div>
+    </div>
+
+    <!-- Power -->
+    <div class="mcard" style="--ac:var(--cyan)">
+      <div class="ml">POWER</div>
+      <div class="mrow">
+        <div><span class="mv" id="powerVal" style="font-size:18px">—</span><span class="mu">W</span></div>
+      </div>
+      <div class="ms2" id="avgPowerVal"></div>
     </div>
 
     <!-- Calories -->

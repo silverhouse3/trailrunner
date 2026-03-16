@@ -220,10 +220,13 @@ const Sync = {
       if (run.avgSpeed) desc += 'Avg Speed: ' + run.avgSpeed.toFixed(1) + ' kph\n';
       if (run.maxSpeed) desc += 'Max Speed: ' + run.maxSpeed.toFixed(1) + ' kph\n';
       if (run.elevGained) desc += 'Elevation: +' + Math.round(run.elevGained) + 'm\n';
+      if (run.avgPower) desc += 'Avg Power: ' + run.avgPower + 'W\n';
+      if (run.maxPower) desc += 'Peak Power: ' + run.maxPower + 'W\n';
       if (run.effortScore) {
         var efLabel = typeof Engine !== 'undefined' ? Engine.getEffortLabel(run.effortScore) : '';
         desc += 'Effort (TRIMP): ' + run.effortScore + (efLabel ? ' (' + efLabel + ')' : '') + '\n';
       }
+      if (run.negativeSplits > 0) desc += 'Negative Splits: ' + run.negativeSplits + '\n';
       if (run.splits && run.splits.length) {
         desc += '\nSplits:\n';
         run.splits.forEach(function(s) {
@@ -406,6 +409,9 @@ const Sync = {
       elevation_gain_m: run.elevGained || run.elevGain || 0,
       splits_count: run.splits ? run.splits.length : 0,
       effort_score: run.effortScore || 0,
+      avg_power_watts: run.avgPower || 0,
+      max_power_watts: run.maxPower || 0,
+      negative_splits: run.negativeSplits || 0,
       hr_zone_minutes: run.hrZoneMinutes || null,
     };
 

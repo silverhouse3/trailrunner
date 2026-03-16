@@ -146,6 +146,10 @@ a:hover { text-decoration: underline; }
 /* HRR badge in detail */
 .hrr-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; margin-left: 4px; }
 
+/* Race prediction cards */
+#racePredictions .pr-card { background: linear-gradient(135deg, rgba(62,207,255,.08), rgba(0,230,118,.04)); border-color: var(--cyan); }
+#racePredictions .pr-label { color: var(--cyan); }
+
 /* Back link */
 .back-link { display: inline-block; margin-bottom: 16px; font-size: 14px; }
 </style>
@@ -192,6 +196,16 @@ a:hover { text-decoration: underline; }
 <div class="chart-section">
   <div class="chart-title">BADGES &amp; ACHIEVEMENTS</div>
   <div class="badge-grid" id="badgeGrid"></div>
+</div>
+
+<div class="chart-section">
+  <div class="chart-title">RACE PREDICTIONS (Riegel Formula)</div>
+  <div id="racePredictions" class="pr-grid"></div>
+</div>
+
+<div class="chart-section">
+  <div class="chart-title">POWER TREND (watts)</div>
+  <div class="pace-chart" id="powerChart"></div>
 </div>
 
 <div class="chart-section">
@@ -321,6 +335,15 @@ a:hover { text-decoration: underline; }
     cards.push({ value: vo2max, label: 'EST. VO2MAX', sub: vo2Label, cls: 'purple' });
   }
 
+  // Average running power across all runs that have power data
+  var totalPowerSum = 0, powerRunCount = 0;
+  runs.forEach(function(r) {
+    if (r.avgPower > 0) { totalPowerSum += r.avgPower; powerRunCount++; }
+  });
+  if (powerRunCount > 0) {
+    cards.push({ value: Math.round(totalPowerSum / powerRunCount), label: 'AVG POWER', sub: 'watts', cls: 'cyan' });
+  }
+
   var grid = document.getElementById('summaryCards');
   cards.forEach(function(c) {
     grid.innerHTML += '<div class="card ' + c.cls + '">' +
@@ -424,6 +447,30 @@ a:hover { text-decoration: underline; }
     }, runs[0]);
     if (bestHRR.hrRecovery && bestHRR.hrRecovery.drop > 0) {
       prs.push({ label: 'BEST HR RECOVERY', value: bestHRR.hrRecovery.drop + ' bpm/min', date: fmtDate(bestHRR.savedAt) });
+    }
+
+    // Highest average power
+    var bestPowerRun = runs.reduce(function(best, r) {
+      return (r.avgPower || 0) > (best.avgPower || 0) ? r : best;
+    }, runs[0]);
+    if ((bestPowerRun.avgPower || 0) > 0) {
+      prs.push({ label: 'HIGHEST AVG POWER', value: bestPowerRun.avgPower + 'W', date: fmtDate(bestPowerRun.savedAt) });
+    }
+
+    // Highest max power
+    var peakPowerRun = runs.reduce(function(best, r) {
+      return (r.maxPower || 0) > (best.maxPower || 0) ? r : best;
+    }, runs[0]);
+    if ((peakPowerRun.maxPower || 0) > 0) {
+      prs.push({ label: 'PEAK POWER', value: peakPowerRun.maxPower + 'W', date: fmtDate(peakPowerRun.savedAt) });
+    }
+
+    // Most negative splits in one run
+    var bestNegSplits = runs.reduce(function(best, r) {
+      return (r.negativeSplits || 0) > (best.negativeSplits || 0) ? r : best;
+    }, runs[0]);
+    if ((bestNegSplits.negativeSplits || 0) > 0) {
+      prs.push({ label: 'MOST NEG. SPLITS', value: bestNegSplits.negativeSplits, date: fmtDate(bestNegSplits.savedAt) });
     }
   }
 
@@ -768,6 +815,84 @@ a:hover { text-decoration: underline; }
   badgeGridEl.innerHTML = badgeHtml;
 
   // ── Pace trend chart ──
+  // ── Race Predictions (Riegel Formula) ──
+  // T2 = T1 × (D2/D1)^1.06
+  var raceEl = document.getElementById('racePredictions');
+  var validRaceRuns = runs.filter(function(r) {
+    return (r.distanceKm || 0) >= 2 && (r.elapsedSec || r.elapsed || 0) > 60;
+  });
+  if (validRaceRuns.length > 0) {
+    // Find best pace run as basis for prediction
+    var bestPaceRun = validRaceRuns.reduce(function(best, r) {
+      var t = r.elapsedSec || r.elapsed || 0;
+      var pace = t / (r.distanceKm || 1);
+      var bestT = best.elapsedSec || best.elapsed || 0;
+      var bestPace = bestT / (best.distanceKm || 1);
+      return pace < bestPace ? r : best;
+    }, validRaceRuns[0]);
+    var bpTime = bestPaceRun.elapsedSec || bestPaceRun.elapsed || 0;
+    var bpDist = bestPaceRun.distanceKm || 1;
+
+    var raceDistances = [
+      { name: '5K', km: 5 },
+      { name: '10K', km: 10 },
+      { name: 'HALF MARATHON', km: 21.0975 },
+      { name: 'MARATHON', km: 42.195 },
+    ];
+
+    raceDistances.forEach(function(rd) {
+      var predicted = bpTime * Math.pow(rd.km / bpDist, 1.06);
+      var pacePerKm = predicted / rd.km;
+      raceEl.innerHTML += '<div class="pr-card">' +
+        '<div class="pr-label">' + rd.name + '</div>' +
+        '<div class="pr-value">' + fmtTime(Math.round(predicted)) + '</div>' +
+        '<div class="pr-date">Pace: ' + fmtTime(Math.round(pacePerKm)) + '/km</div></div>';
+    });
+  } else {
+    raceEl.innerHTML = '<div style="color:var(--dim);padding:12px">Need a 2+ km run for predictions</div>';
+  }
+
+  // ── Power Trend Chart ──
+  var powerChartEl = document.getElementById('powerChart');
+  var powerRuns = runs.filter(function(r) {
+    return (r.avgPower || 0) > 0;
+  }).slice(0, 20).reverse(); // oldest first, max 20
+
+  if (powerRuns.length >= 2) {
+    var powers = powerRuns.map(function(r) { return r.avgPower; });
+    var minPower = Math.min.apply(null, powers);
+    var maxPower = Math.max.apply(null, powers);
+    var pRange = maxPower - minPower;
+    if (pRange < 20) { minPower -= 10; maxPower += 10; pRange = maxPower - minPower; }
+    var pPadTop = 10, pPadBot = 20, pPadLeft = 40;
+    var pChartH = 120;
+
+    // Y-axis labels
+    for (var pyi = 0; pyi <= 4; pyi++) {
+      var wVal = minPower + (pRange * pyi / 4);
+      var pyPos = pPadTop + ((pChartH - pPadTop - pPadBot) * (1 - pyi / 4));
+      powerChartEl.innerHTML += '<span class="pace-label-y" style="top:' + pyPos + 'px">' + Math.round(wVal) + 'W</span>';
+    }
+
+    // Plot dots
+    for (var pw = 0; pw < powers.length; pw++) {
+      var px = pPadLeft + ((pw / (powers.length - 1)) * (100 - pPadLeft - 5));
+      var pyPct = (powers[pw] - minPower) / pRange;
+      var py = pPadTop + ((pChartH - pPadTop - pPadBot) * (1 - pyPct));
+      powerChartEl.innerHTML += '<div class="pace-dot" style="left:' + px + '%;top:' + py +
+        'px;background:var(--cyan)" title="' + powers[pw] + 'W"></div>';
+      if (pw === 0 || pw === powers.length - 1 || pw % 5 === 0) {
+        powerChartEl.innerHTML += '<span class="pace-label-x" style="left:' + px + '%">' +
+          fmtShortDate(powerRuns[pw].savedAt || powerRuns[pw].date) + '</span>';
+      }
+    }
+  } else {
+    powerChartEl.innerHTML = '<div style="color:var(--dim);text-align:center;padding:40px">Power data will appear after your next run</div>';
+    powerChartEl.style.height = 'auto';
+    powerChartEl.style.border = 'none';
+  }
+
+  // ── Pace Trend ──
   var paceEl = document.getElementById('paceChart');
   var paceRuns = runs.filter(function(r) {
     return (r.distanceKm || 0) > 0.5 && (r.elapsedSec || r.elapsed || 0) > 60;
@@ -993,9 +1118,11 @@ a:hover { text-decoration: underline; }
         var paceS = sp.timeSec % 60;
         var paceStr = paceM + ':' + (paceS < 10 ? '0' : '') + paceS;
         var hrStr = sp.avgHR > 0 ? ' | ' + sp.avgHR + ' bpm' : '';
+        var powerStr = sp.avgPower > 0 ? ' | ' + sp.avgPower + 'W' : '';
+        var negIcon = sp.negativeSplit ? ' <span style="color:var(--green)" title="Negative split">&#x2935;</span>' : '';
         html += '<div class="detail-split-row">' +
-          '<span class="detail-split-km">km ' + sp.km + '</span>' +
-          '<span class="detail-split-pace">' + paceStr + '/km' + hrStr + '</span></div>';
+          '<span class="detail-split-km">km ' + sp.km + negIcon + '</span>' +
+          '<span class="detail-split-pace">' + paceStr + '/km' + hrStr + powerStr + '</span></div>';
       }
     } else {
       html += '<div style="color:var(--dim)">No split data</div>';
@@ -1035,6 +1162,22 @@ a:hover { text-decoration: underline; }
       html += '<span style="color:' + hrrColor + '">' + r.hrRecovery.hrAtFinish + ' → ' + r.hrRecovery.hrAfter60s + ' bpm ';
       html += '(-' + drop + ' bpm)</span>';
       html += '<span class="hrr-badge" style="background:' + hrrColor + '22;color:' + hrrColor + '">' + hrrRating + '</span>';
+      html += '</div>';
+    }
+
+    // Power + negative split data
+    var showPowerRow = (r.avgPower > 0) || (r.negativeSplits > 0);
+    if (showPowerRow) {
+      html += '<div style="margin-top:8px;font-size:11px;font-family:JetBrains Mono,monospace;padding:6px 0;border-top:1px solid rgba(30,48,80,.5)">';
+      if (r.avgPower > 0) {
+        html += '<span style="color:var(--dim)">Power: </span>';
+        html += '<span style="color:var(--cyan)">' + r.avgPower + 'W avg</span>';
+        if (r.maxPower > 0) html += ' <span style="color:var(--dim)">/ ' + r.maxPower + 'W peak</span>';
+        html += '&nbsp;&nbsp;';
+      }
+      if (r.negativeSplits > 0) {
+        html += '<span style="color:var(--green)">' + r.negativeSplits + ' negative split' + (r.negativeSplits > 1 ? 's' : '') + '</span>';
+      }
       html += '</div>';
     }
 
