@@ -131,9 +131,15 @@ const MapView = {
       }
     }
 
-    // Pan map to follow runner (smoothly)
+    // Pan map to follow runner (smoothly, with threshold to avoid unnecessary redraws)
     if (this.map) {
-      this.map.panTo(latlon, { animate: true, duration: 0.5, noMoveStart: true });
+      var center = this.map.getCenter();
+      var dx = Math.abs(center.lat - latlon[0]);
+      var dy = Math.abs(center.lng - latlon[1]);
+      // Only pan if runner moved more than ~15m from current center (0.00015 deg ≈ 15m)
+      if (dx > 0.00015 || dy > 0.00015) {
+        this.map.panTo(latlon, { animate: true, duration: 0.5, noMoveStart: true });
+      }
     }
   },
 

@@ -543,7 +543,7 @@ body { color: var(--text); font-family: 'Rajdhani', sans-serif; user-select: non
 .wb-empty { font-size: 11px; color: var(--dim); text-align: center; padding: 16px; }
 
 .wb-form { padding: 8px 0; }
-.wb-form-row { margin-bottom: 10px; }
+.wb-form-row { margin-bottom: 10px; display: flex; gap: 12px; }
 .wb-label { font-size: 10px; font-weight: 700; color: var(--mid); font-family: 'JetBrains Mono', monospace;
   letter-spacing: .08em; display: block; margin-bottom: 4px; }
 .wb-input { background: rgba(10,16,28,.6); border: 1px solid #1e3050; border-radius: 4px;
@@ -852,6 +852,7 @@ html:not(.has-flex-gap) .sp-metric-list > * + *,
 html:not(.has-flex-gap) .media-panel > * + * { margin-top: 8px; }
 
 /* ── Specific gap values where 8px default is wrong ────────────── */
+html:not(.has-flex-gap) .wb-form-row > * + * { margin-left: 12px; }
 html:not(.has-flex-gap) .map-tl > * + * { margin-left: 4px; }
 html:not(.has-flex-gap) .zoom-btns > * + * { margin-left: 4px; }
 html:not(.has-flex-gap) .wb-type-btn > * + * { margin-top: 4px; }

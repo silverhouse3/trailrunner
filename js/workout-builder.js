@@ -244,7 +244,7 @@ const WorkoutBuilder = {
           <input class="wb-input" type="text" id="wbName" value="${(typeof _esc==='function'?_esc(w.name||''):w.name||'')}" placeholder="My Workout">
         </div>
 
-        <div class="wb-form-row" style="display:flex;gap:12px">
+        <div class="wb-form-row">
           ${isProgrammed ? `
             <div>
               <label class="wb-label">Distance Unit</label>
