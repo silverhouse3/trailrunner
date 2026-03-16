@@ -469,6 +469,8 @@ var TM = {
     if (isNaN(kph)) return;
     // SAFETY: hard clamp to machine maximum (X32i: 0–22 kph)
     kph = Math.max(0, Math.min(22, kph));
+    // DEDUP: never send the same rounded value twice (prevents beeping)
+    if (kph === this._lastSpeed) return;
     if (!force) {
       if (Math.abs(kph - this._lastSpeed) < 0.15) return;
       var now = Date.now();
@@ -487,6 +489,8 @@ var TM = {
     if (isNaN(pct)) return;
     var clamped = Math.max(-6, Math.min(40, pct));
     var rounded = Math.round(clamped * 2) / 2;
+    // DEDUP: never send the same rounded value twice (prevents beeping)
+    if (rounded === this._lastIncline) return;
     if (!force) {
       if (Math.abs(rounded - this._lastIncline) < 0.4) return;
       var now = Date.now();

@@ -425,7 +425,13 @@ const Engine = {
   onTreadmillData(data) {
     if (!this.run) return;
     if (data.speed != null && data.speed >= 0 && data.speed < 40) {
-      this.run.speed = data.speed;
+      // Smooth speed readings — 70/30 blend with previous to reduce jitter
+      // during belt ramp-up/down (the treadmill motor takes time to reach target)
+      if (this.run.speedSource === 'treadmill' && this.run.speed > 0) {
+        this.run.speed = +(this.run.speed * 0.3 + data.speed * 0.7).toFixed(1);
+      } else {
+        this.run.speed = data.speed;
+      }
       this.run.speedSource = 'treadmill';
     }
     if (data.incline != null) {
@@ -778,7 +784,9 @@ const Engine = {
     return Math.max(-6, Math.min(40, grade)); // clamp to X32i range
   },
 
-  /** Apply auto-control based on current mode. */
+  /** Apply auto-control based on current mode.
+   *  TM.setSpeed/setIncline have built-in dedup so redundant calls are cheap,
+   *  but we still gate on meaningful changes to avoid unnecessary function overhead. */
   _applyAutoControl() {
     const maxHR = this.run.maxHR;
 
@@ -788,6 +796,7 @@ const Engine = {
         this.ctrl.targetIncline = this.run.currentGrade;
         // Set run.incline directly so it displays even without treadmill
         this.run.incline = this.run.currentGrade;
+        // TM.setIncline has dedup — safe to call every tick, won't spam bridge
         TM.setIncline(this.run.currentGrade);
       }
 
@@ -805,6 +814,7 @@ const Engine = {
           this.ctrl.targetIncline = Math.min(15, this.ctrl.targetIncline + 0.3);
         }
       }
+      // Dedup in TM.setSpeed/setIncline prevents redundant gRPC calls
       TM.setSpeed(this.ctrl.targetSpeed);
       TM.setIncline(this.ctrl.targetIncline);
 
@@ -823,6 +833,7 @@ const Engine = {
           this.ctrl.targetSpeed = Math.min(settings.safetyMaxSpeed, this.ctrl.targetSpeed + 0.2);
         }
       }
+      // Dedup in TM.setSpeed/setIncline prevents redundant gRPC calls
       TM.setSpeed(this.ctrl.targetSpeed);
       TM.setIncline(this.ctrl.targetIncline);
     }
@@ -1101,6 +1112,7 @@ const Engine = {
     var self = this;
     var rampIncline = (startIncline !== endIncline);
 
+    // 1s interval — TM.setSpeed dedup prevents duplicate gRPC calls / beeps
     this._decelTimer = setInterval(function() {
       var elapsed = (Date.now() - started) / 1000;
       var progress = Math.min(1, elapsed / duration);
@@ -1122,7 +1134,7 @@ const Engine = {
         if (rampIncline) TM.setIncline(endIncline, true);
         if (onComplete) onComplete();
       }
-    }, 250);
+    }, 1000);
   },
 
   // ════════════════════════════════════════════════════════════════════════════
