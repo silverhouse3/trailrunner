@@ -227,6 +227,10 @@ const Sync = {
         desc += 'Effort (TRIMP): ' + run.effortScore + (efLabel ? ' (' + efLabel + ')' : '') + '\n';
       }
       if (run.negativeSplits > 0) desc += 'Negative Splits: ' + run.negativeSplits + '\n';
+      if (run.cardiacDrift != null) {
+        var driftLabel = run.cardiacDrift < 2 ? 'Stable' : run.cardiacDrift < 5 ? 'Minor' : run.cardiacDrift < 10 ? 'Moderate' : 'Significant';
+        desc += 'Cardiac Drift: ' + run.cardiacDrift + '% (' + driftLabel + ')\n';
+      }
       if (run.splits && run.splits.length) {
         desc += '\nSplits:\n';
         run.splits.forEach(function(s) {
@@ -412,6 +416,8 @@ const Sync = {
       avg_power_watts: run.avgPower || 0,
       max_power_watts: run.maxPower || 0,
       negative_splits: run.negativeSplits || 0,
+      cardiac_drift_pct: run.cardiacDrift || 0,
+      efficiency_factor: run.efficiencyFactor || 0,
       hr_zone_minutes: run.hrZoneMinutes || null,
     };
 

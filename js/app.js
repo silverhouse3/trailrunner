@@ -258,6 +258,16 @@ const App = {
       if (typeof VoiceCoach !== 'undefined') VoiceCoach.say('Resumed.', 'low');
     };
 
+    Engine.onDriftWarning = (driftPct) => {
+      var pct = Math.round(driftPct);
+      if (typeof VoiceCoach !== 'undefined') {
+        VoiceCoach.say('Cardiac drift detected at ' + pct + ' percent. Your heart is working harder at the same pace. Consider hydrating.', 'high');
+      }
+      if (typeof MilestoneTracker !== 'undefined') {
+        MilestoneTracker._showPopup('CARDIAC DRIFT ' + pct + '% — Hydrate!', '#ff8844');
+      }
+    };
+
     // ── Wire WorkoutSegments callbacks ──────────────────────────────────
     WorkoutSegments.onSegmentChange = (newSeg, oldSeg) => {
       console.log('[App] Segment change:', newSeg);
@@ -634,6 +644,16 @@ const App = {
         setTimeout(function() {
           VoiceCoach.say(negCount + ' negative splits. Excellent pacing!', 'low');
         }, 6000);
+      }
+    }
+    // Announce cardiac drift summary if tracked
+    if (Engine.run && Engine.run._driftBaselineLocked) {
+      var drift = Engine.getDriftPct();
+      if (drift >= 3) {
+        setTimeout(function() {
+          var label = Engine.getDriftLabel(drift);
+          VoiceCoach.say('Cardiac drift was ' + Math.round(drift) + ' percent. ' + label + '.', 'low');
+        }, 8000);
       }
     }
     // Check for personal best

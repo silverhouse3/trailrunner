@@ -144,6 +144,18 @@ const Engine = {
       _zeroSpeedSince: 0,  // timestamp when speed first dropped to 0
       _autoPaused: false,   // currently auto-paused?
 
+      // Cardiac drift detection — tracks HR:pace ratio over time
+      // Drift >5% = dehydration/fatigue indicator
+      _driftSamples: [],       // [{elapsed, hrPaceRatio}] sampled every 30s
+      _driftBaseline: 0,       // avg HR:pace ratio in first 10 min
+      _driftBaselineLocked: false,
+      _driftPct: 0,            // current drift percentage
+      _driftWarned: false,     // whether drift warning has been announced
+      _lastDriftSample: 0,     // elapsed at last sample
+
+      // Efficiency Factor (EF) = speed / HR — tracks aerobic efficiency
+      _efSamples: [],          // [{elapsed, ef}]
+
       // Settings snapshot
       maxHR: settings.maxHR,
       weight: settings.weight,
@@ -261,6 +273,10 @@ const Engine = {
       avgPower: r._powerSamples > 0 ? Math.round(r._powerSum / r._powerSamples) : 0,
       maxPower: Math.round(r._powerMax || 0),
       negativeSplits: r.splits.filter(function(s) { return s.negativeSplit; }).length,
+      cardiacDrift: r._driftBaselineLocked ? +r._driftPct.toFixed(1) : null,
+      efficiencyFactor: r._efSamples.length > 0
+        ? +(r._efSamples.reduce(function(a, b) { return a + b.ef; }, 0) / r._efSamples.length).toFixed(4)
+        : null,
     };
 
     const saved = Store.saveRun(summary);
@@ -586,6 +602,56 @@ const Engine = {
       if (this.run.power > this.run._powerMax) this.run._powerMax = this.run.power;
     } else {
       this.run.power = 0;
+    }
+
+    // ── Cardiac drift detection (sampled every 30s) ──────────────────────
+    // HR:pace ratio = HR / speed. Rising ratio at constant pace = drift.
+    // Drift >5% indicates dehydration or fatigue.
+    if (this.run.hr > 50 && this.run.speed > 3 &&
+        this.run.elapsed - this.run._lastDriftSample >= 30) {
+      this.run._lastDriftSample = this.run.elapsed;
+      var hrPaceRatio = this.run.hr / this.run.speed;
+      var ef = this.run.speed / this.run.hr; // efficiency factor
+      this.run._driftSamples.push({ elapsed: this.run.elapsed, hrPaceRatio: hrPaceRatio });
+      this.run._efSamples.push({ elapsed: this.run.elapsed, ef: ef });
+
+      // Lock baseline after 10 minutes (need stable data)
+      if (!this.run._driftBaselineLocked && this.run.elapsed >= 600 && this.run._driftSamples.length >= 10) {
+        // Average of first 10 min of samples
+        var baselineSum = 0;
+        var baselineCount = 0;
+        for (var di = 0; di < this.run._driftSamples.length; di++) {
+          if (this.run._driftSamples[di].elapsed <= 600) {
+            baselineSum += this.run._driftSamples[di].hrPaceRatio;
+            baselineCount++;
+          }
+        }
+        if (baselineCount > 0) {
+          this.run._driftBaseline = baselineSum / baselineCount;
+          this.run._driftBaselineLocked = true;
+        }
+      }
+
+      // Calculate current drift (rolling 5-min average vs baseline)
+      if (this.run._driftBaselineLocked && this.run._driftBaseline > 0) {
+        var recentSum = 0;
+        var recentCount = 0;
+        for (var dj = this.run._driftSamples.length - 1; dj >= 0; dj--) {
+          if (this.run.elapsed - this.run._driftSamples[dj].elapsed > 300) break;
+          recentSum += this.run._driftSamples[dj].hrPaceRatio;
+          recentCount++;
+        }
+        if (recentCount >= 3) {
+          var recentAvg = recentSum / recentCount;
+          this.run._driftPct = ((recentAvg - this.run._driftBaseline) / this.run._driftBaseline) * 100;
+        }
+      }
+
+      // Drift warning (once at 5% threshold)
+      if (this.run._driftPct >= 5 && !this.run._driftWarned) {
+        this.run._driftWarned = true;
+        if (this.onDriftWarning) this.onDriftWarning(this.run._driftPct);
+      }
     }
 
     // ── Auto-pause: pause timer when treadmill belt stops ────────────────
@@ -1096,6 +1162,27 @@ const Engine = {
     }
   },
 
+  /** Get current cardiac drift percentage. Positive = HR rising at same pace. */
+  getDriftPct() {
+    if (!this.run) return 0;
+    return this.run._driftPct || 0;
+  },
+
+  /** Get current Efficiency Factor (speed/HR). Higher = more aerobically efficient. */
+  getEF() {
+    if (!this.run || this.run.hr <= 0 || this.run.speed < 1) return 0;
+    return +(this.run.speed / this.run.hr).toFixed(4);
+  },
+
+  /** Get drift status label. */
+  getDriftLabel(pct) {
+    if (pct === undefined) pct = this.getDriftPct();
+    if (pct < 2) return 'Stable';
+    if (pct < 5) return 'Minor drift';
+    if (pct < 10) return 'Moderate drift';
+    return 'Significant drift';
+  },
+
   // ── Callbacks (set by app.js) ──────────────────────────────────────────────
   onTick: null,
   onSplit: null,
@@ -1103,4 +1190,5 @@ const Engine = {
   onCooldownComplete: null,
   onAutoPause: null,
   onAutoResume: null,
+  onDriftWarning: null,
 };

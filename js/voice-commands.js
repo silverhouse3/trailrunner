@@ -28,6 +28,8 @@
 //   "power" / "watts"        → Speak current running power
 //   "race prediction"        → Predict 5K/10K/HM times (Riegel formula)
 //   "splits" / "my splits"   → Speak split summary + negative split count
+//   "drift" / "cardiac drift"→ Speak cardiac drift percentage + hydration advice
+//   "efficiency"             → Speak aerobic efficiency factor
 //   "play music" / "radio on"→ Start/resume radio
 //   "stop music" / "mute"    → Stop radio
 //   "volume up" / "louder"   → Volume +15%
@@ -291,6 +293,14 @@ window.VoiceCommands = (function() {
     }
     if (matches(text, ['splits', 'negative splits', 'my splits', 'split times'])) {
       speakSplits();
+      return;
+    }
+    if (matches(text, ['drift', 'cardiac drift', 'hydration', 'am i drifting'])) {
+      speakDrift();
+      return;
+    }
+    if (matches(text, ['efficiency', 'efficiency factor', 'how efficient'])) {
+      speakEfficiency();
       return;
     }
 
@@ -664,6 +674,41 @@ window.VoiceCommands = (function() {
       msg += ' ' + negCount + ' negative splits. Nice pacing!';
     }
     speak(msg);
+  }
+
+  function speakDrift() {
+    if (typeof Engine === 'undefined' || !Engine.run) {
+      speak('No active run');
+      return;
+    }
+    var drift = Engine.getDriftPct();
+    if (!Engine.run._driftBaselineLocked) {
+      speak('Cardiac drift needs at least 10 minutes of data. Keep running!');
+      return;
+    }
+    var label = Engine.getDriftLabel(drift);
+    var msg = 'Cardiac drift: ' + Math.round(drift) + ' percent. ' + label + '.';
+    if (drift >= 5) {
+      msg += ' Consider drinking water.';
+    } else if (drift < 2) {
+      msg += ' Your heart rate is very stable. Great hydration!';
+    }
+    speak(msg);
+  }
+
+  function speakEfficiency() {
+    if (typeof Engine === 'undefined' || !Engine.run) {
+      speak('No active run');
+      return;
+    }
+    var ef = Engine.getEF();
+    if (ef <= 0) {
+      speak('Efficiency data building up. Keep running!');
+      return;
+    }
+    // EF of 0.06-0.08 is typical for recreational runners
+    var efRating = ef > 0.08 ? 'excellent' : ef > 0.065 ? 'good' : ef > 0.05 ? 'average' : 'developing';
+    speak('Efficiency factor: ' + (ef * 100).toFixed(1) + '. Rated ' + efRating + '.');
   }
 
   function updateMicIcon(active) {
