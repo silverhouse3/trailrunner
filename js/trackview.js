@@ -48,6 +48,10 @@ const TrackView = {
   _elevSlice: [],     // [{ dist, elev, grade }] — 1km window
   _elevScale: 1.0,
 
+  // Rain particles (visual effect for drift warning or overcast sky)
+  _rain: [],
+  _rainActive: false,
+
   // ═══════════════════════════════════════════════════════════════════════════
   // INIT
   // ═══════════════════════════════════════════════════════════════════════════
@@ -234,6 +238,9 @@ const TrackView = {
 
     // ── Dust particles behind runner ─────────────────────────────
     this._drawDust(c, W, H, time);
+
+    // ── Rain (hydration warning when drift > 5%) ────────────────
+    this._drawRain(c, W, H, time);
 
     // ── Mini elevation profile ───────────────────────────────────
     this._drawMiniElevation(c, W, H);
@@ -710,6 +717,76 @@ const TrackView = {
 
     // Cap particle count
     while (this._dustParticles.length > 40) this._dustParticles.shift();
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RAIN PARTICLES — visual hydration reminder when drift > 5%
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  _drawRain: function(c, W, H, time) {
+    // Activate rain when cardiac drift exceeds 5% (hydration warning)
+    var drift = this.runner.driftPct || 0;
+    this._rainActive = drift >= 5;
+
+    if (!this._rainActive) {
+      this._rain = [];
+      return;
+    }
+
+    // Intensity scales with drift (5% = light, 10%+ = heavy)
+    var intensity = Math.min(1, (drift - 5) / 5);
+    var maxDrops = Math.round(30 + intensity * 70);
+
+    // Spawn new drops
+    while (this._rain.length < maxDrops) {
+      this._rain.push({
+        x: Math.random() * W,
+        y: Math.random() * H * 0.3, // start in upper third
+        speed: 4 + Math.random() * 6,
+        len: 8 + Math.random() * 12,
+        wind: -1 + Math.random() * 0.5, // slight left drift
+        alpha: 0.15 + Math.random() * 0.2,
+      });
+    }
+
+    c.strokeStyle = '#88bbdd';
+    c.lineWidth = 1;
+
+    for (var i = this._rain.length - 1; i >= 0; i--) {
+      var d = this._rain[i];
+      d.y += d.speed;
+      d.x += d.wind;
+
+      // Respawn at top when hitting bottom
+      if (d.y > H || d.x < -10) {
+        d.y = -d.len;
+        d.x = Math.random() * (W + 20);
+        continue;
+      }
+
+      c.globalAlpha = d.alpha;
+      c.beginPath();
+      c.moveTo(d.x, d.y);
+      c.lineTo(d.x + d.wind * 2, d.y + d.len);
+      c.stroke();
+    }
+    c.globalAlpha = 1.0;
+
+    // Dampen sky when raining — add blue-grey overlay
+    if (intensity > 0.3) {
+      c.globalAlpha = intensity * 0.08;
+      c.fillStyle = '#445566';
+      c.fillRect(0, 0, W, H * 0.5);
+      c.globalAlpha = 1.0;
+    }
+
+    // Lightning flash at drift >= 8% (brief white flash, ~every 8s)
+    if (drift >= 8 && Math.sin(time / 1000 * 0.8) > 0.98) {
+      c.globalAlpha = 0.15;
+      c.fillStyle = '#ffffff';
+      c.fillRect(0, 0, W, H);
+      c.globalAlpha = 1.0;
+    }
   },
 
   // ═══════════════════════════════════════════════════════════════════════════
