@@ -96,6 +96,11 @@ var (
 	lastMQTTPub   time.Time
 
 	startTime = time.Now()
+
+	// Speed ramp rate limiting — max 4 kph change per second
+	lastSpeedSet     float64
+	lastSpeedSetTime time.Time
+	maxSpeedRateKphS = 4.0 // max kph/s acceleration
 )
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -188,7 +193,13 @@ func connectGRPC() error {
 
 func grpcCtx() context.Context {
 	md := metadata.New(map[string]string{"client_id": clientID})
-	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Cancel is called when the context deadline expires or the RPC completes.
+	// For short-lived unary RPCs, the deadline handles cleanup.
+	go func() {
+		<-ctx.Done()
+		cancel()
+	}()
 	return metadata.NewOutgoingContext(ctx, md)
 }
 
@@ -600,6 +611,78 @@ func handleConsoleInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// SAFETY — rate-limited speed changes + safety key guard
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// safeSpeedSet applies speed ramp rate limiting to prevent dangerous sudden
+// speed jumps. Clamps to 0-22 kph and limits acceleration to maxSpeedRateKphS.
+// Speed 0 is always allowed immediately (e-stop safe).
+func safeSpeedSet(targetKph float64) error {
+	targetKph = clamp(targetKph, 0, 22)
+
+	// Speed 0 always bypasses rate limiting — emergency stop must be instant
+	if targetKph == 0 {
+		mu.Lock()
+		lastSpeedSet = 0
+		lastSpeedSetTime = time.Now()
+		mu.Unlock()
+		_, err := speedClient.SetSpeed(grpcCtx(), &pb.SpeedRequest{Kph: 0})
+		return err
+	}
+
+	// Check safety key
+	mu.RLock()
+	sk := safetyKeyOut
+	mu.RUnlock()
+	if sk {
+		return fmt.Errorf("safety key removed — motor commands blocked")
+	}
+
+	// Rate limit: max maxSpeedRateKphS kph/s change
+	mu.Lock()
+	now := time.Now()
+	dt := now.Sub(lastSpeedSetTime).Seconds()
+	if dt < 0.1 {
+		dt = 0.1 // minimum 100ms between changes
+	}
+	maxDelta := maxSpeedRateKphS * dt
+	prev := lastSpeedSet
+	delta := targetKph - prev
+	if delta > maxDelta {
+		targetKph = prev + maxDelta
+		log.Printf("[SAFETY] Speed ramp limited: requested %.1f, capped to %.1f (delta %.1f > max %.1f)", prev+delta-maxDelta+maxDelta, targetKph, delta, maxDelta)
+	} else if delta < -maxDelta {
+		// Deceleration is also rate-limited (except to 0, handled above)
+		targetKph = prev - maxDelta
+		log.Printf("[SAFETY] Speed ramp limited (decel): capped to %.1f", targetKph)
+	}
+	lastSpeedSet = targetKph
+	lastSpeedSetTime = now
+	mu.Unlock()
+
+	_, err := speedClient.SetSpeed(grpcCtx(), &pb.SpeedRequest{Kph: targetKph})
+	return err
+}
+
+// safeInclineSet checks safety key before setting incline.
+// Incline 0 always allowed (return to flat).
+func safeInclineSet(targetPct float64) error {
+	targetPct = clamp(targetPct, -6, 40)
+
+	if targetPct != 0 {
+		mu.RLock()
+		sk := safetyKeyOut
+		mu.RUnlock()
+		if sk {
+			return fmt.Errorf("safety key removed — motor commands blocked")
+		}
+	}
+
+	_, err := inclineClient.SetIncline(grpcCtx(), &pb.InclineRequest{Percent: targetPct})
+	return err
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // HTTP SERVER
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -756,7 +839,7 @@ func handleSpeed(w http.ResponseWriter, r *http.Request) {
 		j(w, map[string]interface{}{"ok": false, "error": "workout not running", "state": state})
 		return
 	}
-	_, err := speedClient.SetSpeed(grpcCtx(), &pb.SpeedRequest{Kph: clamp(kph, 0, 22)})
+	err := safeSpeedSet(kph)
 	if err != nil {
 		j(w, map[string]interface{}{"ok": false, "error": err.Error()})
 		return
@@ -784,7 +867,7 @@ func handleIncline(w http.ResponseWriter, r *http.Request) {
 		j(w, map[string]interface{}{"ok": false, "error": "workout not running", "state": state})
 		return
 	}
-	_, err := inclineClient.SetIncline(grpcCtx(), &pb.InclineRequest{Percent: clamp(req.Percent, -6, 40)})
+	err := safeInclineSet(req.Percent)
 	if err != nil {
 		j(w, map[string]interface{}{"ok": false, "error": err.Error()})
 		return
@@ -948,26 +1031,26 @@ func processMessage(data []byte) {
 			if kph > 0 && wsState != "RUNNING" {
 				log.Printf("[WS] Blocked speed %.1f kph — workout is %s", kph, wsState)
 			} else {
-				go func() { speedClient.SetSpeed(grpcCtx(), &pb.SpeedRequest{Kph: clamp(kph, 0, 22)}) }()
+				go func() { safeSpeedSet(kph) }()
 			}
 		} else if kph, ok := vals["KPH"].(float64); ok {
 			if kph > 0 && wsState != "RUNNING" {
 				log.Printf("[WS] Blocked speed %.1f kph — workout is %s", kph, wsState)
 			} else {
-				go func() { speedClient.SetSpeed(grpcCtx(), &pb.SpeedRequest{Kph: clamp(kph, 0, 22)}) }()
+				go func() { safeSpeedSet(kph) }()
 			}
 		}
 		if inc, ok := vals["Incline"].(float64); ok {
 			if inc != 0 && wsState != "RUNNING" {
 				log.Printf("[WS] Blocked incline %.1f%% — workout is %s", inc, wsState)
 			} else {
-				go func() { inclineClient.SetIncline(grpcCtx(), &pb.InclineRequest{Percent: clamp(inc, -6, 40)}) }()
+				go func() { safeInclineSet(inc) }()
 			}
 		} else if gr, ok := vals["Grade"].(float64); ok {
 			if gr != 0 && wsState != "RUNNING" {
 				log.Printf("[WS] Blocked incline %.1f%% — workout is %s", gr, wsState)
 			} else {
-				go func() { inclineClient.SetIncline(grpcCtx(), &pb.InclineRequest{Percent: clamp(gr, -6, 40)}) }()
+				go func() { safeInclineSet(gr) }()
 			}
 		}
 
@@ -1143,6 +1226,12 @@ func decodeWSFrame(buf []byte) []byte {
 }
 
 func clamp(v, lo, hi float64) float64 {
+	// NaN protection: NaN comparisons are always false, so NaN would
+	// pass through all guards. Return lo (safe fallback) instead.
+	if v != v { // NaN is the only float where v != v
+		log.Printf("[SAFETY] NaN value rejected in clamp — returning %.1f", lo)
+		return lo
+	}
 	if v < lo {
 		return lo
 	}
@@ -1375,7 +1464,7 @@ func subscribeCommands() {
 				if kph > 0 && mqState != "RUNNING" {
 					log.Printf("[MQTT] Blocked speed %.1f kph — workout is %s", kph, mqState)
 				} else {
-					speedClient.SetSpeed(grpcCtx(), &pb.SpeedRequest{Kph: clamp(kph, 0, 22)})
+					safeSpeedSet(kph)
 				}
 			}
 		case strings.HasSuffix(topic, "/incline"):
@@ -1386,7 +1475,7 @@ func subscribeCommands() {
 				if pct != 0 && mqState != "RUNNING" {
 					log.Printf("[MQTT] Blocked incline %.1f%% — workout is %s", pct, mqState)
 				} else {
-					inclineClient.SetIncline(grpcCtx(), &pb.InclineRequest{Percent: clamp(pct, -6, 40)})
+					safeInclineSet(pct)
 				}
 			}
 		case strings.HasSuffix(topic, "/workout"):

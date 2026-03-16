@@ -110,6 +110,27 @@ a:hover { text-decoration: underline; }
 .badge-date { font-size: 9px; color: var(--dim); margin-top: 2px; }
 .badge-progress { font-size: 10px; color: var(--dim); margin-top: 2px; }
 
+/* Run detail row (expanded) */
+.run-detail { display: none; }
+.run-detail.open { display: table-row; }
+.run-detail td { padding: 12px 8px !important; background: var(--bg2); border-bottom: 2px solid var(--border); }
+.detail-inner { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.detail-splits { font-size: 11px; font-family: 'JetBrains Mono', monospace; }
+.detail-splits-title { font-size: 11px; font-weight: 700; color: var(--dim); letter-spacing: .08em; margin-bottom: 4px; }
+.detail-split-row { display: flex; justify-content: space-between; padding: 2px 0; border-bottom: 1px solid rgba(30,48,80,.5); }
+.detail-split-km { color: var(--dim); }
+.detail-split-pace { color: var(--text); }
+.detail-zones { font-size: 11px; }
+.detail-zones-title { font-size: 11px; font-weight: 700; color: var(--dim); letter-spacing: .08em; margin-bottom: 4px; }
+.detail-zone-row { display: flex; align-items: center; margin-bottom: 3px; }
+.detail-zone-label { width: 20px; font-weight: 700; font-size: 10px; }
+.detail-zone-bar { height: 12px; border-radius: 3px; margin: 0 6px; min-width: 2px; }
+.detail-zone-val { font-size: 10px; color: var(--dim); font-family: 'JetBrains Mono', monospace; }
+.history-table tr.expandable { cursor: pointer; }
+.history-table tr.expandable:active { background: rgba(62,207,255,.1); }
+.expand-arrow { display: inline-block; transition: transform .2s; margin-right: 4px; font-size: 10px; color: var(--dim); }
+.expand-arrow.open { transform: rotate(90deg); }
+
 /* Back link */
 .back-link { display: inline-block; margin-bottom: 16px; font-size: 14px; }
 </style>
@@ -719,15 +740,71 @@ a:hover { text-decoration: underline; }
     rbEl.innerHTML = '<div style="color:var(--dim);text-align:center;padding:20px">No route data yet</div>';
   }
 
-  // ── History table ──
+  // ── History table with expandable detail view ──
   var tbody = document.getElementById('historyBody');
-  runs.slice(0, 30).forEach(function(r) {
+  var zoneColors = ['#4fc3f7','#69f0ae','#ffe066','#ffb74d','#ff5f5f'];
+  var zoneNames = ['Z1','Z2','Z3','Z4','Z5'];
+
+  function buildDetailHTML(r) {
+    var html = '<div class="detail-inner">';
+
+    // Left: Splits
+    html += '<div class="detail-splits"><div class="detail-splits-title">SPLITS</div>';
+    if (r.splits && r.splits.length > 0) {
+      for (var si = 0; si < r.splits.length; si++) {
+        var sp = r.splits[si];
+        var paceM = Math.floor(sp.timeSec / 60);
+        var paceS = sp.timeSec % 60;
+        var paceStr = paceM + ':' + (paceS < 10 ? '0' : '') + paceS;
+        var hrStr = sp.avgHR > 0 ? ' | ' + sp.avgHR + ' bpm' : '';
+        html += '<div class="detail-split-row">' +
+          '<span class="detail-split-km">km ' + sp.km + '</span>' +
+          '<span class="detail-split-pace">' + paceStr + '/km' + hrStr + '</span></div>';
+      }
+    } else {
+      html += '<div style="color:var(--dim)">No split data</div>';
+    }
+    html += '</div>';
+
+    // Right: HR zones
+    html += '<div class="detail-zones"><div class="detail-zones-title">HR ZONES</div>';
+    var zm = r.hrZoneMinutes;
+    if (zm) {
+      var total = (zm.z1||0) + (zm.z2||0) + (zm.z3||0) + (zm.z4||0) + (zm.z5||0);
+      if (total > 0) {
+        var zones = [zm.z1||0, zm.z2||0, zm.z3||0, zm.z4||0, zm.z5||0];
+        for (var zi = 0; zi < 5; zi++) {
+          var pct = (zones[zi] / total * 100);
+          var minStr = zones[zi].toFixed(1);
+          html += '<div class="detail-zone-row">' +
+            '<span class="detail-zone-label" style="color:' + zoneColors[zi] + '">' + zoneNames[zi] + '</span>' +
+            '<div class="detail-zone-bar" style="width:' + Math.max(2, pct) + '%;background:' + zoneColors[zi] + '"></div>' +
+            '<span class="detail-zone-val">' + minStr + ' min (' + pct.toFixed(0) + '%)</span></div>';
+        }
+      } else {
+        html += '<div style="color:var(--dim)">No HR data</div>';
+      }
+    } else {
+      html += '<div style="color:var(--dim)">No HR zone data</div>';
+    }
+    html += '</div></div>';
+    return html;
+  }
+
+  runs.slice(0, 30).forEach(function(r, idx) {
     var elapsed = r.elapsedSec || r.elapsed || 0;
     var ms = r.maxSpeed || 0;
     var hr = r.avgHR || 0;
     var synced = r.synced && r.synced.strava;
-    tbody.innerHTML += '<tr>' +
-      '<td>' + fmtDate(r.savedAt || r.date) + '</td>' +
+    var hasSplits = r.splits && r.splits.length > 0;
+    var hasZones = r.hrZoneMinutes;
+    var expandable = hasSplits || hasZones;
+    var rowId = 'run_' + idx;
+
+    tbody.innerHTML += '<tr class="' + (expandable ? 'expandable' : '') + '" ' +
+      (expandable ? 'onclick="toggleRunDetail(\'' + rowId + '\')"' : '') + '>' +
+      '<td>' + (expandable ? '<span class="expand-arrow" id="arrow_' + rowId + '">&#9654;</span>' : '') +
+      fmtDate(r.savedAt || r.date) + '</td>' +
       '<td>' + fmt(r.distanceKm, 2) + ' km</td>' +
       '<td>' + fmtTime(elapsed) + '</td>' +
       '<td>' + fmt(r.avgSpeed, 1) + '</td>' +
@@ -736,12 +813,30 @@ a:hover { text-decoration: underline; }
       '<td>' + (r.effortScore > 0 ? '<span style="color:' + effortColor(r.effortScore) + '">' + r.effortScore + '</span>' : '—') + '</td>' +
       '<td>' + fmt(r.calories) + '</td>' +
       '<td>' + (synced ? '<span class="synced">Strava</span>' : '<span class="not-synced">—</span>') + '</td></tr>';
+
+    if (expandable) {
+      tbody.innerHTML += '<tr class="run-detail" id="' + rowId + '"><td colspan="9">' +
+        buildDetailHTML(r) + '</td></tr>';
+    }
   });
 
   if (runs.length === 0) {
     tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--dim);padding:32px">No runs recorded yet. Complete a workout to see your stats here.</td></tr>';
   }
 })();
+
+function toggleRunDetail(id) {
+  var row = document.getElementById(id);
+  var arrow = document.getElementById('arrow_' + id);
+  if (!row) return;
+  if (row.classList.contains('open')) {
+    row.classList.remove('open');
+    if (arrow) arrow.classList.remove('open');
+  } else {
+    row.classList.add('open');
+    if (arrow) arrow.classList.add('open');
+  }
+}
 
 function exportCSV() {
   var runs;

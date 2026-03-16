@@ -18,6 +18,8 @@
 //   "streak" / "my streak"   → Speak current streak
 //   "total distance"         → Speak total distance
 //   "effort" / "training load"→ Speak current effort score
+//   "pace" / "pb pace"       → Speak PB pace projection
+//   "eta" / "how long"       → Speak estimated time remaining
 //   "motivation"             → Speak next badge progress
 //   "next" / "skip"          → Skip to next workout segment
 //   "what segment"           → Speak current segment info
@@ -254,6 +256,14 @@ window.VoiceCommands = (function() {
       speakEffort();
       return;
     }
+    if (matches(text, ['pace', 'pb pace', 'personal best', 'am i on pace', 'on track'])) {
+      speakPBPace();
+      return;
+    }
+    if (matches(text, ['eta', 'how long', 'time left', 'how much longer', 'remaining'])) {
+      speakETA();
+      return;
+    }
     if (matches(text, ['motivation', 'motivate me', 'encourage', 'badges'])) {
       speakMotivation();
       return;
@@ -443,6 +453,57 @@ window.VoiceCommands = (function() {
       var label = Engine.getEffortLabel(score);
       speak('Current effort: ' + score + '. ' + label + ' intensity.');
     }
+  }
+
+  function speakPBPace() {
+    if (typeof Engine === 'undefined' || !Engine.run || Engine.run.status !== 'running') {
+      speak('No active run');
+      return;
+    }
+    var r = Engine.run;
+    if (!Engine.route || !Engine.route.bestTime) {
+      speak('No personal best for this route yet');
+      return;
+    }
+    if (r.routeProgress < 0.02 || r.elapsed < 10) {
+      speak('Too early to project. Keep going!');
+      return;
+    }
+    var projected = r.elapsed / r.routeProgress;
+    var diff = projected - Engine.route.bestTime;
+    var absDiff = Math.abs(Math.round(diff));
+    var mins = Math.floor(absDiff / 60);
+    var secs = absDiff % 60;
+    var timeStr = mins > 0 ? mins + ' minutes ' + secs + ' seconds' : secs + ' seconds';
+    if (diff < -5) {
+      speak('You are ' + timeStr + ' ahead of your personal best! Keep it up!');
+    } else if (diff > 5) {
+      speak('You are ' + timeStr + ' behind your personal best. Push harder!');
+    } else {
+      speak('You are right on personal best pace!');
+    }
+  }
+
+  function speakETA() {
+    if (typeof Engine === 'undefined' || !Engine.run || Engine.run.status !== 'running') {
+      speak('No active run');
+      return;
+    }
+    var r = Engine.run;
+    if (r.routeProgress > 0.02 && r.elapsed > 10 && Engine.route) {
+      var etaSec = Math.round((r.elapsed / r.routeProgress) - r.elapsed);
+      if (etaSec > 0 && etaSec < 36000) {
+        var etaM = Math.floor(etaSec / 60);
+        var etaS = etaSec % 60;
+        speak('About ' + etaM + ' minutes and ' + etaS + ' seconds remaining');
+        return;
+      }
+    }
+    // Fallback: just speak distance and time
+    var distKm = (r.distanceM / 1000).toFixed(1);
+    var elapsed = Math.round(r.elapsed);
+    var mins = Math.floor(elapsed / 60);
+    speak('You have covered ' + distKm + ' K M in ' + mins + ' minutes');
   }
 
   function speakMotivation() {
