@@ -14,29 +14,29 @@
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
-<script>/* Flex-gap feature detect for Chrome 83 polyfill */
+<script>/* Flex-gap polyfill for Chrome 83: uses data-gap attr since Chrome 83 ignores gap on flex */
 (function(){var d=document.createElement('div');d.style.cssText=
 'display:flex;gap:1px;visibility:hidden;position:absolute';
 d.appendChild(document.createElement('div'));
 d.appendChild(document.createElement('div'));
-document.body.appendChild(d);if(d.scrollWidth===1)
-document.documentElement.classList.add('has-flex-gap');
+document.body.appendChild(d);
+var hasGap=d.scrollWidth===d.children[0].offsetWidth+d.children[1].offsetWidth+1;
 d.remove();
-if(!document.documentElement.classList.contains('has-flex-gap')){
-document.addEventListener('DOMContentLoaded',function(){var a=document.querySelectorAll('[style]');
-for(var i=0;i<a.length;i++){var e=a[i],s=e.style;
-if((s.display==='flex'||s.display==='inline-flex')&&s.gap){var g=s.gap,
-isCol=s.flexDirection==='column'||s.flexDirection==='column-reverse',
+if(hasGap){document.documentElement.classList.add('has-flex-gap');return}
+document.addEventListener('DOMContentLoaded',function(){
+var a=document.querySelectorAll('[data-gap]');
+for(var i=0;i<a.length;i++){var e=a[i],g=e.getAttribute('data-gap'),
+isCol=e.style.flexDirection==='column'||e.style.flexDirection==='column-reverse',
 prop=isCol?'marginTop':'marginLeft',k=e.children;
-for(var j=1;j<k.length;j++)k[j].style[prop]=g}}})
-}})();</script>
+for(var j=1;j<k.length;j++)k[j].style[prop]=g}})
+})();</script>
 <div id="rootApp">
 
 <!-- ══════════════════════════════════════════════════════════════════════════
      TOPBAR
      ══════════════════════════════════════════════════════════════════════════ -->
 <div class="topbar">
-  <div class="topbar-left" style="display:flex;align-items:center;gap:14px">
+  <div class="topbar-left" style="display:flex;align-items:center;gap:14px" data-gap="14px">
     <div class="logo">TRAILRUNNER</div>
     <div class="pills">
       <div class="bt-pill" id="pillTM" style="font-size:9px;cursor:default" title="Treadmill connection status">🏃 ...</div>
@@ -50,7 +50,7 @@ for(var j=1;j<k.length;j++)k[j].style[prop]=g}}})
       <div class="pill pill-nav pill-focus" id="pillFocus" onclick="App.toggleFocusMode()" style="display:none">👁 FOCUS</div>
     </div>
   </div>
-  <div class="topbar-right" style="display:flex;align-items:center;gap:10px">
+  <div class="topbar-right" style="display:flex;align-items:center;gap:10px" data-gap="10px">
     <button class="focus-menu-btn" onclick="App.toggleFocusMenu()" title="Menu">☰</button>
     <button id="voiceMicBtn" class="focus-menu-btn" onclick="VoiceCommands.toggle()" title="Voice commands (click to toggle)" style="font-size:16px">🎤</button>
     <button class="estop" onclick="App.emergencyStop()" title="EMERGENCY STOP">■</button>
@@ -98,7 +98,7 @@ for(var j=1;j<k.length;j++)k[j].style[prop]=g}}})
       💡 <strong style="color:var(--dim)">No treadmill?</strong> Use as a route planner — import GPX files and explore elevation profiles.
     </div>
 
-    <div style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap">
+    <div style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap" data-gap="16px">
       <button class="setup-start-btn" onclick="App.startRun()">START RUNNING</button>
       <button class="setup-freerun-btn" onclick="App.freeRun()">FREE RUN</button>
     </div>
@@ -245,7 +245,7 @@ for(var j=1;j<k.length;j++)k[j].style[prop]=g}}})
     </div>
 
     <!-- Zoom controls — bottom-right, same size as layout icons -->
-    <div class="map-zoom" id="mapZoom" style="position:absolute;bottom:10px;right:10px;z-index:20;display:flex;flex-direction:column;gap:4px">
+    <div class="map-zoom" id="mapZoom" style="position:absolute;bottom:10px;right:10px;z-index:20;display:flex;flex-direction:column;gap:4px" data-gap="4px">
       <button class="map-mode-btn" onclick="App.mapZoom(1)" title="Zoom In">+</button>
       <button class="map-mode-btn" onclick="App.mapZoom(-1)" title="Zoom Out">−</button>
     </div>
@@ -277,7 +277,7 @@ for(var j=1;j<k.length;j++)k[j].style[prop]=g}}})
     <!-- Workout HUD -->
     <div id="workoutHud">
       <div id="whProgName" style="font-family:'Orbitron',sans-serif;font-size:10px;font-weight:700;color:var(--green);letter-spacing:.1em"></div>
-      <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+      <div style="display:flex;align-items:center;gap:8px;margin-top:4px" data-gap="8px">
         <div id="whStageName" style="font-size:11px;font-weight:600"></div>
         <div id="whStageTimer" style="font-family:'Orbitron',sans-serif;font-size:14px;font-weight:700;color:var(--cyan);margin-left:auto"></div>
       </div>
@@ -361,12 +361,12 @@ for(var j=1;j<k.length;j++)k[j].style[prop]=g}}})
     </div>
 
     <!-- Control Mode (moved from bottom strip to here) -->
-    <div class="mcard wide" style="display:flex;flex-direction:row;align-items:center;gap:6px;padding:6px 8px">
+    <div class="mcard wide" style="display:flex;flex-direction:row;align-items:center;gap:6px;padding:6px 8px" data-gap="6px">
       <button class="mode-btn active" data-mode="route" onclick="App.setControlMode('route')">🏔 ROUTE</button>
       <button class="mode-btn" data-mode="hr-incline" onclick="App.setControlMode('hr-incline')">❤→INC</button>
       <button class="mode-btn" data-mode="hr-speed" onclick="App.setControlMode('hr-speed')">❤→SPD</button>
       <button class="mode-btn" data-mode="manual" onclick="App.setControlMode('manual')">✋ MANUAL</button>
-      <div style="margin-left:auto;display:flex;gap:4px;align-items:center">
+      <div style="margin-left:auto;display:flex;gap:4px;align-items:center" data-gap="4px">
         <span style="font-size:7px;color:var(--dim);font-family:'JetBrains Mono',monospace">ZONE</span>
         <button class="nudge" onclick="App.setTargetZone(Engine.ctrl.targetZone-1)" style="width:20px;height:18px;font-size:11px">−</button>
         <span style="font-family:'Orbitron',sans-serif;font-size:11px;font-weight:700;color:var(--text);min-width:20px;text-align:center" id="targetZoneDisplay">Z2</span>

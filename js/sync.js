@@ -114,7 +114,7 @@ const Sync = {
         } : null,
       };
 
-      console.log('[Sync] Strava connected:', data.athlete?.firstname);
+      console.log('[Sync] Strava connected:', data.athlete ? data.athlete.firstname : '');
       return true;
     } catch (err) {
       console.error('[Sync] Token exchange error:', err);
@@ -340,8 +340,8 @@ const Sync = {
     return {
       strava: {
         connected: this.isStravaConnected(),
-        athlete: s?.athlete || null,
-        tokenExpiry: s?.expires_at ? new Date(s.expires_at * 1000) : null,
+        athlete: (s && s.athlete) ? s.athlete : null,
+        tokenExpiry: (s && s.expires_at) ? new Date(s.expires_at * 1000) : null,
       },
       queuedRuns: queue.length,
     };

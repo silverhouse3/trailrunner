@@ -500,7 +500,7 @@ const SettingsPanel = {
     return `
       <div class="sp-row">
         <span class="sp-label">HR Monitor</span>
-        <span class="sp-status ${BLEHR?.connected?'connected':''}">${hrStatus}</span>
+        <span class="sp-status ${(typeof BLEHR!=='undefined'&&BLEHR.connected)?'connected':''}">${hrStatus}</span>
         <button class="sp-btn-sm" onclick="if(typeof App!=='undefined')App.connectHR()">Scan</button>
       </div>
       <div class="sp-row">
@@ -793,42 +793,52 @@ const SettingsPanel = {
     const c = (id) => { const el = document.getElementById(id); return el ? el.checked : false; };
     const n = (id) => parseFloat(v(id)) || 0;
 
-    // Controls tab
-    s.speedButtonUnit = document.querySelector('input[name="spSpeedUnit"]:checked')?.value || 'mph';
-    s.speedButtonMode = document.querySelector('input[name="spSpeedMode"]:checked')?.value || 'custom';
-    s.speedButtonMax = n('spMaxSpeedBtn');
-    s.speedButtonSteps = parseInt(v('spSpeedSteps')) || 8;
-    const customStr = v('spCustomSpeeds');
-    if (customStr) s.customSpeeds = customStr.split(',').map(x => x.trim()).filter(Boolean).map(Number).filter(x => !isNaN(x));
-    s.inclineButtonMode = document.querySelector('input[name="spIncMode"]:checked')?.value || 'default';
-    const incStr = v('spCustomInclines');
-    if (incStr) s.customInclines = incStr.split(',').map(x => x.trim()).filter(Boolean).map(Number).filter(x => !isNaN(x));
-    s.voiceEnabled = c('spVoiceEnabled');
-    s.voiceSensitivity = v('spVoiceSensitivity');
+    // Controls tab — only save if tab is active (elements exist in DOM)
+    var _suEl = document.querySelector('input[name="spSpeedUnit"]:checked');
+    if (_suEl) {
+      s.speedButtonUnit = _suEl.value;
+      var _smEl = document.querySelector('input[name="spSpeedMode"]:checked');
+      s.speedButtonMode = _smEl ? _smEl.value : (s.speedButtonMode || 'custom');
+      s.speedButtonMax = n('spMaxSpeedBtn');
+      s.speedButtonSteps = parseInt(v('spSpeedSteps')) || 8;
+      const customStr = v('spCustomSpeeds');
+      if (customStr) s.customSpeeds = customStr.split(',').map(x => x.trim()).filter(Boolean).map(Number).filter(x => !isNaN(x));
+      var _imEl = document.querySelector('input[name="spIncMode"]:checked');
+      s.inclineButtonMode = _imEl ? _imEl.value : (s.inclineButtonMode || 'default');
+      const incStr = v('spCustomInclines');
+      if (incStr) s.customInclines = incStr.split(',').map(x => x.trim()).filter(Boolean).map(Number).filter(x => !isNaN(x));
+      var _veEl = document.getElementById('spVoiceEnabled');
+      if (_veEl) s.voiceEnabled = _veEl.checked;
+      s.voiceSensitivity = v('spVoiceSensitivity') || s.voiceSensitivity;
+    }
 
-    // Metrics tab
+    // Metrics tab — only save if tab is active
     var metricItems = document.querySelectorAll('#spMetricList .sp-metric-item');
     if (metricItems.length > 0) {
       s.statsBarMetrics = [];
       metricItems.forEach(function(el) { s.statsBarMetrics.push(el.dataset.key); });
+      s.distUnit = v('spDistUnit') || s.distUnit;
+      s.speedUnit = v('spSpeedDisplayUnit') || s.speedUnit;
+      s.elevUnit = v('spElevUnit') || s.elevUnit;
     }
-    s.distUnit = v('spDistUnit') || s.distUnit;
-    s.speedUnit = v('spSpeedDisplayUnit') || s.speedUnit;
-    s.elevUnit = v('spElevUnit') || s.elevUnit;
 
-    // Charts tab
-    s.chartShow = c('spChartShow');
-    s.chartHeight = v('spChartHeight');
-    s.chartSpeed = c('spChartSpeed');
-    s.chartIncline = c('spChartIncline');
-    s.chartHR = c('spChartHR');
-    s.chartPace = c('spChartPace');
-    s.chartRange = v('spChartRange');
+    // Charts tab — only save if tab is active
+    if (document.getElementById('spChartShow')) {
+      s.chartShow = c('spChartShow');
+      s.chartHeight = v('spChartHeight');
+      s.chartSpeed = c('spChartSpeed');
+      s.chartIncline = c('spChartIncline');
+      s.chartHR = c('spChartHR');
+      s.chartPace = c('spChartPace');
+      s.chartRange = v('spChartRange');
+    }
 
-    // Widgets
-    const widgetChecks = document.querySelectorAll('[data-widget]');
-    s.enabledWidgets = [];
-    widgetChecks.forEach(el => { if (el.checked) s.enabledWidgets.push(el.dataset.widget); });
+    // Widgets — only save if tab is active
+    var widgetChecks = document.querySelectorAll('[data-widget]');
+    if (widgetChecks.length > 0) {
+      s.enabledWidgets = [];
+      widgetChecks.forEach(function(el) { if (el.checked) s.enabledWidgets.push(el.dataset.widget); });
+    }
 
     // Audio
     s.ttsEnabled = c('spTTSEnabled');

@@ -585,7 +585,7 @@ const App = {
   exportGPX() {
     if (!Engine.run) return;
     const xml = GPX.exportGPX({
-      name: Engine.run.routeName + ' — ' + new Date().toLocaleDateString(),
+      name: (Engine.run.routeName || 'Free Run') + ' — ' + new Date().toLocaleDateString(),
       startedAt: Engine.run.startedAt,
       trackPoints: Engine.run.trackPoints,
     });
@@ -595,7 +595,7 @@ const App = {
   exportTCX() {
     if (!Engine.run) return;
     const xml = GPX.exportTCX({
-      name: Engine.run.routeName,
+      name: Engine.run.routeName || 'Free Run',
       startedAt: Engine.run.startedAt,
       elapsed: Engine.run.elapsed,
       distanceM: Engine.run.distanceM,
@@ -964,10 +964,12 @@ const App = {
 
   connectStrava() {
     // Save app credentials first
-    const clientId = document.getElementById('setStravaClientId')?.value?.trim() ||
-                     document.getElementById('spStravaId')?.value?.trim();
-    const secret = document.getElementById('setStravaSecret')?.value?.trim() ||
-                   document.getElementById('spStravaSecret')?.value?.trim();
+    var _ci1 = document.getElementById('setStravaClientId');
+    var _ci2 = document.getElementById('spStravaId');
+    var _sc1 = document.getElementById('setStravaSecret');
+    var _sc2 = document.getElementById('spStravaSecret');
+    const clientId = (_ci1 ? _ci1.value.trim() : '') || (_ci2 ? _ci2.value.trim() : '');
+    const secret = (_sc1 ? _sc1.value.trim() : '') || (_sc2 ? _sc2.value.trim() : '');
     if (clientId && secret) {
       Sync.stravaApp = { clientId, clientSecret: secret };
     }

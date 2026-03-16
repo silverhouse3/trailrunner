@@ -426,23 +426,29 @@ const WorkoutBuilder = {
     if (holdEl) w.holdTime = parseInt(holdEl.value) || 30;
 
     // Warm-up (convert display speed back to kph for storage)
-    var wuDisplaySpeed = document.getElementById('wbWarmUpSpd')?.value || '4.8';
+    var _wuSpd = document.getElementById('wbWarmUpSpd');
+    var _wuEn = document.getElementById('wbWarmUp');
+    var _wuDur = document.getElementById('wbWarmUpDur');
+    var wuDisplaySpeed = _wuSpd ? _wuSpd.value : '4.8';
     w.warmUp = {
-      enabled: document.getElementById('wbWarmUp')?.checked || false,
-      duration: parseInt(document.getElementById('wbWarmUpDur')?.value) || 180,
+      enabled: _wuEn ? _wuEn.checked : false,
+      duration: parseInt(_wuDur ? _wuDur.value : '180') || 180,
       speed: this._parseBookendSpeed(wuDisplaySpeed, w.speedUnit || 'mph'),
       incline: 0,
       rampUp: true,
     };
 
     // Cool-down (convert display speed back to kph for storage)
-    var cdDisplaySpeed = document.getElementById('wbCoolDownSpd')?.value || '4.8';
+    var _cdSpd = document.getElementById('wbCoolDownSpd');
+    var _cdEn = document.getElementById('wbCoolDown');
+    var _cdDur = document.getElementById('wbCoolDownDur');
+    var cdDisplaySpeed = _cdSpd ? _cdSpd.value : '4.8';
     w.coolDown = {
-      enabled: document.getElementById('wbCoolDown')?.checked || false,
-      duration: parseInt(document.getElementById('wbCoolDownDur')?.value) || 120,
+      enabled: _cdEn ? _cdEn.checked : false,
+      duration: parseInt(_cdDur ? _cdDur.value : '120') || 120,
       speed: this._parseBookendSpeed(cdDisplaySpeed, w.speedUnit || 'mph'),
       incline: 0,
-      mandatory: document.getElementById('wbCoolDownMandatory')?.checked || false,
+      mandatory: (function() { var el = document.getElementById('wbCoolDownMandatory'); return el ? el.checked : false; })(),
     };
 
     // Segments

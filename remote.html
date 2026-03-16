@@ -33,11 +33,10 @@ h1 { color: var(--cyan); font-size: 20px; text-align: center; margin-bottom: 4px
 .metric.state.paused .metric-val { color: var(--orange); }
 .metric.state.idle .metric-val { color: var(--dim); }
 
-.controls { display: flex; flex-direction: column; gap: 12px; }
+.controls { display: flex; flex-direction: column; }
 .controls > * + * { margin-top: 12px; }
-.control-row { display: flex; align-items: center; gap: 8px; }
+.control-row { display: flex; align-items: center; }
 .control-row > * + * { margin-left: 8px; }
-@supports (gap: 1px) { .controls > * + *, .control-row > * + * { margin: 0; } }
 .control-label { width: 70px; font-size: 13px; color: var(--dim); flex-shrink: 0; }
 .btn { padding: 14px 20px; border: none; border-radius: 10px; font-size: 16px; font-weight: 700;
   cursor: pointer; -webkit-tap-highlight-color: transparent; flex: 1; }
@@ -47,24 +46,21 @@ h1 { color: var(--cyan); font-size: 20px; text-align: center; margin-bottom: 4px
 .btn-pause { background: var(--orange); color: #000; }
 .btn-resume { background: var(--cyan); color: #000; }
 
-.adj-group { display: flex; gap: 6px; flex: 1; }
+.adj-group { display: flex; flex: 1; }
 .adj-group > * + * { margin-left: 6px; }
-@supports (gap: 1px) { .adj-group > * + * { margin-left: 0; } }
 .btn-adj { padding: 12px; border: 2px solid var(--border); background: var(--bg3); color: var(--text);
   border-radius: 10px; font-size: 18px; font-weight: 700; cursor: pointer; flex: 1; text-align: center; }
 .btn-adj:active { background: rgba(62,207,255,.15); border-color: var(--cyan); }
 
-.slider-row { display: flex; align-items: center; gap: 8px; }
+.slider-row { display: flex; align-items: center; }
 .slider-row > * + * { margin-left: 8px; }
-@supports (gap: 1px) { .slider-row > * + * { margin-left: 0; } }
 .slider-row input[type=range] { flex: 1; height: 32px; }
 .slider-val { width: 50px; text-align: right; font-variant-numeric: tabular-nums; font-size: 14px; }
 
 .workout-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
 
-.connect-form { display: flex; gap: 8px; margin-bottom: 16px; }
+.connect-form { display: flex; margin-bottom: 16px; }
 .connect-form > * + * { margin-left: 8px; }
-@supports (gap: 1px) { .connect-form > * + * { margin-left: 0; } }
 .connect-form input { flex: 1; padding: 10px 14px; border: 2px solid var(--border); background: var(--bg3);
   color: var(--text); border-radius: 8px; font-size: 14px; }
 .connect-form button { padding: 10px 16px; background: var(--cyan); color: #000; border: none;

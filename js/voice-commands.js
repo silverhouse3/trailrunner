@@ -130,18 +130,18 @@ window.VoiceCommands = (function() {
     lastCommand = text;
     lastCommandTime = now;
 
-    // Require minimum confidence for motor-control commands
-    if (confidence < 0.5) {
-      showFeedback('🎤 Didn\'t catch that', 'warn');
-      return;
-    }
-
-    // ── Emergency (lowest confidence threshold) ──
+    // ── Emergency — always respond regardless of confidence ──
     if (matches(text, ['emergency', 'stop stop', 'help', 'emergency stop'])) {
       showFeedback('🛑 EMERGENCY STOP', 'danger');
       if (typeof App !== 'undefined' && App.emergencyStop) {
         App.emergencyStop();
       }
+      return;
+    }
+
+    // Require minimum confidence for motor-control commands
+    if (confidence < 0.5) {
+      showFeedback('🎤 Didn\'t catch that', 'warn');
       return;
     }
 

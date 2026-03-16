@@ -454,19 +454,23 @@ const UI = {
     s.safetyMaxSpeed = Math.max(5, Math.min(25, v('setMaxSpeed')));
     s.safetyMaxIncline = Math.max(0, Math.min(40, v('setMaxIncline')));
     // Save Google API key
-    const googleKey = (document.getElementById('setGoogleApiKey')?.value || '').trim();
+    var gkEl = document.getElementById('setGoogleApiKey');
+    const googleKey = (gkEl ? gkEl.value : '').trim();
     if (googleKey) s.googleApiKey = googleKey;
     else delete s.googleApiKey;
 
     Store.saveSettings(s);
 
     // Save webhook URL
-    const webhookUrl = (document.getElementById('setWebhookUrl')?.value || '').trim();
+    var whEl = document.getElementById('setWebhookUrl');
+    const webhookUrl = (whEl ? whEl.value : '').trim();
     Sync.webhookUrl = webhookUrl;
 
     // Save Strava app credentials
-    const clientId = (document.getElementById('setStravaClientId')?.value || '').trim();
-    const secret = (document.getElementById('setStravaSecret')?.value || '').trim();
+    var ciEl = document.getElementById('setStravaClientId');
+    var scEl = document.getElementById('setStravaSecret');
+    const clientId = (ciEl ? ciEl.value : '').trim();
+    const secret = (scEl ? scEl.value : '').trim();
     if (clientId && secret) {
       Sync.stravaApp = { clientId, clientSecret: secret };
     }

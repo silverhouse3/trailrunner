@@ -279,11 +279,24 @@ var Streaks = {
     // Week reset (Monday-based ISO weeks)
     var currentWeekStart = this._getWeekStart(today);
     if (this.data.weekStartDate !== currentWeekStart) {
-      // Week changed — check if previous week qualified for consistency
-      if (this.data.thisWeekCount >= 4) {
+      // How many weeks were skipped?
+      var weeksBetween = 0;
+      if (this.data.weekStartDate) {
+        var oldParts = this.data.weekStartDate.split('-');
+        var newParts = currentWeekStart.split('-');
+        var oldMs = new Date(parseInt(oldParts[0]), parseInt(oldParts[1]) - 1, parseInt(oldParts[2])).getTime();
+        var newMs = new Date(parseInt(newParts[0]), parseInt(newParts[1]) - 1, parseInt(newParts[2])).getTime();
+        weeksBetween = Math.round((newMs - oldMs) / (7 * 24 * 60 * 60 * 1000));
+      }
+
+      if (weeksBetween > 1 && this.data.weekStartDate) {
+        // Skipped one or more weeks — consistency broken regardless of prior count
+        this.data.weeksWithFourPlus = 0;
+      } else if (this.data.thisWeekCount >= 4) {
+        // Previous week qualified
         this.data.weeksWithFourPlus++;
       } else if (this.data.weekStartDate) {
-        // Broke consistency — reset counter
+        // Previous week didn't qualify — reset
         this.data.weeksWithFourPlus = 0;
       }
       this.data.thisWeekCount = 0;
