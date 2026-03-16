@@ -731,6 +731,8 @@ const App = {
         ghostDelta: Engine.ghostEnabled && Engine.ghost ? (Engine.ghost.elapsed - saved.elapsed) : 0,
         avgPower: saved.avgPower || 0,
         negativeSplits: saved.negativeSplits || 0,
+        cardiacDrift: saved.cardiacDrift,
+        efficiencyFactor: saved.efficiencyFactor,
       };
       var newBadges = Streaks.recordWorkout(summary);
       if (newBadges && newBadges.length > 0) {

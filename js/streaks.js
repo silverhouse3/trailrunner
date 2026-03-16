@@ -208,6 +208,10 @@ var Streaks = {
       calories: summary.calories || 0,
       hour: new Date().getHours(),
       hrZoneMinutes: summary.hrZoneMinutes || null,
+      avgPower: summary.avgPower || 0,
+      negativeSplits: summary.negativeSplits || 0,
+      cardiacDrift: summary.cardiacDrift != null ? summary.cardiacDrift : null,
+      efficiencyFactor: summary.efficiencyFactor || 0,
     };
 
     var newBadges = [];

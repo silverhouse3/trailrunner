@@ -527,6 +527,30 @@ const UI = {
       }
     }
 
+    // Cardiac drift + Efficiency Factor
+    var driftEfEl = document.getElementById('fDriftEF');
+    if (driftEfEl) {
+      var parts = [];
+      if (r._efSamples && r._efSamples.length > 0) {
+        var efAvg = r._efSamples.reduce(function(a, b) { return a + b.ef; }, 0) / r._efSamples.length;
+        var efColor = efAvg >= 1.8 ? '#69f0ae' : efAvg >= 1.5 ? '#3ecfff' : efAvg >= 1.2 ? '#ffb74d' : '#ff5f5f';
+        var efLabel = efAvg >= 1.8 ? 'Excellent' : efAvg >= 1.5 ? 'Good' : efAvg >= 1.2 ? 'Average' : 'Developing';
+        parts.push('<span style="color:var(--dim)">EF: </span><span style="color:' + efColor + '">' + efAvg.toFixed(2) + ' (' + efLabel + ')</span>');
+      }
+      if (r._driftBaselineLocked) {
+        var drift = r._driftPct || 0;
+        var driftColor = drift < 3 ? '#69f0ae' : drift < 5 ? '#3ecfff' : drift < 8 ? '#ffb74d' : '#ff5f5f';
+        var driftLabel = drift < 3 ? 'Minimal' : drift < 5 ? 'Normal' : drift < 8 ? 'Moderate — hydrate more' : 'High — hydration or pacing issue';
+        parts.push('<span style="color:var(--dim)">Drift: </span><span style="color:' + driftColor + '">' + drift.toFixed(1) + '% (' + driftLabel + ')</span>');
+      }
+      if (parts.length > 0) {
+        driftEfEl.innerHTML = parts.join('&nbsp;&nbsp;·&nbsp;&nbsp;');
+        driftEfEl.style.display = '';
+      } else {
+        driftEfEl.style.display = 'none';
+      }
+    }
+
     document.getElementById('finishOverlay').classList.add('show');
   },
 
