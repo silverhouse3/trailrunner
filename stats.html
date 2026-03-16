@@ -99,6 +99,17 @@ a:hover { text-decoration: underline; }
 .rb-trend .better { color: var(--green); }
 .rb-trend .worse { color: var(--red); }
 
+/* Badges */
+.badge-grid { display: flex; flex-wrap: wrap; gap: 12px; }
+.badge-item { display: flex; align-items: center; background: var(--bg3); border: 1px solid var(--border);
+  border-radius: 10px; padding: 8px 14px; font-size: 13px; }
+.badge-item.earned { border-color: var(--purple); background: linear-gradient(135deg, rgba(187,134,252,.08), rgba(62,207,255,.04)); }
+.badge-item.locked { opacity: .4; }
+.badge-icon { font-size: 22px; margin-right: 8px; }
+.badge-name { font-weight: 600; }
+.badge-date { font-size: 9px; color: var(--dim); margin-top: 2px; }
+.badge-progress { font-size: 10px; color: var(--dim); margin-top: 2px; }
+
 /* Back link */
 .back-link { display: inline-block; margin-bottom: 16px; font-size: 14px; }
 </style>
@@ -129,6 +140,11 @@ a:hover { text-decoration: underline; }
 <div class="chart-section">
   <div class="chart-title">THIS WEEK</div>
   <div class="streak-bar" id="streakBar"></div>
+</div>
+
+<div class="chart-section">
+  <div class="chart-title">BADGES &amp; ACHIEVEMENTS</div>
+  <div class="badge-grid" id="badgeGrid"></div>
 </div>
 
 <div class="chart-section">
@@ -444,6 +460,55 @@ a:hover { text-decoration: underline; }
       '<div class="streak-dot' + (ran ? ' active' : '') + (isToday ? ' today' : '') + '"></div>' +
       '<div class="streak-day-name">' + dayNames[i] + '</div></div>';
   }
+
+  // ── Badges & Achievements ──
+  var badgeGridEl = document.getElementById('badgeGrid');
+  var allBadges = [
+    { id: 'first_steps', name: 'First Steps', icon: '\uD83D\uDC5F' },
+    { id: '5k_club', name: '5K Club', icon: '\uD83C\uDFC3' },
+    { id: 'ten_k', name: '10K Runner', icon: '\uD83C\uDFAF' },
+    { id: 'half_marathon', name: 'Half Marathon', icon: '\uD83E\uDD48' },
+    { id: 'full_marathon', name: 'Full Marathon', icon: '\uD83E\uDD47' },
+    { id: 'week_warrior', name: 'Week Warrior', icon: '\uD83D\uDCC5' },
+    { id: 'streak_7', name: '7-Day Streak', icon: '\uD83D\uDD25' },
+    { id: 'streak_30', name: '30-Day Streak', icon: '\uD83D\uDC8E' },
+    { id: 'century', name: 'Century', icon: '\uD83D\uDCAF' },
+    { id: 'marathon', name: 'Marathon Total', icon: '\uD83C\uDFC5' },
+    { id: 'hill_climber', name: 'Hill Climber', icon: '\u26F0\uFE0F' },
+    { id: 'zone_master', name: 'Zone Master', icon: '\u2764\uFE0F' },
+    { id: 'ghost_buster', name: 'Ghost Buster', icon: '\uD83D\uDC7B' },
+    { id: 'speed_demon', name: 'Speed Demon', icon: '\u26A1' },
+    { id: 'consistency', name: 'Consistency', icon: '\uD83C\uDF1F' },
+    { id: 'early_bird', name: 'Early Bird', icon: '\uD83C\uDF05' },
+    { id: 'night_owl', name: 'Night Owl', icon: '\uD83E\uDD89' },
+    { id: 'calorie_burner', name: '500 Cal Burn', icon: '\uD83D\uDD25' },
+  ];
+
+  var earnedBadges = [];
+  try {
+    var raw = localStorage.getItem('tr_badges');
+    earnedBadges = raw ? JSON.parse(raw) : [];
+  } catch(e) { earnedBadges = []; }
+
+  var earnedMap = {};
+  earnedBadges.forEach(function(b) { earnedMap[b.id] = b; });
+
+  var badgeHtml = '';
+  allBadges.forEach(function(b) {
+    var earned = earnedMap[b.id];
+    if (earned) {
+      badgeHtml += '<div class="badge-item earned">' +
+        '<span class="badge-icon">' + b.icon + '</span>' +
+        '<div><div class="badge-name">' + b.name + '</div>' +
+        '<div class="badge-date">' + fmtDate(earned.earnedAt) + '</div></div></div>';
+    } else {
+      badgeHtml += '<div class="badge-item locked">' +
+        '<span class="badge-icon">' + b.icon + '</span>' +
+        '<div><div class="badge-name">' + b.name + '</div>' +
+        '<div class="badge-progress">Locked</div></div></div>';
+    }
+  });
+  badgeGridEl.innerHTML = badgeHtml;
 
   // ── Pace trend chart ──
   var paceEl = document.getElementById('paceChart');

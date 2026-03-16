@@ -312,7 +312,11 @@ window.VoiceCommands = (function() {
 
   function matches(text, phrases) {
     for (var i = 0; i < phrases.length; i++) {
-      if (text === phrases[i] || text.indexOf(phrases[i]) !== -1) return true;
+      var p = phrases[i];
+      if (text === p) return true;
+      // Word-boundary match: prevent "go" matching "good", "stop" matching "nonstop"
+      var re = new RegExp('(?:^|\\s)' + p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:\\s|$)');
+      if (re.test(text)) return true;
     }
     return false;
   }
