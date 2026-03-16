@@ -1107,6 +1107,12 @@ const App = {
     var topbar = document.querySelector('.topbar');
     if (layout) layout.classList.add('focus');
     if (topbar) topbar.classList.add('focus');
+    // Hide the focus pill (we're already in focus mode)
+    var fp = document.getElementById('pillFocus');
+    if (fp) fp.style.display = 'none';
+    // Update menu label
+    var ml = document.getElementById('fmMetricsLabel');
+    if (ml) ml.textContent = 'Show Metrics Panel';
     // Build quick-select panels from settings
     this._buildQSPanels();
     // Invalidate map size after transition
@@ -1119,6 +1125,13 @@ const App = {
     var topbar = document.querySelector('.topbar');
     if (layout) layout.classList.remove('focus');
     if (topbar) topbar.classList.remove('focus');
+    // Show focus pill if a run is active (so user can re-enter focus mode)
+    var fp = document.getElementById('pillFocus');
+    var runActive = Engine.run && (Engine.run.status === 'running' || Engine.run.status === 'paused');
+    if (fp) fp.style.display = runActive ? '' : 'none';
+    // Update menu label
+    var ml = document.getElementById('fmMetricsLabel');
+    if (ml) ml.textContent = 'Hide Metrics Panel';
     // Close QS panels
     var qsS = document.getElementById('qsSpeed');
     var qsI = document.getElementById('qsIncline');

@@ -47,6 +47,7 @@ for(var j=1;j<k.length;j++)k[j].style[prop]=g}}})
       <div class="pill pill-nav" onclick="App.openHistory()">👻 GHOST</div>
       <div class="pill" id="pillSync" style="color:var(--dim);border-color:#1a2030;font-size:9px" title="Strava sync status"></div>
       <div class="pill pill-settings" onclick="App.openSettings()">⚙ SETTINGS</div>
+      <div class="pill pill-nav pill-focus" id="pillFocus" onclick="App.toggleFocusMode()" style="display:none">👁 FOCUS</div>
     </div>
   </div>
   <div class="topbar-right" style="display:flex;align-items:center;gap:10px">
@@ -424,9 +425,9 @@ for(var j=1;j<k.length;j++)k[j].style[prop]=g}}})
     <div class="fm-item" onclick="App.setMapStyle('street');App.closeFocusMenu()"><span class="fm-item-icon">📍</span> Street View</div>
     <div class="fm-divider"></div>
     <div class="fm-section">CONTROLS</div>
-    <div class="fm-item" onclick="App.toggleQS('speed')"><span class="fm-item-icon">⚡</span> Speed Presets</div>
-    <div class="fm-item" onclick="App.toggleQS('incline')"><span class="fm-item-icon">↗</span> Incline Presets</div>
-    <div class="fm-item" onclick="App.toggleFocusMode();App.closeFocusMenu()"><span class="fm-item-icon">📈</span> Show Metrics Panel</div>
+    <div class="fm-item" onclick="App.toggleQS('speed');App.closeFocusMenu()"><span class="fm-item-icon">⚡</span> Speed Presets</div>
+    <div class="fm-item" onclick="App.toggleQS('incline');App.closeFocusMenu()"><span class="fm-item-icon">↗</span> Incline Presets</div>
+    <div class="fm-item" onclick="App.toggleFocusMode();App.closeFocusMenu()"><span class="fm-item-icon">📈</span> <span id="fmMetricsLabel">Show Metrics Panel</span></div>
     <div class="fm-item" onclick="window.open('stats.html','_self')"><span class="fm-item-icon">📊</span> Stats Dashboard</div>
     <div class="fm-divider"></div>
     <div class="fm-item" onclick="App.openSettings();App.closeFocusMenu()"><span class="fm-item-icon">⚙</span> Settings</div>

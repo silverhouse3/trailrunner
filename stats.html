@@ -104,6 +104,12 @@ a:hover { text-decoration: underline; }
 </div>
 
 <div class="chart-section">
+  <div class="chart-title">WEEKLY TRAINING LOAD</div>
+  <div id="loadChart"></div>
+  <div id="loadInsight" style="font-size:11px;color:var(--dim);font-family:'JetBrains Mono',monospace;margin-top:8px;padding:0 4px"></div>
+</div>
+
+<div class="chart-section">
   <div class="chart-title">WEEKLY DISTANCE (km)</div>
   <div id="weeklyChart"></div>
 </div>
@@ -291,6 +297,65 @@ a:hover { text-decoration: underline; }
       '<div class="pr-value">' + pr.value + '</div>' +
       '<div class="pr-date">' + pr.date + '</div></div>';
   });
+
+  // ── Weekly training load chart ──
+  var loadByWeek = {};
+  runs.forEach(function(r) {
+    var d = new Date(r.savedAt || r.date);
+    var day = d.getDay();
+    var diff = d.getDate() - day + (day === 0 ? -6 : 1);
+    var weekStart = new Date(new Date(d).setDate(diff));
+    var key = weekStart.toISOString().slice(0, 10);
+    if (!loadByWeek[key]) loadByWeek[key] = 0;
+    loadByWeek[key] += r.effortScore || 0;
+  });
+
+  var loadKeys = Object.keys(loadByWeek).sort().slice(-12);
+  var maxLoad = Math.max.apply(null, loadKeys.map(function(k) { return loadByWeek[k]; }));
+  if (maxLoad === 0) maxLoad = 1;
+
+  function loadColor(v) {
+    if (v < 100) return 'rgba(107,114,128,.6),rgba(107,114,128,.2)'; // Recovery (grey)
+    if (v < 250) return 'rgba(0,230,118,.6),rgba(0,230,118,.2)';     // Moderate (green)
+    if (v < 500) return 'rgba(255,171,0,.6),rgba(255,171,0,.2)';     // High (orange)
+    return 'rgba(255,61,87,.6),rgba(255,61,87,.2)';                   // Very high (red)
+  }
+  function loadLabel(v) {
+    if (v < 100) return 'Recovery';
+    if (v < 250) return 'Moderate';
+    if (v < 500) return 'High';
+    return 'Very High';
+  }
+
+  var loadChartEl = document.getElementById('loadChart');
+  loadKeys.forEach(function(k) {
+    var load = loadByWeek[k];
+    var pct = (load / maxLoad * 100).toFixed(0);
+    var isSmall = pct < 15;
+    loadChartEl.innerHTML += '<div class="chart-bar-row">' +
+      '<div class="chart-bar-label">' + fmtShortDate(k) + '</div>' +
+      '<div class="chart-bar' + (isSmall ? ' outside' : '') + '" style="width:' + Math.max(pct, 2) + '%;background:linear-gradient(90deg,' + loadColor(load) + ')">' +
+      '<span class="chart-bar-val">' + Math.round(load) + '</span></div></div>';
+  });
+
+  // Training load insight
+  var loadInsightEl = document.getElementById('loadInsight');
+  if (loadKeys.length >= 2) {
+    var thisWeekLoad = loadByWeek[loadKeys[loadKeys.length - 1]] || 0;
+    var lastWeekLoad = loadByWeek[loadKeys[loadKeys.length - 2]] || 0;
+    var avg4w = 0;
+    var count4w = Math.min(4, loadKeys.length);
+    for (var li = loadKeys.length - count4w; li < loadKeys.length; li++) avg4w += loadByWeek[loadKeys[li]] || 0;
+    avg4w = avg4w / count4w;
+
+    var trend = lastWeekLoad > 0 ? ((thisWeekLoad - lastWeekLoad) / lastWeekLoad * 100).toFixed(0) : 0;
+    var trendStr = trend > 0 ? '+' + trend + '%' : trend + '%';
+    var trendColor = trend > 20 ? 'var(--red)' : trend < -20 ? 'var(--cyan)' : 'var(--green)';
+
+    loadInsightEl.innerHTML =
+      'This week: <span style="color:' + trendColor + '">' + Math.round(thisWeekLoad) + ' (' + loadLabel(thisWeekLoad) + ', ' + trendStr + ' vs last week)</span>' +
+      ' · 4-week avg: ' + Math.round(avg4w);
+  }
 
   // ── Weekly distance chart ──
   var weeks = {};

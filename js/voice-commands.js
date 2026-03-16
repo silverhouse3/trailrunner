@@ -17,6 +17,7 @@
 //   "last run"               → Speak last run summary
 //   "streak" / "my streak"   → Speak current streak
 //   "total distance"         → Speak total distance
+//   "effort" / "training load"→ Speak current effort score
 //   "motivation"             → Speak next badge progress
 //   "emergency" / "help"     → Emergency stop
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -242,6 +243,10 @@ window.VoiceCommands = (function() {
       speakTotal();
       return;
     }
+    if (matches(text, ['effort', 'training load', 'effort score', 'how hard'])) {
+      speakEffort();
+      return;
+    }
     if (matches(text, ['motivation', 'motivate me', 'encourage', 'badges'])) {
       speakMotivation();
       return;
@@ -365,6 +370,20 @@ window.VoiceCommands = (function() {
     if (typeof Streaks === 'undefined') return;
     var d = Streaks.getData();
     speak('Total distance: ' + d.totalDistanceKm.toFixed(1) + ' K M across ' + d.totalWorkouts + ' workouts');
+  }
+
+  function speakEffort() {
+    if (typeof Engine === 'undefined' || !Engine.run) {
+      speak('No active run');
+      return;
+    }
+    var score = Engine.getEffortScore();
+    if (score <= 0) {
+      speak('Effort score building up. Keep going!');
+    } else {
+      var label = Engine.getEffortLabel(score);
+      speak('Current effort: ' + score + '. ' + label + ' intensity.');
+    }
   }
 
   function speakMotivation() {
