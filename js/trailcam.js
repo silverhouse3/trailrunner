@@ -352,14 +352,20 @@ var TrailCam = {
       '<div style="font-size:48px;margin-bottom:12px">🎥</div>' +
       '<div style="font-size:22px;font-weight:700;letter-spacing:0.1em;margin-bottom:8px">TRAIL CAM</div>' +
       '<div style="font-size:14px;color:#6688aa;margin-bottom:20px;text-align:center;line-height:1.6;padding:0 20px">' +
-        'Import a POV trail running video.<br>The video plays at your running speed — walk slow, run fast.' +
+        'Import trail running videos to run through them!<br>' +
+        'Videos are in <b style="color:#aaccee">Download &rarr; trailrunner_videos</b><br>' +
+        'Select all 3 MP4 files. They\'ll be cached for offline use.' +
       '</div>' +
       '<button onclick="TrailCam.importVideo()" style="' +
-        'background:#00cc88;color:#000;border:none;padding:12px 28px;border-radius:8px;' +
-        'font-size:16px;font-weight:700;font-family:Rajdhani,sans-serif;letter-spacing:0.05em;' +
-        'cursor:pointer">IMPORT VIDEO</button>' +
-      '<div style="font-size:11px;color:#445566;margin-top:16px">Supports MP4, WebM. Stored offline on device.</div>';
+        'background:#00cc88;color:#000;border:none;padding:16px 40px;border-radius:8px;' +
+        'font-size:18px;font-weight:700;font-family:Rajdhani,sans-serif;letter-spacing:0.05em;' +
+        'cursor:pointer">IMPORT VIDEOS</button>' +
+      '<div style="font-size:11px;color:#445566;margin-top:16px">One-time import. Videos play at your running speed.</div>';
     this._container.appendChild(div);
+
+    // Auto-open file picker on first visit (saves a tap)
+    var self = this;
+    setTimeout(function() { self.importVideo(); }, 600);
   },
 
   _hideEmptyState: function() {

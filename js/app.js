@@ -24,6 +24,18 @@ const App = {
     };
     TM.onData = (data) => Engine.onTreadmillData(data);
     TM.onStatus = (state, name) => UI.updateConnectionPill('tm', state, name);
+    // When workout starts on treadmill, re-send target speed/incline
+    // (user may have adjusted before workout was ready)
+    TM.onWorkoutStarted = () => {
+      if (Engine.ctrl.targetSpeed > 0) {
+        TM._lastSpeed = -1;  // reset dedup so command goes through
+        TM.setSpeed(Engine.ctrl.targetSpeed);
+      }
+      if (Engine.ctrl.targetIncline !== 0) {
+        TM._lastIncline = -9999;
+        TM.setIncline(Engine.ctrl.targetIncline);
+      }
+    };
 
     // ── Wire BLE HR callbacks ────────────────────────────────────────────
     BLEHR.onHR = (hr) => Engine.onBLEHR(hr);

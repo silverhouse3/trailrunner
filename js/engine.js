@@ -22,8 +22,8 @@ const Engine = {
   ctrl: {
     mode: 'route',        // manual | route | hr-incline | hr-speed
     targetZone: 2,
-    targetSpeed: 9.0,     // km/h (fixed in hr-incline mode)
-    targetIncline: 1.0,   // % (fixed in hr-speed mode)
+    targetSpeed: 0,       // km/h — starts at 0, user sets before run
+    targetIncline: 0,     // % — starts at 0, user sets before run
   },
 
   // ── HR zones (standard 5-zone model) ───────────────────────────────────────

@@ -40,6 +40,7 @@ var TM = {
   workoutState: 'IDLE',
   workoutId: null,
   grpcConnected: false,
+  onWorkoutStarted: null,  // () => — called when workout transitions to RUNNING
 
   connect: function(customPort) {
     if (this.connected || this._connecting) {
@@ -362,6 +363,8 @@ var TM = {
               if (obj.action === 'start') {
                 self.workoutState = 'RUNNING';
                 self.workoutId = data.workoutId || null;
+                // Notify app so it can re-send target speed/incline
+                if (self.onWorkoutStarted) self.onWorkoutStarted();
               } else if (obj.action === 'stop') {
                 self.workoutState = 'IDLE';
               } else if (obj.action === 'pause') {
@@ -472,9 +475,8 @@ var TM = {
     // DEDUP: never send the same rounded value twice (prevents beeping)
     if (kph === this._lastSpeed) return;
     if (!force) {
-      if (Math.abs(kph - this._lastSpeed) < 0.15) return;
       var now = Date.now();
-      if (now - this._lastSpeedT < 1200) return;
+      if (now - this._lastSpeedT < 500) return;   // 500ms rate limit (was 1200ms)
     }
     this._lastSpeed = kph;
     this._lastSpeedT = Date.now();
@@ -492,9 +494,8 @@ var TM = {
     // DEDUP: never send the same rounded value twice (prevents beeping)
     if (rounded === this._lastIncline) return;
     if (!force) {
-      if (Math.abs(rounded - this._lastIncline) < 0.4) return;
       var now = Date.now();
-      if (now - this._lastInclineT < 2500) return;
+      if (now - this._lastInclineT < 800) return;   // 800ms rate limit (was 2500ms)
     }
     this._lastIncline = rounded;
     this._lastInclineT = Date.now();
@@ -632,7 +633,21 @@ var BLEHR = {
 
   connect: function() {
     if (!navigator.bluetooth) {
-      console.warn('[BLEHR] Web Bluetooth not available');
+      console.warn('[BLEHR] Web Bluetooth not available on this device');
+      if (this.onStatus) this.onStatus('idle', 'No Bluetooth');
+      // Show a visible message
+      var el = document.getElementById('mediaToast') || document.createElement('div');
+      if (!el.id) {
+        el.id = 'mediaToast';
+        el.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);' +
+          'background:rgba(255,159,67,0.9);color:#fff;padding:10px 24px;border-radius:8px;' +
+          'font-family:Rajdhani,sans-serif;font-size:14px;font-weight:700;z-index:9999;' +
+          'transition:opacity 0.5s;pointer-events:none;';
+        document.body.appendChild(el);
+      }
+      el.textContent = 'Bluetooth not available — pair HR strap in Android Settings';
+      el.style.opacity = '1';
+      setTimeout(function() { el.style.opacity = '0'; }, 5000);
       return Promise.resolve(false);
     }
     if (this.connected) { this.disconnect(); return Promise.resolve(false); }

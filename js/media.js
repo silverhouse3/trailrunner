@@ -62,9 +62,17 @@ const Media = {
     if (!this.audio) this.init();
     this.currentStation = station;
     this.audio.src = station.url;
-    this.audio.play().catch(err => console.warn('[Media] Play failed:', err.message));
-    this.playing = true;
-    this._updateUI();
+    var self = this;
+    this.audio.play().then(function() {
+      self.playing = true;
+      self._updateUI();
+    }).catch(function(err) {
+      console.warn('[Media] Play failed:', err.message);
+      self.playing = false;
+      self._updateUI();
+      // Show toast so user knows why nothing happened
+      self._showToast('Audio blocked — tap a station to retry');
+    });
   },
 
   playCustom(url) {
@@ -132,6 +140,22 @@ const Media = {
         '<div class="media-st-genre">' + s.genre + '</div>' +
       '</div>'
     ).join('');
+  },
+
+  _showToast(msg) {
+    var el = document.getElementById('mediaToast');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'mediaToast';
+      el.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);' +
+        'background:rgba(255,95,95,0.9);color:#fff;padding:10px 24px;border-radius:8px;' +
+        'font-family:Rajdhani,sans-serif;font-size:14px;font-weight:700;z-index:9999;' +
+        'transition:opacity 0.5s;pointer-events:none;';
+      document.body.appendChild(el);
+    }
+    el.textContent = msg;
+    el.style.opacity = '1';
+    setTimeout(function() { el.style.opacity = '0'; }, 4000);
   },
 
   _updateUI() {
