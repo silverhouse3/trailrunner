@@ -36,5 +36,8 @@ tests/overnight-results*
 *.png
 !design/*.png
 
+# Trail cam videos (stored on device, too large for git)
+videos/
+
 # Probe session data
 probe/
