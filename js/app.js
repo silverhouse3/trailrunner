@@ -1011,7 +1011,7 @@ const App = {
   },
 
   adjustSpeed(delta) {
-    Engine.ctrl.targetSpeed = Math.max(0, Math.min(20, +(Engine.ctrl.targetSpeed + delta).toFixed(1)));
+    Engine.ctrl.targetSpeed = Math.max(0, Math.min(19.3, +(Engine.ctrl.targetSpeed + delta).toFixed(1)));
     if (TM.connected) {
       TM.setSpeed(Engine.ctrl.targetSpeed);
     }
@@ -1242,7 +1242,7 @@ const App = {
         break;
       case 'speed_set':
         if (args !== null) {
-          Engine.ctrl.targetSpeed = Math.max(0, Math.min(20, args));
+          Engine.ctrl.targetSpeed = Math.max(0, Math.min(19.3, args));
           if (TM.connected) TM.setSpeed(Engine.ctrl.targetSpeed);
           this._updateNudgeDisplays();
           VoiceCoach.announceSpeed(args, 'kph');

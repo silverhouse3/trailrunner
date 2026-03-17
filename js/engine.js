@@ -1112,7 +1112,7 @@ const Engine = {
     var self = this;
     var rampIncline = (startIncline !== endIncline);
 
-    // 1s interval — TM.setSpeed dedup prevents duplicate gRPC calls / beeps
+    // 250ms interval — bridge rate-limits to 4 kph/s, handles beep prevention
     this._decelTimer = setInterval(function() {
       var elapsed = (Date.now() - started) / 1000;
       var progress = Math.min(1, elapsed / duration);
@@ -1134,7 +1134,7 @@ const Engine = {
         if (rampIncline) TM.setIncline(endIncline, true);
         if (onComplete) onComplete();
       }
-    }, 1000);
+    }, 250);
   },
 
   // ════════════════════════════════════════════════════════════════════════════

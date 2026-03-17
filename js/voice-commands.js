@@ -377,7 +377,7 @@ window.VoiceCommands = (function() {
   function adjustSpeed(delta) {
     if (typeof TM === 'undefined') return;
     var current = TM._lastSpeed > 0 ? TM._lastSpeed : 0;
-    setSpeed(Math.max(0, Math.min(22, current + delta)));
+    setSpeed(Math.max(0, Math.min(19.3, current + delta)));
   }
 
   function setSpeed(kph) {

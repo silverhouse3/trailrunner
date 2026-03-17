@@ -464,42 +464,35 @@ var TM = {
 
   // ── Rate-limited control commands ───────────────────────────────────────
 
-  /** Set belt speed (km/h). Rate-limited unless force=true (safety stops). */
+  /** Set belt speed (km/h).
+   *  Bridge handles rate limiting (4 kph/s, 100ms min interval).
+   *  PWA only dedup-filters to avoid redundant network traffic. */
   setSpeed: function(kmh, force) {
     if (this._estopActive) return; // SAFETY: e-stop blocks all speed commands
     if (!this.connected) return;
     var kph = +(+kmh).toFixed(1);
     if (isNaN(kph)) return;
-    // SAFETY: hard clamp to machine maximum (X32i: 0–22 kph)
-    kph = Math.max(0, Math.min(22, kph));
-    // DEDUP: never send the same rounded value twice (prevents beeping)
-    if (kph === this._lastSpeed) return;
-    if (!force) {
-      var now = Date.now();
-      if (now - this._lastSpeedT < 500) return;   // 500ms rate limit (was 1200ms)
-    }
+    // SAFETY: hard clamp to machine maximum (X32i: 0–19.31 kph)
+    kph = Math.max(0, Math.min(19.3, kph));
+    // DEDUP: skip if value unchanged (reduces network chatter)
+    if (kph === this._lastSpeed && !force) return;
     this._lastSpeed = kph;
     this._lastSpeedT = Date.now();
-    // Send as NUMBER not string — Go bridge expects float64
     this._send({ values: { KPH: kph }, type: 'set' });
   },
 
-  /** Set ramp incline (%). Rate-limited unless force=true (safety returns). */
+  /** Set ramp incline (%).
+   *  Bridge handles rate limiting. PWA only dedup-filters. */
   setIncline: function(pct, force) {
     if (this._estopActive) return; // SAFETY: e-stop blocks all incline commands
     if (!this.connected) return;
     if (isNaN(pct)) return;
     var clamped = Math.max(-6, Math.min(40, pct));
     var rounded = Math.round(clamped * 2) / 2;
-    // DEDUP: never send the same rounded value twice (prevents beeping)
-    if (rounded === this._lastIncline) return;
-    if (!force) {
-      var now = Date.now();
-      if (now - this._lastInclineT < 800) return;   // 800ms rate limit (was 2500ms)
-    }
+    // DEDUP: skip if value unchanged
+    if (rounded === this._lastIncline && !force) return;
     this._lastIncline = rounded;
     this._lastInclineT = Date.now();
-    // Send as NUMBER not string — Go bridge expects float64
     this._send({ values: { Incline: rounded }, type: 'set' });
   },
 
