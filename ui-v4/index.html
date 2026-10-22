@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#07090d">
+<title>TrailRunner v4</title>
+<link rel="manifest" href="manifest.json">
+<!-- No CDN fonts/scripts: Leaflet is bundled in vendor/, type is system sans -->
+<link rel="stylesheet" href="vendor/leaflet.min.css">
+<script src="vendor/leaflet.min.js"></script>
+<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/split-compare.css">
+<link rel="stylesheet" href="css/strava.css">
+<script>
+// ui-v4: make sure NO service worker from any earlier build hides our changes.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then(function(rs){ rs.forEach(function(r){ r.unregister(); }); }).catch(function(){});
+  if (window.caches && caches.keys) caches.keys().then(function(ks){ ks.forEach(function(k){ caches.delete(k); }); }).catch(function(){});
+}
+</script>
+</head>
+<body>
+<div id="rootApp">
+
+<!-- ══ SAFETY KEY BANNER (driven by TM._showSafetyKeyWarning) ═══════════════ -->
+<div id="safetyKeyBanner" class="safety-banner">⚠ SAFETY KEY REMOVED — BELT STOPPED ⚠</div>
+
+<!-- ══ HOME ═══════════════════════════════════════════════════════════════ -->
+<div class="home" id="setupOverlay">
+  <div class="home-top">
+    <div class="brand">TRAIL<span>RUNNER</span></div>
+    <div class="home-status">
+      <div class="pill-status pill-tm" id="pillTM" title="Treadmill bridge">🏃 TREADMILL</div>
+      <div class="pill-status pill-hr" id="pillHR" onclick="App.connectHR()" title="Tap to pair a Bluetooth HR strap">❤ HR</div>
+      <div class="pill-status pill-sync" id="pillSync"></div>
+    </div>
+    <button class="icon-btn" onclick="App.openSettings()"><span class="ib-icon">⚙</span><span class="ib-label">SETTINGS</span></button>
+  </div>
+
+  <div class="home-hero">What are we doing today?</div>
+
+  <div class="home-grid">
+    <button class="home-tile tile-free" onclick="App.freeRun()">
+      <div class="tile-icon">▶</div>
+      <div class="tile-title">FREE RUN</div>
+      <div class="tile-sub">You set the speed and incline</div>
+    </button>
+    <button class="home-tile tile-route" onclick="App.openRoutes()">
+      <div class="tile-icon">🗺</div>
+      <div class="tile-title">ROUTE</div>
+      <div class="tile-sub" id="homeRouteName">Pick a GPX route · incline follows the hills</div>
+    </button>
+    <button class="home-tile tile-workout" onclick="App.openWorkouts()">
+      <div class="tile-icon">🏋</div>
+      <div class="tile-title">WORKOUT</div>
+      <div class="tile-sub">Intervals, programmes and templates</div>
+    </button>
+  </div>
+
+  <div class="home-foot">
+    <button class="home-secondary" onclick="App.openHistory()">👻 GHOST RACE</button>
+    <button class="home-secondary" onclick="window.open('stats.html','_self')">📊 STATS</button>
+    <button class="home-secondary" id="homeStravaBtn" onclick="App.openStravaPicker(true)">STRAVA</button>
+    <div class="home-note">The belt never starts from this screen. Pick a mode, then tap the big green START.</div>
+  </div>
+</div>
+
+<!-- ══ LIVE SCREEN ════════════════════════════════════════════════════════ -->
+<div class="topbar">
+  <button class="icon-btn" onclick="App.toggleFocusMenu()" title="Menu"><span class="ib-icon">☰</span><span class="ib-label">MENU</span></button>
+  <div class="top-title">
+    <div class="rname" id="routeName">FREE RUN</div>
+    <div class="top-sub"><span id="modeChip">MANUAL</span><span id="workoutChip"></span></div>
+  </div>
+  <div class="state-banner" id="stateBanner"><span class="sb-dot"></span><span id="stateBannerText">STOPPED</span><span class="sb-sub" id="stateBannerSub"></span></div>
+  <div class="top-right">
+    <div class="pill-status small pill-tm" title="Treadmill bridge">🏃</div>
+    <div class="pill-status small pill-hr" onclick="App.connectHR()" title="HR strap">❤</div>
+    <button class="icon-btn" onclick="VideoWin.toggle()" title="YouTube video window"><span class="ib-icon">📺</span></button>
+    <button id="voiceMicBtn" class="icon-btn" onclick="if(typeof VoiceCommands!=='undefined')VoiceCommands.toggle()" title="Voice commands"><span class="ib-icon">🎤</span></button>
+    <button class="estop" onclick="App.emergencyStop()" title="Emergency stop: belt to zero instantly">■ E-STOP</button>
+  </div>
+</div>
+
+<div class="layout">
+
+  <!-- INCLINE — left edge -->
+  <div class="edge edge-left">
+    <button class="edge-btn up inc" onclick="App.adjustIncline(0.5)">+</button>
+    <div class="edge-val" onclick="App.toggleQS('incline')" title="Tap for incline presets">
+      <div class="edge-label" id="incLabel">INCLINE</div>
+      <div class="edge-num" id="bigIncVal">0.0</div>
+      <div class="edge-unit">%</div>
+      <div class="edge-target" id="incTarget"></div>
+    </div>
+    <button class="edge-btn down inc" onclick="App.adjustIncline(-0.5)">−</button>
+  </div>
+
+  <!-- CENTRE -->
+  <div class="center">
+    <div class="metric-strip" onclick="App.toggleMoreStats()" title="Tap for more stats">
+      <div class="mcell">
+        <div class="ml">TIME</div>
+        <div class="mv mono" id="timerEl">00:00</div>
+      </div>
+      <div class="mcell">
+        <div class="ml">DISTANCE</div>
+        <div class="mv" style="color:var(--green)"><span id="distVal">0.00</span><span class="mu" id="distUnit">km</span></div>
+        <div class="ms" id="distRem"></div>
+      </div>
+      <div class="mcell mcell-hr">
+        <div class="ml">HEART RATE <span class="live-badge" id="hrLive">LIVE</span></div>
+        <div class="mv" style="color:var(--red)"><span id="hrVal">—</span><span class="mu">bpm</span></div>
+        <div class="ms zone-name" id="hrZone">no HR</div>
+        <div class="zone-bar"><div class="zone-cur" id="zCur" style="left:0"></div></div>
+      </div>
+      <div class="mcell">
+        <div class="ml">PACE /KM</div>
+        <div class="mv" style="color:var(--purple)" id="paceVal">—</div>
+      </div>
+      <div class="mcell">
+        <div class="ml">CALORIES</div>
+        <div class="mv" style="color:var(--yellow)"><span id="calVal">0</span><span class="mu">kcal</span></div>
+      </div>
+      <div class="mcell mcell-more"><div class="more-arrow" id="moreArrow">▾</div></div>
+    </div>
+
+    <div class="more-stats" id="moreStats">
+      <div class="mcell"><div class="ml">SPEED <span class="live-badge" id="speedLive">LIVE</span></div><div class="mv sm"><span id="spVal">0.0</span><span class="mu" id="spUnit">km/h</span></div></div>
+      <div class="mcell"><div class="ml">ELEVATION</div><div class="mv sm"><span id="eleVal">—</span><span class="mu" id="eleUnit">m</span></div><div class="ms" id="eleGain">+0m</div></div>
+      <div class="mcell"><div class="ml">CADENCE</div><div class="mv sm"><span id="cadVal">—</span><span class="mu">spm</span></div><div class="ms" id="strideVal"></div></div>
+      <div class="mcell"><div class="ml">POWER</div><div class="mv sm"><span id="powerVal">—</span><span class="mu">W</span></div><div class="ms" id="avgPowerVal"></div></div>
+      <div class="mcell"><div class="ml">AVG PACE</div><div class="mv sm"><span id="avgPace">—</span><span class="mu">/km</span></div><div class="ms" id="avgHR"></div></div>
+      <div class="mcell" id="driftCard"><div class="ml">DRIFT / EF</div><div class="mv sm"><span id="driftVal">—</span><span class="mu">%</span></div><div class="ms" id="efVal"></div></div>
+      <div class="mcell"><div class="ml">INCLINE NOW</div><div class="mv sm"><span id="incVal">+0.0</span><span class="mu">%</span></div><div class="ibar"><div class="ifill" id="iFill" style="width:13%"></div></div></div>
+    </div>
+
+    <!-- Strava race bar: compact racer gaps. In normal flow (NOT an overlay) so it can never cover the
+         video window, STOP/PAUSE, the edge controls or the metric strip. Hidden unless racers exist. -->
+    <div class="race-bar" id="raceBar" data-needs-route></div>
+
+    <!-- VIEW ZONE (map / oval / track / trail cam / media) -->
+    <div class="map-zone">
+      <div id="mapDiv"></div>
+      <canvas id="trackCanvas" style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;z-index:5"></canvas>
+      <canvas id="ovalTrackCanvas" style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;z-index:5"></canvas>
+      <div id="trailCamPanel" onclick="if(typeof TrailCam!=='undefined')TrailCam.handleTap(event.clientX,event.clientY)" style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;z-index:5"></div>
+
+      <!-- Media player panel -->
+      <div class="media-panel" id="mediaPanel" style="display:none">
+        <div class="media-now-playing">
+          <div class="media-np-icon">📻</div>
+          <div class="media-np-info">
+            <div class="media-np-label">NOW PLAYING</div>
+            <div class="media-np-name" id="mediaNPName">Select a station</div>
+            <div class="media-np-genre" id="mediaNPGenre"></div>
+          </div>
+          <div class="media-np-controls">
+            <button class="media-ctrl-btn" id="mediaPlayBtn" onclick="Media.togglePlayPause()">▶</button>
+            <button class="media-ctrl-btn media-stop" onclick="Media.stop()">⏹</button>
+          </div>
+        </div>
+        <div class="media-volume">
+          <span class="media-vol-icon" id="mediaVolIcon">🔊</span>
+          <input type="range" class="media-vol-slider" id="mediaVolume" min="0" max="100" value="70" oninput="Media.setVolume(this.value/100)">
+        </div>
+        <div class="media-stations-grid" id="mediaStations"></div>
+        <div class="media-custom">
+          <input type="text" class="media-custom-input" id="mediaCustomUrl" placeholder="Paste stream URL (https://...)">
+          <button class="media-custom-play" onclick="Media.playCustom(document.getElementById('mediaCustomUrl').value)">▶ PLAY</button>
+        </div>
+      </div>
+
+      <!-- Street View panel (needs Google key; hidden from view buttons) -->
+      <div class="streetview-panel" id="streetViewPanel" style="display:none">
+        <div class="sv-no-key" id="svNoKey">
+          <div class="sv-no-key-icon">📍</div>
+          <div class="sv-no-key-title">STREET VIEW</div>
+          <div class="sv-no-key-msg">Add a Google Maps API key in Settings to enable Street View along your route</div>
+        </div>
+        <div id="streetViewDiv" style="width:100%;height:100%"></div>
+      </div>
+
+      <div class="mini-np" id="mediaMiniNP" style="display:none"><span class="mini-np-name"></span></div>
+
+      <!-- No route -->
+      <div class="no-route" id="noRouteMsg">
+        <div class="no-route-icon">🗺</div>
+        <div class="no-route-text">NO ROUTE LOADED</div>
+        <button class="btn-outline" onclick="App.openRoutes()">PICK A ROUTE</button>
+      </div>
+
+      <!-- Legacy focus badges (kept for App._updateFocusBadges; hidden in v4) -->
+      <div class="focus-badges" id="focusBadges" style="display:none">
+        <span id="fbHR"></span><span id="fbHRZone"></span><span id="fbSpeed"></span><span id="fbSpeedUnit"></span><span id="fbInc"></span><span id="fbDist"></span><span id="fbCal"></span>
+      </div>
+
+      <!-- Quick-select preset panels (slide in from the edges) -->
+      <div class="qs-panel left" id="qsIncline"></div>
+      <div class="qs-panel right" id="qsSpeed"></div>
+
+      <!-- Big numbers view (no route needed) -->
+      <div class="bignum-panel" id="bigNumbersPanel">
+        <div class="bignum-cell"><div class="bignum-label">SPEED</div><div class="bignum-val" id="bnSpeed" style="color:var(--cyan)">0.0</div><div class="bignum-unit" id="bnSpeedUnit">km/h</div></div>
+        <div class="bignum-cell"><div class="bignum-label">TIME</div><div class="bignum-val" id="bnTime">00:00</div><div class="bignum-unit">elapsed</div></div>
+        <div class="bignum-cell"><div class="bignum-label">DISTANCE</div><div class="bignum-val" id="bnDist" style="color:var(--green)">0.00</div><div class="bignum-unit" id="bnDistUnit">km</div></div>
+        <div class="bignum-cell"><div class="bignum-label">HEART RATE</div><div class="bignum-val" id="bnHR" style="color:var(--red)">—</div><div class="bignum-unit" id="bnHRZone">bpm</div></div>
+      </div>
+
+      <!-- View-mode buttons (top-right). data-needs-route = removed while no route is loaded -->
+      <div class="map-tl">
+        <button class="map-mode-btn act" data-style="terrain" data-needs-route onclick="App.setMapStyle('terrain')" title="Terrain map">🏔</button>
+        <button class="map-mode-btn" data-style="sat" data-needs-route onclick="App.setMapStyle('sat')" title="Satellite">🛰</button>
+        <button class="map-mode-btn" data-style="dark" data-needs-route onclick="App.setMapStyle('dark')" title="Dark map">🌙</button>
+        <button class="map-mode-btn" data-style="track" data-needs-route onclick="App.setMapStyle('track')" title="Trail view (3D road)">🎮</button>
+        <button class="map-mode-btn" data-style="oval" onclick="App.setMapStyle('oval')" title="Oval track">🟡</button>
+        <button class="map-mode-btn" data-style="numbers" onclick="App.setMapStyle('numbers')" title="Big numbers">🔢</button>
+        <button class="map-mode-btn" data-style="trailcam" onclick="App.setMapStyle('trailcam')" title="Trail cam">🎥</button>
+        <button class="map-mode-btn" data-style="media" onclick="App.setMapStyle('media')" title="Radio">📻</button>
+      </div>
+
+      <!-- Zoom + follow (map views only) -->
+      <div class="map-zoom" id="mapZoom" data-needs-route>
+        <button class="map-mode-btn" onclick="App.mapZoom(1)" title="Zoom in">+</button>
+        <button class="map-mode-btn" onclick="App.mapZoom(-1)" title="Zoom out">−</button>
+        <button class="map-mode-btn follow act" id="mapFollowBtn" onclick="MapView.setFollow(!MapView.follow)" title="Keep the map centred on you">◎ FOLLOW</button>
+      </div>
+      <div class="zoom-btns" style="display:none"><div class="zoom-level" id="zoomLbl">14×</div></div>
+
+      <!-- Ghost delta -->
+      <div class="ghost-panel" id="ghostPanel">
+        <span class="gp-icon">👻</span>
+        <span class="gp-label">GHOST</span>
+        <span class="gc-delta" id="ghostDelta">+0:00</span>
+        <span class="gp-close" onclick="App.clearGhost()">✕</span>
+      </div>
+
+      <!-- Workout HUD (segment info) -->
+      <div id="workoutHud">
+        <div id="whProgName"></div>
+        <div class="wh-row">
+          <div id="whStageName"></div>
+          <div id="whStageTimer"></div>
+        </div>
+        <div class="wh-bar"><div id="whProgFill"></div></div>
+      </div>
+    </div>
+
+    <!-- Floating YouTube window (clamped to the view zone; never over STOP/PAUSE or the edge controls) -->
+    <div class="video-win" id="videoWin">
+      <div class="video-bar">
+        <span class="vb-grip">⠿</span>
+        <span class="vb-title">VIDEO</span>
+        <button class="vb-btn setup" onclick="VideoWin.backToSetup()" title="Pick another video">☰</button>
+        <button class="vb-btn" onclick="VideoWin.toggle()" title="Minimise / restore">▁</button>
+        <button class="vb-btn close" onclick="VideoWin.close()" title="Close">✕</button>
+      </div>
+      <div class="video-body">
+        <div class="video-setup">
+          <div class="vs-row">
+            <input type="text" id="videoUrlInput" placeholder="Paste a YouTube link or video ID" autocomplete="off">
+            <button class="vs-play" onclick="VideoWin.playFromInput()">▶ PLAY</button>
+          </div>
+          <div class="vs-label">FAVOURITES — tap an empty slot to save the link above</div>
+          <div class="vs-favs" id="videoFavs"></div>
+          <div class="vs-hint" id="videoHint">Plays inside this window (YouTube no-cookie embed). Drag the top bar to move, the corner to resize. Nothing here touches the belt.</div>
+        </div>
+        <div class="video-fallback">
+          <div class="vf-msg">Video unavailable here</div>
+          <div class="vf-sub">This screen can't play the embed (offline or unsupported). Open it in the YouTube app instead:</div>
+          <a class="vf-open" href="#">▶ OPEN IN YOUTUBE</a>
+          <button class="btn-ghost" style="margin-top:16px" onclick="VideoWin.backToSetup()">BACK</button>
+        </div>
+      </div>
+      <div class="video-resize" title="Drag to resize"></div>
+    </div>
+
+    <!-- Elevation strip -->
+    <div class="elev-strip" id="elevStrip" data-needs-route>
+      <div class="route-progress-bar"><div class="route-progress-fill" id="routeProgress" style="width:0"></div></div>
+      <div id="pbPace" style="display:none"></div>
+      <canvas id="elevC"></canvas>
+    </div>
+
+    <!-- RUN CONTROLS — one obvious primary action -->
+    <div class="run-controls" id="floatControls">
+      <button class="fc-btn fc-start" id="fcStart" onclick="App.startRun()">▶ START</button>
+      <button class="fc-btn fc-pause" id="fcPause" onclick="App.togglePause()" style="display:none">⏸ PAUSE</button>
+      <button class="fc-btn fc-resume" id="fcResume" onclick="App.togglePause()" style="display:none">▶ RESUME</button>
+      <button class="fc-btn fc-stop" id="fcStop" onclick="App.finishRun()" style="display:none">⏹ STOP</button>
+      <button class="fc-btn fc-cooldown" id="fcCooldown" onclick="App.startCooldown()" style="display:none">🧊 COOL DOWN</button>
+    </div>
+  </div>
+
+  <!-- SPEED — right edge -->
+  <div class="edge edge-right">
+    <button class="edge-btn up spd" onclick="App.adjustSpeed(0.5)">+</button>
+    <div class="edge-val" onclick="App.toggleQS('speed')" title="Tap for speed presets">
+      <div class="edge-label">SPEED</div>
+      <div class="edge-num" id="bigSpeedVal">0.0</div>
+      <div class="edge-unit" id="bigSpeedUnit">km/h</div>
+      <div class="edge-target" id="spTarget"></div>
+    </div>
+    <button class="edge-btn down spd" onclick="App.adjustSpeed(-0.5)">−</button>
+  </div>
+
+</div><!-- .layout -->
+
+<!-- Hidden legacy control-mode buttons are rendered inside the menu below -->
+
+<!-- ══ MENU (slide-out) ═══════════════════════════════════════════════════ -->
+<div class="focus-menu-overlay" id="focusMenuOverlay" onclick="App.closeFocusMenu()">
+  <div class="focus-menu-panel" onclick="event.stopPropagation()">
+    <div class="fm-head"><span>MENU</span><button class="fm-x" onclick="App.closeFocusMenu()">✕</button></div>
+
+    <div class="fm-section">RUN</div>
+    <div class="fm-grid">
+      <div class="fm-item" id="fmHome" onclick="App.goHome()"><span class="fm-item-icon">⌂</span> Home</div>
+      <div class="fm-item" onclick="App.openWorkouts();App.closeFocusMenu()"><span class="fm-item-icon">🏋</span> Workouts</div>
+      <div class="fm-item" onclick="App.openRoutes();App.closeFocusMenu()"><span class="fm-item-icon">🗺</span> Routes</div>
+      <div class="fm-item" data-needs-route onclick="App.toggleSplits();App.closeFocusMenu()"><span class="fm-item-icon">📊</span> Route splits</div>
+      <div class="fm-item" onclick="App.openHistory();App.closeFocusMenu()"><span class="fm-item-icon">👻</span> Ghost race</div>
+      <div class="fm-item" onclick="App.toggleMoreStats();App.closeFocusMenu()"><span class="fm-item-icon">📈</span> More stats</div>
+      <div class="fm-item" onclick="VideoWin.open();App.closeFocusMenu()"><span class="fm-item-icon">📺</span> Video window</div>
+    </div>
+
+    <div class="fm-section">CONTROL MODE</div>
+    <div class="fm-grid">
+      <button class="mode-btn active" data-mode="route" data-needs-route onclick="App.setControlMode('route')">🏔 ROUTE<small>incline follows hills</small></button>
+      <button class="mode-btn" data-mode="manual" onclick="App.setControlMode('manual')">✋ MANUAL<small>you control everything</small></button>
+      <button class="mode-btn" data-mode="hr-incline" onclick="App.setControlMode('hr-incline')">❤→INC<small>incline holds HR zone</small></button>
+      <button class="mode-btn" data-mode="hr-speed" onclick="App.setControlMode('hr-speed')">❤→SPD<small>speed holds HR zone</small></button>
+    </div>
+    <div class="fm-zone">
+      <span class="fm-zone-label">TARGET ZONE</span>
+      <button class="nudge" onclick="App.setTargetZone(Engine.ctrl.targetZone-1);UI.update()">−</button>
+      <span id="targetZoneDisplay">Z2</span>
+      <button class="nudge" onclick="App.setTargetZone(Engine.ctrl.targetZone+1);UI.update()">+</button>
+    </div>
+
+    <div class="fm-section">VIEW</div>
+    <div class="fm-grid">
+      <div class="fm-item" data-needs-route onclick="App.setMapStyle('terrain');App.closeFocusMenu()"><span class="fm-item-icon">🏔</span> Terrain map</div>
+      <div class="fm-item" data-needs-route onclick="App.setMapStyle('sat');App.closeFocusMenu()"><span class="fm-item-icon">🛰</span> Satellite map</div>
+      <div class="fm-item" data-needs-route onclick="App.setMapStyle('dark');App.closeFocusMenu()"><span class="fm-item-icon">🌙</span> Dark map</div>
+      <div class="fm-item" data-needs-route onclick="App.setMapStyle('track');App.closeFocusMenu()"><span class="fm-item-icon">🎮</span> Trail view</div>
+      <div class="fm-item" onclick="App.setMapStyle('oval');App.closeFocusMenu()"><span class="fm-item-icon">🟡</span> Oval track</div>
+      <div class="fm-item" onclick="App.setMapStyle('numbers');App.closeFocusMenu()"><span class="fm-item-icon">🔢</span> Big numbers</div>
+      <div class="fm-item" onclick="App.setMapStyle('trailcam');App.closeFocusMenu()"><span class="fm-item-icon">🎥</span> Trail cam</div>
+      <div class="fm-item" onclick="App.setMapStyle('media');App.closeFocusMenu()"><span class="fm-item-icon">📻</span> Radio</div>
+      <div class="fm-item" data-needs-route onclick="App.setMapStyle('street');App.closeFocusMenu()"><span class="fm-item-icon">📍</span> Street view</div>
+    </div>
+
+    <div class="fm-section">PRESETS</div>
+    <div class="fm-grid">
+      <div class="fm-item" onclick="App.toggleQS('speed');App.closeFocusMenu()"><span class="fm-item-icon">⚡</span> Speed presets</div>
+      <div class="fm-item" onclick="App.toggleQS('incline');App.closeFocusMenu()"><span class="fm-item-icon">↗</span> Incline presets</div>
+    </div>
+
+    <div class="fm-section">APP</div>
+    <div class="fm-grid">
+      <div class="fm-item" onclick="App.openSettings();App.closeFocusMenu()"><span class="fm-item-icon">⚙</span> Settings</div>
+      <div class="fm-item" onclick="window.open('stats.html','_self')"><span class="fm-item-icon">📊</span> Stats dashboard</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ PAUSE OVERLAY ══════════════════════════════════════════════════════ -->
+<div class="pause-overlay" id="pauseOverlay">
+  <div class="pause-title">PAUSED</div>
+  <div class="pause-sub" id="pauseMsg">Belt stopped · timer paused · route holding position</div>
+  <div class="pause-joke" id="pauseJoke"></div>
+  <div class="pause-btns">
+    <button class="fc-btn fc-resume xl" onclick="App.togglePause()">▶ RESUME</button>
+    <button class="fc-btn fc-stop xl" onclick="App.finishRun()">⏹ FINISH RUN</button>
+  </div>
+</div>
+
+<!-- ══ COOL-DOWN OVERLAY ══════════════════════════════════════════════════ -->
+<div class="cooldown-overlay" id="cooldownOverlay">
+  <div class="cooldown-title">🧊 COOLING DOWN</div>
+  <div class="cooldown-info">
+    <div class="cooldown-stat"><span class="cooldown-val" id="cdSpeed">—</span><span class="cooldown-unit">km/h</span></div>
+    <div class="cooldown-stat"><span class="cooldown-val" id="cdTimer">—</span><span class="cooldown-unit">remaining</span></div>
+    <div class="cooldown-stat"><span class="cooldown-val" id="cdHR">—</span><span class="cooldown-unit">bpm</span></div>
+  </div>
+  <div class="cooldown-bar"><div class="cooldown-fill" id="cdFill" style="width:100%"></div></div>
+  <button class="fc-btn fc-stop xl" onclick="App.skipCooldown()">⏹ SKIP — FINISH NOW</button>
+</div>
+
+<!-- ══ RUN COMPLETE ═══════════════════════════════════════════════════════ -->
+<div class="finish-overlay" id="finishOverlay">
+  <div class="finish-inner">
+    <div class="finish-title">Nice job!</div>
+    <div class="finish-route" id="fRoute">—</div>
+    <div class="finish-stats">
+      <div class="finish-stat highlight"><div class="finish-stat-v" id="fTime">—</div><div class="finish-stat-l">TIME</div></div>
+      <div class="finish-stat"><div class="finish-stat-v" id="fDist">—</div><div class="finish-stat-l">DISTANCE</div></div>
+      <div class="finish-stat"><div class="finish-stat-v" id="fPace">—</div><div class="finish-stat-l">AVG PACE</div></div>
+      <div class="finish-stat"><div class="finish-stat-v" id="fHR">—</div><div class="finish-stat-l">AVG HR</div></div>
+      <div class="finish-stat"><div class="finish-stat-v" id="fCal">—</div><div class="finish-stat-l">KCAL</div></div>
+      <div class="finish-stat"><div class="finish-stat-v" id="fElev">—</div><div class="finish-stat-l">ELEVATION</div></div>
+      <div class="finish-stat"><div class="finish-stat-v" id="fEffort">—</div><div class="finish-stat-l" id="fEffortLabel">EFFORT</div></div>
+    </div>
+    <div class="finish-splits" id="fSplits"></div>
+    <div class="finish-extras">
+      <div id="fPB" style="display:none"></div>
+      <div id="fPower" style="display:none"></div>
+      <div id="fNegSplits" style="display:none"></div>
+      <div id="fHRR" style="display:none"></div>
+      <div id="fDriftEF" style="display:none"></div>
+      <div id="fComparison" style="display:none"></div>
+    </div>
+  </div>
+    <div class="finish-btns">
+      <button class="fc-btn fc-start xl" onclick="App.saveAndNewRun()">💾 SAVE RUN</button>
+      <button class="btn-outline" onclick="App.shareRunSummary(this)">SHARE</button>
+      <button class="btn-outline" onclick="App.exportGPX()">GPX</button>
+      <button class="btn-outline" onclick="App.exportTCX()">TCX</button>
+      <button class="btn-ghost" onclick="App.discardRun()">DISCARD</button>
+  </div>
+</div>
+
+<!-- ══ SPLITS PANEL ═══════════════════════════════════════════════════════ -->
+<div class="side-panel right" id="splitsPanel">
+  <div class="side-header"><div class="side-title">KM SPLITS</div><button class="fm-x" onclick="App.toggleSplits()">✕</button></div>
+  <div class="side-body" id="splitsList"></div>
+</div>
+
+<!-- ══ HISTORY / GHOST PANEL ══════════════════════════════════════════════ -->
+<div class="side-panel left" id="historyPanel">
+  <div class="side-header"><div class="side-title">👻 RACE A PAST RUN</div><button class="fm-x" onclick="App.closeHistory()">✕</button></div>
+  <div class="side-body" id="historyList"></div>
+</div>
+
+<!-- ══ ROUTE PICKER ═══════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="routeModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">🗺 ROUTES</div>
+      <button class="fm-x" onclick="App.closeRoutes()">✕</button>
+    </div>
+    <div class="modal-body" id="routeList"></div>
+    <div class="modal-footer">
+      <button class="btn-outline" onclick="App.triggerGPXImport()">📁 IMPORT GPX</button>
+      <button class="btn-outline" id="routeStravaBtn" onclick="App.openStravaPicker(false)">STRAVA</button>
+      <button class="btn-ghost" onclick="App.closeRoutes()">CLOSE</button>
+      <button class="fc-btn fc-start" id="runRouteBtn" onclick="App.runRoute()">▶ RUN THIS ROUTE</button>
+    </div>
+  </div>
+</div>
+<input type="file" id="gpxFileInput" accept=".gpx,.GPX">
+
+</div><!-- #rootApp -->
+
+<!-- Scripts — order matters, no modules, no build step -->
+<script src="js/gpx.js"></script>
+<script src="js/storage.js"></script>
+<script src="js/idb-store.js"></script>
+<script src="js/treadmill.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/map.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/media.js"></script>
+<script src="js/sync.js"></script>
+<script src="js/strava-api.js"></script>
+<script src="js/strava-routes.js"></script>
+<script src="js/strava-racers.js"></script>
+<script src="js/strava-upload.js"></script>
+<script src="js/strava-picker.js"></script>
+<script src="js/trackview.js"></script>
+<script src="js/workout-segments.js"></script>
+<script src="js/oval-track.js"></script>
+<script src="js/trailcam.js"></script>
+<script src="js/fun-facts.js"></script>
+<script src="js/voice.js"></script>
+<script src="js/voice-commands.js"></script>
+<script src="js/cadence.js"></script>
+<script src="js/streaks.js"></script>
+<script src="js/workout-builder.js"></script>
+<script src="js/settings-panel.js"></script>
+<script src="js/video.js"></script>
+<script src="js/past-run-splits.js"></script>
+<script src="js/split-compare.js"></script>
+<script src="js/app.js"></script>
+<!-- ui-v4: service worker intentionally NOT registered (sw.js here is a kill-switch only) -->
+</body>
+</html>

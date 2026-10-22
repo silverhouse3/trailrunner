@@ -1,0 +1,103 @@
+/* TrailRunner ui-v4 - Strava screens. Strava orange #FC5200. Touch targets 72px+.
+   Compat: no flex gap, no clamp(), no backdrop-filter (Android 7 WebView). Uses ui-v4 CSS variables with fallbacks. */
+.sv-overlay { position: absolute; left: 0; top: 0; width: 100%; height: 100%; z-index: 9000; background: #07090d;
+  color: var(--text, #f3f6fb); font-family: var(--font, "Segoe UI", Roboto, Arial, sans-serif); display: flex; flex-direction: column; }
+.sv-overlay button { font-family: inherit; }
+.sv-head { display: flex; align-items: center; height: 112px; padding: 0 32px; border-bottom: 2px solid #2a3345; flex: none; }
+.sv-title { font-size: 40px; font-weight: 800; letter-spacing: .12em; color: #fc5200; margin-right: 40px; }
+.sv-tabs { display: flex; flex: 1; }
+.sv-tab { height: 80px; padding: 0 36px; margin-right: 16px; border-radius: 16px; border: 3px solid #2a3345; background: #171d29;
+  color: #c0c9d8; font-size: 26px; font-weight: 800; letter-spacing: .06em; }
+.sv-tab.on { border-color: #fc5200; color: #fff; background: #3a1a0a; }
+.sv-btn { min-height: 80px; padding: 0 36px; border-radius: 16px; font-size: 26px; font-weight: 800; letter-spacing: .06em; border: 3px solid #2a3345; background: #171d29; color: #f3f6fb; margin-left: 16px; }
+.sv-btn-main { background: #fc5200; border-color: #fc5200; color: #fff; min-height: 104px; font-size: 32px; }
+.sv-btn-main:active { background: #d94600; }
+.sv-btn-alt { background: transparent; border-color: #37d0ff; color: #37d0ff; }
+.sv-btn-strava { background: #fc5200; border-color: #fc5200; color: #fff; min-height: 96px; }
+.sv-btn-img { background: none; border: 0; padding: 0; height: 96px; }
+.sv-btn-img img { height: 96px; }
+.sv-banner { display: none; padding: 16px 32px; font-size: 24px; flex: none; }
+.sv-banner.show { display: block; }
+.sv-banner.warn { background: #3b2a08; color: #ffd54a; }
+.sv-banner.err { background: #3b0d0d; color: #ff8a8a; }
+.sv-body { display: flex; flex: 1; min-height: 0; }
+.sv-list { width: 1100px; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 16px 24px; border-right: 2px solid #2a3345; }
+.sv-detail { flex: 1; padding: 24px 32px; overflow-y: auto; }
+.sv-row { display: flex; align-items: center; width: 100%; min-height: 96px; margin-bottom: 12px; padding: 8px 16px; text-align: left;
+  background: #171d29; border: 3px solid #2a3345; border-radius: 16px; color: #f3f6fb; }
+.sv-row.sel { border-color: #fc5200; background: #26180f; }
+.sv-row:active { background: #1d2433; }
+.sv-thumb { width: 120px; height: 80px; flex: none; background: #0d1119; border-radius: 10px; margin-right: 20px; }
+.sv-row-main { flex: 1; min-width: 0; }
+.sv-row-name { font-size: 30px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sv-row-sub { font-size: 22px; color: #9aa6bb; margin-top: 4px; }
+.sv-row-stats { text-align: right; margin-left: 16px; flex: none; }
+.sv-row-big { font-size: 34px; font-weight: 800; }
+.sv-msg { font-size: 28px; color: #c0c9d8; padding: 24px 8px; line-height: 1.35; }
+.sv-small { font-size: 22px; color: #9aa6bb; }
+.sv-err { color: #ff8a8a; }
+.sv-connect { padding: 40px 8px; }
+.sv-d-name { font-size: 40px; font-weight: 800; margin-bottom: 16px; }
+.sv-profile { width: 700px; height: 220px; background: #0d1119; border-radius: 12px; }
+.sv-grade-legend { margin: 10px 0 16px; font-size: 20px; color: #9aa6bb; }
+.sv-lg { margin-right: 20px; }
+.sv-lg i { display: inline-block; width: 28px; height: 8px; border-radius: 4px; margin-right: 8px; vertical-align: middle; }
+.sv-d-stats { display: flex; flex-wrap: wrap; margin-bottom: 8px; }
+.sv-d-stat { width: 33%; margin-bottom: 16px; }
+.sv-d-val { font-size: 36px; font-weight: 800; }
+.sv-d-lab { font-size: 20px; color: #9aa6bb; letter-spacing: .08em; }
+.sv-toggle { display: block; width: 100%; height: 80px; margin: 16px 0; border-radius: 16px; border: 3px solid #2a3345; background: #171d29; color: #c0c9d8; font-size: 26px; font-weight: 800; }
+.sv-toggle.on { border-color: #ffd54a; color: #ffd54a; }
+.sv-use { display: block; width: 100%; margin: 16px 0 0; position: -webkit-sticky; position: sticky; bottom: 0; }
+.sv-link { color: #fc5200; font-size: 26px; font-weight: 700; text-decoration: underline; display: inline-block; margin: 8px 0; }
+.sv-powered { font-size: 20px; color: #9aa6bb; letter-spacing: .1em; text-align: center; }
+.sv-powered-bar { padding: 10px; flex: none; border-top: 2px solid #2a3345; }
+
+/* upload confirm */
+.sv-up { background: rgba(7,9,13,.96); align-items: center; justify-content: center; }
+.sv-card { width: 1100px; background: #10151e; border: 3px solid #fc5200; border-radius: 24px; padding: 40px 48px; }
+.sv-up-title { font-size: 52px; font-weight: 800; color: #fc5200; margin-bottom: 24px; }
+.sv-up-stats { display: flex; margin-bottom: 16px; }
+.sv-up-stat { flex: 1; }
+.sv-up-val { font-size: 56px; font-weight: 800; }
+.sv-up-lab { font-size: 22px; color: #9aa6bb; letter-spacing: .1em; }
+.sv-up-route { font-size: 30px; color: #c0c9d8; margin-bottom: 20px; }
+.sv-seg { display: flex; margin-bottom: 12px; }
+.sv-seg-btn { flex: 1; height: 80px; font-size: 24px; font-weight: 800; border: 3px solid #2a3345; background: #171d29; color: #c0c9d8; }
+.sv-seg-btn:first-child { border-radius: 16px 0 0 16px; } .sv-seg-btn:last-child { border-radius: 0 16px 16px 0; }
+.sv-seg-btn.on { border-color: #fc5200; background: #3a1a0a; color: #fff; }
+.sv-up-note { font-size: 22px; color: #9aa6bb; min-height: 56px; margin-bottom: 8px; }
+.sv-up-status { font-size: 30px; font-weight: 700; min-height: 48px; margin: 8px 0 16px; }
+.sv-up-status.busy { color: #37d0ff; } .sv-up-status.ok { color: #3ee89f; } .sv-up-status.warn { color: #ffd54a; } .sv-up-status.err { color: #ff8a8a; }
+.sv-up-btns { display: flex; }
+.sv-up-btns .sv-btn { margin-left: 0; margin-right: 16px; flex: 1; }
+.sv-up .sv-powered { margin-top: 16px; }
+
+/* racers: lettered dots (colour + letter), legend, live gap chip */
+.sv-dot { width: 34px; height: 34px; line-height: 30px; border-radius: 50%; border: 3px solid #fff; text-align: center;
+  font: 800 18px/30px "Segoe UI", Roboto, Arial, sans-serif; color: #05080c; box-shadow: 0 1px 6px rgba(0,0,0,.6); }
+.sv-dot-slowest { border-radius: 6px; }
+.sv-dot-average { border-radius: 50% 50% 50% 8px; }
+.sv-legend { position: absolute; left: 24px; top: 150px; width: 420px; z-index: 600; background: rgba(16,21,30,.92); border: 2px solid #2a3345; border-radius: 16px; padding: 12px 16px; color: #f3f6fb; font-family: "Segoe UI", Roboto, Arial, sans-serif; }
+.sv-legend-title { font-size: 18px; letter-spacing: .14em; color: #9aa6bb; margin-bottom: 6px; }
+.sv-legend-row { display: flex; align-items: center; min-height: 52px; }
+.sv-chip { display: inline-block; min-width: 40px; height: 40px; line-height: 40px; border-radius: 20px; text-align: center; font-weight: 800; font-size: 18px; color: #05080c; padding: 0 6px; margin-right: 12px; }
+.sv-lg-main { flex: 1; min-width: 0; } .sv-lg-main b { display: block; font-size: 20px; } .sv-lg-main i { display: block; font-style: normal; font-size: 16px; color: #9aa6bb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sv-lg-time { font-size: 20px; margin-right: 12px; color: #c0c9d8; } .sv-lg-gap { font-size: 26px; font-weight: 800; min-width: 84px; text-align: right; }
+.sv-ahead { color: #3ee89f; } .sv-behind { color: #ff7a7a; }
+.sv-hud { position: absolute; left: 24px; top: 150px; z-index: 600; padding: 10px 20px; border-radius: 14px; background: rgba(16,21,30,.92); font-size: 28px; font-weight: 800; border: 2px solid #2a3345; }
+
+/* ── Integrated into index.html (round 4) ─────────────────────────────────── */
+/* Compact race bar: in normal flow between the metric strip and the view zone (never an overlay). */
+.race-bar { display: none; flex-shrink: 0; height: 64px; background: #0c1017; border-bottom: 2px solid var(--border, #2a3345);
+  align-items: center; padding: 0 20px; font-family: "Segoe UI", Roboto, Arial, sans-serif; color: #f3f6fb; }
+.race-bar.on { display: flex; }
+#rootApp.routeless .race-bar { display: none !important; }
+.race-bar .sv-cr { display: flex; align-items: center; margin-right: 36px; }
+.race-bar .sv-chip { margin-right: 10px; height: 44px; line-height: 44px; min-width: 44px; border-radius: 22px; font-size: 22px; }
+.race-bar .sv-cr-gap { font-size: 36px; font-weight: 800; color: #f3f6fb; min-width: 108px; }
+.race-bar .sv-cr-you { margin-right: 0; }
+.race-bar .sv-cr-hint { margin-left: auto; font-size: 18px; color: #7b8aa3; }
+#routeStravaBtn, #homeStravaBtn { color: #fc5200; border-color: #fc5200; }
+#homeStravaBtn { background: var(--surf, #12151e); }
+#rootApp.racing #ghostPanel { display: none !important; }

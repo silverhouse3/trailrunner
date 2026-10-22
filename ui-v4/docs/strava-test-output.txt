@@ -1,0 +1,132 @@
+== node mock/strava-test.js (2026-10-22, after wiring) ==
+TrailRunner Strava integration test  -  2026-10-22T12:56:26.369Z
+Mock Strava on :8098 (override via ?strava=localhost:8098), node v22.22.2
+
+== 0. mock data sanity
+PASS  mock has >= 8 activities  [14]
+PASS  hilly trail run has 600 m+ gain  [650 m over 14255 m]
+      decoy loop 13654 m vs base 14200 m (-3.8%): same start, passes the 5% distance test, diverges mid-course
+
+== 1. host override safety
+PASS  ?strava=localhost:8098 points the client at the mock
+PASS  public host in ?strava= is ignored (cannot redirect tokens)
+
+== 2. auth: code exchange, scope, expiry refresh, 401 retry
+PASS  authorize URL requests read, read_all, activity:read_all, activity:write
+PASS  authorization_code exchange stores tokens + scope  [Soph]
+PASS  no client_secret stored by this flow
+PASS  expired access token -> automatic refresh, request succeeds  [refreshes: 1]
+PASS  server 401 -> one refresh + one retry, refresh token rotated
+
+== 3. recent runs list (type filter, cache, offline, 429)
+PASS  only Run/TrailRun listed (Ride/Walk filtered)  [TrailRun,Run]
+PASS  all 12 runs of the 14 activities listed  [12]
+PASS  newest first
+PASS  summary_polyline kept for thumbnails
+PASS  polyline decodes  [161 pts, start 51.92999,-1.99997]
+PASS  second call within 2 min served from cache (0 requests)
+PASS  network down -> cached list shown, flagged stale  [error=offline]
+PASS  429 -> cached list shown, error code rate_limited  [Strava is busy - try again in a few minutes]
+PASS  cool-down active: further reads rejected locally without hitting Strava  [216 s]
+PASS  saved routes tab: run routes only (ride route filtered)  [Cleeve Hill Loop (saved) | Riverside 10k]
+
+== 4. pick -> streams -> route conversion
+PASS  limits = comfort (-3..12) intersected with bridge (-6..40)  [{"min":-3,"max":12,"source":"bridge+comfort"}]
+      route: 570 pts, 14.26 km, real climb +624 m, belt climb +483 m, steepest raw 42.4%, 59% segments capped
+PASS  real route climb >= 600 m  [624]
+PASS  raw route has pitches steeper than the 12% limit  [42.4%]
+PASS  every segment grade within clamps -3..+12  [min -2.98 max 12.00]
+PASS  engine's own _calcGrade (incline target) within clamps for every route position  [min -2.98 max 11.99]
+PASS  also within the X32i hard range -6..40
+PASS  route distance strictly increasing, ends at total  [14255.2 m]
+PASS  ghost time-by-distance is monotonic non-decreasing
+PASS  ghost total ~ her activity's moving time (+-3%)  [7521 vs 7522]
+PASS  ghost keeps elapsed time too  [7521]
+PASS  a 90 s stop is compressed out of the ghost clock  [elapsed 8119 moving 8030]
+PASS  narrower bridge limits (0..8) win at runtime  [{"min":0,"max":8,"source":"bridge+comfort"}]
+PASS  re-baked route keeps engine incline within 0..8  [max 7.99]
+PASS  saved route converts (no time stream -> no ghost)  [567 pts]
+PASS  route stored via Store.saveRoute with meta  [strava_a_9000000001]
+PASS  ghostPositionAt(distanceM) -> {lat,lng,elapsedS}, elapsed increases with distance  [0 < 744 < 2260.4 < 5010.9 < 7248.2]
+PASS  ghostPositionAtTime inverts ghostPositionAt  [9000]
+PASS  existing Engine ghost replays her pace via source 'strava-activity' and finishes at the route end  [14255.2]
+
+== 5. multi-racer: matching, pool, racers
+      9000000004 Cleeve Loop - fast day           pre=ok 27/77m  stream=ACCEPT mean 3.0 p95 6.5 max 13 m
+      9000000008 Cleeve Loop - steady, coffee sto pre=ok 26/69m  stream=ACCEPT mean 2.7 p95 6.5 max 9 m
+      9000000009 Cleeve Loop - slow recovery      pre=ok 24/72m  stream=ACCEPT mean 2.3 p95 5.0 max 8 m
+      9000000010 Cleeve variation (detour)        pre=REJECT(shape) 75/331m  stream=REJECT(shape) mean 57.3 p95 284.2 max 318 m
+      9000000011 Cleeve Loop backwards            pre=REJECT(shape) 1667/3883m  stream=REJECT(shape) mean 1916.0 p95 3774.2 max 3898 m
+PASS  matching activities accepted (fast, steady+stop, slow) despite GPS noise and +-1.2% distance error
+PASS  decoy: same start + similar distance but diverging middle is rejected (shape)
+PASS  decoy: same course reversed is rejected  [shape]
+PASS  unrelated flat 5k rejected at the cheap list stage
+PASS  partial treadmill run (50% of route) excluded from the pool
+      pool: treadmill:run_tm_fast, treadmill:run_tm_dup, strava:9000000001, strava:9000000008, strava:9000000009 | fetched 2 | rejected 2=pre:distance 4=duplicate-of-treadmill-run 5=pre:distance 6=pre:distance 10=pre:shape 11=pre:shape 12=pre:distance 13=pre:distance 14=pre:distance
+PASS  pool = 2 treadmill runs (fast, and the copy of Strava #4) + 3 Strava (base, steady, slow); Strava #4 dropped as duplicate  [5]
+PASS  decoys never enter the pool
+PASS  same effort stored locally AND on Strava is counted once (dedupe by start time + distance)
+PASS  stream downloads capped per build  [2 <= 6]
+PASS  second build costs 0 stream requests (evaluated ids remembered, streams cached)  [streams requested: 0]
+PASS  >1 pooled runs -> fastest, average, slowest  [F/A/S]
+PASS  fastest = lowest total time, slowest = highest  [5900.1 / 8603]
+PASS  colours: F green, S red, A yellow, YOU blue
+PASS  each racer has a letter + source/date legend (not colour only)  [F=Treadmill 20 Oct 1:38:20 | A=Mean of 5 runs 2:02:15 | S=Strava 14 Sep 2:23:23]
+PASS  average racer = mean of all pooled runs' elapsed time at each distance  [max error 0.11 s]
+PASS  average profile monotonic non-decreasing
+PASS  average total lies between fastest and slowest  [2:02:15]
+PASS  StravaRoutes.racers(routeId) -> [{id,label,colour,source,date,totalS}]  [{"id":"fastest","label":"FASTEST","letter":"F","colour":"#3ee89f","source":"treadmill","date":"2026-10-20T06:30:00Z","totalS":5900.1,"legend":"Treadmill 20 Oct"}]
+PASS  racerPositionsAt(distance) -> [{id,lat,lng,elapsedS}] (fastest reaches 7 km before slowest)  [fastest@2895.5 average@3521.1 slowest@4139.6]
+PASS  at the same clock time fastest is furthest ahead, slowest furthest behind  [fastest=7245m average=6390m slowest=5688m]
+PASS  gaps: running faster than everyone -> all positive (ahead)  [F +1:40, A +12:06, S +22:24]
+PASS  gaps: slower than everyone -> all negative (behind)  [F -22:24, A -11:58, S -1:40]
+PASS  gaps: between fastest and slowest -> behind F, ahead of S  [Fastest -10:22, Average +0:04, Slowest +10:22]
+      panel text example: Fastest -10:22, Average +0:04, Slowest +10:22
+PASS  drawOnCanvas draws a lettered disc per racer (F, A, S) for the oval track  [FAS]
+PASS  a Strava activity that THIS app uploaded (recorded id) is treated as the local run, not a second racer
+PASS  zero pooled runs -> no racers
+PASS  one pooled run -> single yellow YOUR RUN ghost  [YOUR RUN R]
+PASS  two runs -> fastest and slowest are those two, average sits between  [1:38:20 < 2:00:52 < 2:23:23]
+PASS  fastest == slowest (tie) -> single ghost  [YOUR RUNS (AVG)]
+PASS  not connected -> pool is treadmill runs only (offline-safe)  [tm_run_tm_fast,tm_run_tm_dup]
+
+== 6. upload back to Strava
+PASS  TCX trackpoints balanced, time strictly increasing, distance non-decreasing  [31 points]
+PASS  trainer mode: heart rate yes, GPS position no, cadence none
+PASS  virtual mode: route positions interpolated by distance
+PASS  trainer fields: trainer=1, sport_type=Run, data_type=tcx  [Cleeve Hill Loop (treadmill)]
+PASS  virtual fields: sport_type=VirtualRun  [Virtual run: Cleeve Hill Loop]
+PASS  upload accepted and polled until activity id appears  [activity 9100000001 after 2 polls; stages uploading>processing]
+PASS  status polling waited through the "still being processed" stage (>=1 s interval)  [2 polls]
+PASS  mock received multipart: file + data_type + sport_type + trainer + external_id
+PASS  a run that was uploaded is not offered again (recorded)
+PASS  duplicate upload -> reported as already on Strava, not an error  [trailrunner-run_up_1.tcx duplicate of activity 9100000001]
+PASS  Strava 500 -> confirmed upload queued for retry  [Strava error 500]
+PASS  queue flush retries and succeeds, queue empties  [[{"runId":"run_up_2","state":"done","activityId":9100000002}]]
+PASS  offline -> queued  [No connection to Strava]
+PASS  back online -> queued run uploaded
+PASS  processing error from Strava -> clear failure message (not queued forever)  [There was an error processing your activity.]
+PASS  too-short runs are never offered
+
+== 7. safety
+PASS  no TM.setSpeed / setIncline / startWorkout / stopWorkout call made by any Strava code  [0 calls]
+PASS  static check: Strava sources reference only TM.getConsoleInfo (read-only)
+PASS  static check: no client secret literal in front-end code
+
+86/86 checks passed
+
+== node mock/strava-ui-smoke.js ==
+PASS  picker lists 12 runs with rows >= 72 px  [12 rows, min 102 px]
+PASS  thumbnails drawn from summary_polyline  [11]
+PASS  USE THIS ROUTE button >= 72 px  [104]
+PASS  MY ROUTES tab shows the 2 run routes
+PASS  race built from treadmill + Strava runs  [F:#3ee89f A:#ffd54a S:#ff4d4d]
+PASS  map shows lettered dots F, A, S  [FAS]
+PASS  legend shows source/date/total time and live gaps  [RACE | F | FASTEST | Treadmill 20 Oct | 1:38:20 | -13:37 | A | AVERAGE | Mean of 6 runs | 2:02:09 | -9:44 | S | SLOWEST | Strava 14 Sep | 2:23:23 | -2:40 | YOU | YOU]
+PASS  grade-coloured route line drawn in its own pane  [569 segments]
+PASS  confirm screen has SAVE TO STRAVA and SKIP  [SAVE TO STRAVA:104 SKIP:104]
+PASS  nothing uploaded before the user taps SAVE
+PASS  success message with View on Strava link  [Saved to Strava View on Strava]
+PASS  exactly one upload after SAVE
+PASS  no page errors  []
+UI smoke: all checks passed

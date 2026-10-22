@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Strava demo harness</title>
+<link rel="stylesheet" href="../vendor/leaflet.min.css">
+<link rel="stylesheet" href="../css/strava.css">
+<style>html,body{margin:0;background:#07090d}#rootApp{position:relative;width:1920px;height:1080px;overflow:hidden;background:#07090d}#mapDiv{position:absolute;left:0;top:0;width:1920px;height:1080px}</style>
+<script src="../vendor/leaflet.min.js"></script></head>
+<body><div id="rootApp"><div id="mapDiv"></div></div>
+<script>
+// Minimal stand-ins: the real app provides these. TM is inert (never moves the belt).
+var TM = { connected: false, getConsoleInfo: function () {} };
+</script>
+<script src="../js/storage.js"></script>
+<script src="../js/engine.js"></script>
+<script src="../js/strava-api.js"></script>
+<script src="../js/strava-routes.js"></script>
+<script src="../js/strava-racers.js"></script>
+<script src="../js/strava-upload.js"></script>
+<script src="../js/strava-picker.js"></script>
+<script>
+window.MapView = { map: L.map('mapDiv', { zoomControl: false }).setView([51.93, -2.0], 13), routeAhead: null, routeDone: null, updateGhost: function () {} };
+window.App = { selectRoute: function (id) {
+  var r = Store.getRoute(id); Engine.loadRoute(r);
+  MapView.map.fitBounds([[r.bounds.minLat, r.bounds.minLon], [r.bounds.maxLat, r.bounds.maxLon]]);
+  StravaRoutes.onRouteLoaded(r, { runs: window.DEMO_RUNS || [] });
+} };
+window.demoConnect = function () {
+  localStorage.setItem('tr_strava_app', JSON.stringify({ clientId: '12345' }));
+  return StravaApi.exchangeCode('mockcode');
+};
+</script></body></html>

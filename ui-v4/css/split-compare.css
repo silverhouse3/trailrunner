@@ -1,0 +1,44 @@
+/* SplitCompare — per-km split comparison (shared by index.html summary and stats.html).
+   Colour-blind safe: arrows + labels carry the meaning, colour is secondary. */
+.sc-head { text-align: center; margin-bottom: 12px; }
+.sc-verdict { font-size: 30px; font-weight: 900; color: var(--text, #f3f6fb); }
+.sc-basis { font-size: 18px; color: var(--dim, #9aa6bb); margin-top: 4px; }
+.sc-chart { display: flex; align-items: flex-end; justify-content: center; height: 150px; padding: 0 8px; margin: 34px 0 4px; }
+.sc-col { flex: 0 1 96px; display: flex; flex-direction: column; align-items: center; height: 100%; margin: 0 6px; }
+.sc-bars { flex: 1; width: 100%; display: flex; align-items: flex-end; justify-content: center; position: relative; }
+.sc-bar { width: 34px; border-radius: 6px 6px 0 0; position: relative; margin: 0 2px; }
+.sc-bar.this { background: #37d0ff; }
+.sc-bar.this.best { background: #3ee89f; }
+.sc-bar.this.slowest { background: #ffb020; }
+.sc-bar.median { background: transparent; border: 3px dashed #9aa6bb; border-bottom: none; width: 28px; }
+.sc-bar.this span { position: absolute; top: -26px; left: 50%; transform: translateX(-50%); font-size: 16px; font-weight: 800; white-space: nowrap; }
+.sc-col-label { font-size: 16px; font-weight: 800; color: var(--dim, #9aa6bb); margin-top: 6px; letter-spacing: .06em; }
+.sc-legend { text-align: center; font-size: 16px; color: var(--dim, #9aa6bb); margin-bottom: 10px; }
+.sc-sw { display: inline-block; width: 22px; height: 12px; border-radius: 3px; vertical-align: middle; margin: 0 6px 0 14px; }
+.sc-sw.this { background: #37d0ff; }
+.sc-sw.median { border: 2px dashed #9aa6bb; }
+.sc-table { width: 100%; border-collapse: collapse; font-size: 22px; font-variant-numeric: tabular-nums; }
+.sc-table th { font-size: 15px; letter-spacing: .1em; color: var(--dim, #9aa6bb); padding: 8px 10px; border-bottom: 2px solid var(--border, #2a3345); text-align: center; white-space: nowrap; }
+.sc-table td { padding: 8px 10px; border-bottom: 1px solid var(--border, #2a3345); text-align: center; }
+.sc-table .sc-km { font-weight: 900; color: var(--cyan, #37d0ff); }
+.sc-table .sc-this b { font-weight: 900; }
+.sc-table small { display: block; font-size: 14px; font-weight: 800; letter-spacing: .06em; color: var(--dim, #9aa6bb); min-height: 16px; }
+.sc-table .sc-km small { color: var(--dim, #9aa6bb); font-weight: 700; }
+.sc-table tr.best .sc-this { color: #3ee89f; }
+.sc-table tr.best .sc-this small { color: #3ee89f; }
+.sc-table tr.slowest .sc-this { color: #ffb020; }
+.sc-table tr.slowest .sc-this small { color: #ffb020; }
+/* HR flags win over the row's time flag colour (a NEW BEST km can still have the HIGHEST HR) */
+.sc-table tr td.sc-this.hr-lowest, .sc-table tr td.sc-this.hr-lowest small { color: #3ee89f; }
+.sc-table tr td.sc-this.hr-highest, .sc-table tr td.sc-this.hr-highest small { color: #ffb020; }
+.sc-table tr td.sc-this.hr- { color: var(--text, #f3f6fb); } .sc-table tr td.sc-this.hr- small { color: var(--dim, #9aa6bb); }
+.sc-table .sc-hr { border-left: 1px solid var(--border, #2a3345); }
+.sc-table th.sc-hr + th.sc-hr, .sc-table td.sc-hr + td.sc-hr { border-left: none; }
+.sc-table .sc-na { color: var(--dim, #9aa6bb); font-size: 16px; }
+.sc-table tr.partial td { background: rgba(255,255,255,.03); }
+.sc-foot { font-size: 15px; color: var(--dim, #9aa6bb); margin-top: 10px; line-height: 1.5; text-align: left; }
+@media (max-width: 900px) {
+  .sc-table { font-size: 16px; } .sc-table th { font-size: 11px; padding: 6px 4px; } .sc-table td { padding: 6px 4px; }
+  .sc-table small { font-size: 11px; } .sc-verdict { font-size: 22px; } .sc-col { flex-basis: 48px; margin: 0 2px; } .sc-bar { width: 18px; }
+  .sc-bar.this span { font-size: 11px; }
+}
