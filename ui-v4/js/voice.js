@@ -388,9 +388,16 @@ var VoiceCoach = {
       }
       // Try selecting immediately (may already be loaded)
       this._selectVoice();
+      // No TTS engine on this ROM (voices never arrive)? → beeps only, say so in Settings (audit P1-c)
+      setTimeout(function() {
+        try { if (!self._synth.getVoices().length) { self.beepOnly = true; console.warn('[VoiceCoach] no speech engine: beeps only'); } } catch (e) {}
+      }, 3000);
+    } else if (window.AndroidBridge && typeof AndroidBridge.speak === 'function') {
+      this._androidSpeak = true;
     } else {
-      console.warn('[VoiceCoach] SpeechSynthesis not available — trying bridge fallback');
-      this._bridgeFallback = true;
+      // No speechSynthesis and the real bridge has no /tts route: beeps only (never a silent no-op)
+      console.warn('[VoiceCoach] SpeechSynthesis not available — beeps only');
+      this.beepOnly = true;
     }
     console.log('[VoiceCoach] Initialised');
   },
@@ -449,6 +456,11 @@ var VoiceCoach = {
   },
 
   _speak(text) {
+    if (this._androidSpeak) { try { AndroidBridge.speak(String(text)); return; } catch (e) {} }
+    if (this.beepOnly) {
+      try { if (typeof VoiceCmd !== 'undefined' && VoiceCmd._playTone) { VoiceCmd._playTone(880, 120); setTimeout(function() { VoiceCmd._playTone(1100, 120); }, 160); } } catch (e) {}
+      return;
+    }
     if (this._bridgeFallback) {
       this._speakViaBridge(text);
       return;

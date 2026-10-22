@@ -47,7 +47,7 @@ async function ensureServers() {
   await ctx.route('**/oauth/authorize*', function (route) {
     route.fetch({ maxRedirects: 0 }).then(function (resp) {
       var loc = resp.headers()['location'] || '';
-      route.fulfill({ status: 302, headers: { Location: loc.replace('https://silverhouse3.github.io/trailrunner/', 'http://localhost:8199/') } });
+      route.fulfill({ status: 302, headers: { Location: loc.replace(/^https:\/\/silverhouse3\.github\.io\/trailrunner\/(ui-v4\/)?/, 'http://localhost:8199/') } });
     });
   });
   // Block the real internet (map tiles etc.) quickly

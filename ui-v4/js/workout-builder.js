@@ -618,7 +618,14 @@ const WorkoutBuilder = {
   },
 
   _deleteWorkout(id) {
-    if (!confirm('Delete this workout?')) return;
+    var self = this;
+    if (typeof UI !== 'undefined' && UI.ask) {
+      UI.ask('Delete this workout?', 'DELETE').then(function (y) { if (y) { self._deleteWorkoutNow(id); } });
+      return;
+    }
+    this._deleteWorkoutNow(id);
+  },
+  _deleteWorkoutNow(id) {
     const workouts = this._getLibrary().filter(w => w.id !== id);
     this._setLibrary(workouts);
     this._render();

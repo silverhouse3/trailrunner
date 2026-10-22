@@ -108,6 +108,25 @@ const SettingsPanel = {
   },
 
   _tabControls(s) {
+    const rate = s.speedRateKph || 1;
+    const maxKph = s.maxSpeedKph || (typeof TM !== 'undefined' ? (TM.machineMaxKph || 19.3) : 19.3);
+    const speedSafety = `
+      <div class="sp-section-label">SPEED SAFETY</div>
+      <div class="sp-row"><span class="sp-label">Speed change rate</span>
+        <div class="sp-radio-group">
+          ${[0.5, 1, 2, 3].map(v => `<label class="sp-radio"><input type="radio" name="spSpeedRate" value="${v}" ${rate == v ? 'checked' : ''}> ${v} km/h per s</label>`).join('')}
+        </div>
+        <div class="sp-hint">Every speed command (buttons, presets, workouts, HR autopilot, ramps) is stepped so the belt never changes faster than this. 0 (stop) is always immediate.</div>
+      </div>
+      <div class="sp-row"><span class="sp-label">Maximum speed</span>
+        <input class="sp-input" type="number" id="spMaxSpeed" min="3" max="${(typeof TM !== 'undefined' ? (TM.machineMaxKph || 19.3) : 19.3)}" step="0.5" value="${maxKph}"> <span class="sp-status">km/h (machine max ${(typeof TM !== 'undefined' ? (TM.machineMaxKph || 19.3) : 19.3)})</span>
+        <div class="sp-hint">Every command, preset, workout stage, HR autopilot step and Run-Again plan is clipped to this; the speed column shows MAX when a request was clipped.</div>
+      </div>
+      <div class="sp-divider"></div>`;
+    return speedSafety + this._tabControlsBody(s);
+  },
+
+  _tabControlsBody(s) {
     const speedUnit = s.speedButtonUnit || 'mph';
     const speedMode = s.speedButtonMode || 'custom';
     const customs = s.customSpeeds || [4, 5, 6, 7, 8, 10];
@@ -169,6 +188,7 @@ const SettingsPanel = {
       <div class="sp-row">
         <span class="sp-label">Enable</span>
         <label class="sp-toggle"><input type="checkbox" id="spVoiceEnabled" ${s.voiceEnabled?'checked':''}><span class="sp-slider"></span></label>
+        ${(window.SpeechRecognition||window.webkitSpeechRecognition)?'':'<div class="sp-hint" style="color:var(--orange)">Voice commands are not available on this treadmill (no speech recognition in its browser).</div>'}
       </div>
       <div class="sp-row">
         <span class="sp-label">Sensitivity</span>
@@ -328,6 +348,7 @@ const SettingsPanel = {
       { key: 'units',       icon: '📏', label: 'Units',        content: () => this._accUnits(s) },
       { key: 'integrations',icon: '🔗', label: 'Integrations', content: () => this._accIntegrations(s) },
       { key: 'profile',     icon: '👤', label: 'Profile',      content: () => this._accProfile(s) },
+      { key: 'about',       icon: 'ℹ',  label: 'About · Command log', content: () => this._accAbout(s) },
     ];
 
     return sections.map(sec => {
@@ -365,6 +386,7 @@ const SettingsPanel = {
       <div class="sp-row">
         <span class="sp-label">Voice Coaching</span>
         <label class="sp-toggle"><input type="checkbox" id="spTTSEnabled" ${s.ttsEnabled?'checked':''}><span class="sp-slider"></span></label>
+        ${(typeof VoiceCoach!=='undefined'&&VoiceCoach.beepOnly)?'<div class="sp-hint" style="color:var(--orange)">No speech engine on this treadmill: coaching cues are beeps only.</div>':''}
       </div>
       <div class="sp-row">
         <span class="sp-label">Voice</span>
@@ -689,6 +711,18 @@ const SettingsPanel = {
 
   // ── Integrations ──────────────────────────────────────────────────────
 
+  _accAbout(s) {
+    const log = (typeof TM !== 'undefined' && TM.cmdLogText) ? TM.cmdLogText() : '';
+    const mx = (typeof TM !== 'undefined' && TM.maxKph) ? TM.maxKph().toFixed(1) : '—';
+    const mm = (typeof TM !== 'undefined') ? (TM.machineMaxKph || 19.3).toFixed(1) : '—';
+    return `
+      <div class="sp-section-label">TRAILRUNNER ui-v4</div>
+      <div class="sp-row"><span class="sp-label">Bridge</span><span class="sp-status">${(typeof TM !== 'undefined' && TM._bridgeBase) || ''} · machine max ${mm} km/h · effective max ${mx} km/h · rate ${(typeof TM !== 'undefined' && TM.stepKph) ? TM.stepKph() : 1} km/h per s</span></div>
+      <div class="sp-section-label">COMMAND LOG (last 200 speed / incline commands, newest first)</div>
+      <div class="sp-row"><button class="sp-btn-sm" onclick="SettingsPanel._render()">↻ Refresh</button><button class="sp-btn-sm" onclick="TM.cmdLog.length=0;SettingsPanel._render()">Clear</button></div>
+      <pre id="spCmdLog" style="font-size:16px;line-height:1.4;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:12px;max-height:520px;overflow:auto;white-space:pre-wrap;color:var(--mid)">${log ? log.replace(/</g, '&lt;') : '(no commands yet)'}</pre>`;
+  },
+
   _accIntegrations(s) {
     // ui-v4 round 4: Strava goes through StravaApi (read, read_all, activity:read_all, activity:write).
     // There is NO automatic upload any more: every finished run asks SAVE TO STRAVA / SKIP.
@@ -961,6 +995,15 @@ const SettingsPanel = {
     const sSec = (v('spStravaSecret') || '').trim();
     if (sId) s.stravaClientId = sId;
     if (sSec) s.stravaClientSecret = sSec;
+    // P0-2: Save alone must persist the app record the callback page reads (tr_strava_app incl. secret)
+    if ((sId || sSec) && typeof StravaApi !== 'undefined') {
+      try {
+        var oa = (StravaApi.app && StravaApi.app()) || {};
+        var rec = { clientId: sId || oa.clientId || '', clientSecret: sSec || oa.clientSecret || '' };
+        localStorage.setItem('tr_strava_app', JSON.stringify(rec));
+        if (typeof Sync !== 'undefined') Sync.stravaApp = rec;
+      } catch (e) {}
+    }
 
     // Profile
     s.userName = (v('spName') || '').trim();
@@ -968,6 +1011,14 @@ const SettingsPanel = {
     if (document.getElementById('spWeight')) s.weight = n('spWeight');
     if (document.getElementById('spProfileRestHR')) s.restHR = parseInt(v('spProfileRestHR')) || 60;
 
+    // Speed safety (rate limiter + user maximum)
+    var rateEl = document.querySelector('input[name="spSpeedRate"]:checked');
+    if (rateEl) s.speedRateKph = parseFloat(rateEl.value) || 1;
+    if (document.getElementById('spMaxSpeed')) {
+      var mxv = parseFloat(v('spMaxSpeed'));
+      var mm = (typeof TM !== 'undefined' ? (TM.machineMaxKph || 19.3) : 19.3);
+      if (mxv > 0) s.maxSpeedKph = Math.round(Math.max(3, Math.min(mm, mxv)) * 2) / 2;
+    }
     // Safety limits
     s.safetyMaxSpeed = s.safetyMaxSpeed || 20;
     s.safetyMaxIncline = s.safetyMaxIncline || 15;
@@ -1010,9 +1061,9 @@ const SettingsPanel = {
   },
 
   _showBadges() {
-    if (typeof Streaks === 'undefined') { alert('Streaks module not loaded'); return; }
+    if (typeof Streaks === 'undefined') { UI.info('Streaks module not loaded'); return; }
     const badges = Streaks.getEarnedBadges();
     const all = typeof BADGES !== 'undefined' ? BADGES : [];
-    alert('Badges: ' + (badges.length > 0 ? badges.map(b => b.icon + ' ' + b.name).join(', ') : 'None earned yet'));
+    UI.info('Badges: ' + (badges.length > 0 ? badges.map(b => b.icon + ' ' + b.name).join(', ') : 'None earned yet'), 'var(--card2)');
   },
 };

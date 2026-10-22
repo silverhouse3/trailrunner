@@ -304,7 +304,7 @@
           clampedFrac: conv.stats.clampedFrac, maxGradeRaw: conv.stats.maxGradeRaw, minGradeRaw: conv.stats.minGradeRaw,
           ghost: conv.ghost, importedAt: new Date().toISOString()
         };
-        return { route: route, meta: meta, conv: conv };
+        return { route: route, meta: meta, conv: conv, streams: res[0] };
       });
     },
 

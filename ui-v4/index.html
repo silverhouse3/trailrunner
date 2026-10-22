@@ -79,7 +79,10 @@ if ('serviceWorker' in navigator) {
   <div class="top-right">
     <div class="pill-status small pill-tm" title="Treadmill bridge">🏃</div>
     <div class="pill-status small pill-hr" onclick="App.connectHR()" title="HR strap">❤</div>
-    <button class="icon-btn" onclick="VideoWin.toggle()" title="YouTube video window"><span class="ib-icon">📺</span></button>
+    <button class="icon-btn" id="videoOpenBtn" onclick="App.openVideo()" title="Video: YouTube + stats"><span class="ib-icon">📺</span></button>
+    <button class="icon-btn vid-ctl" id="videoFullBtn" onclick="App.setVideoMode('full')" title="Video full screen (stats strip on top)"><span class="ib-label">FULL</span></button>
+    <button class="icon-btn vid-ctl" id="videoCloseBtn" onclick="App.closeVideo()" title="Close the video"><span class="ib-label long">✕ CLOSE VIDEO</span><span class="ib-label short">✕ VIDEO</span></button>
+    <button class="fc-btn fc-stop top-stop" id="topStop" onclick="App.stopNow()">⏹ STOP</button>
     <button id="voiceMicBtn" class="icon-btn" onclick="if(typeof VoiceCommands!=='undefined')VoiceCommands.toggle()" title="Voice commands"><span class="ib-icon">🎤</span></button>
     <button class="estop" onclick="App.emergencyStop()" title="Emergency stop: belt to zero instantly">■ E-STOP</button>
   </div>
@@ -210,6 +213,70 @@ if ('serviceWorker' in navigator) {
         <div class="bignum-cell"><div class="bignum-label">HEART RATE</div><div class="bignum-val" id="bnHR" style="color:var(--red)">—</div><div class="bignum-unit" id="bnHRZone">bpm</div></div>
       </div>
 
+      <!-- Split VIDEO view (replaces Trail Cam): YouTube left, live tiles right. js/video-view.js -->
+      <div class="video-split mode-empty" id="videoSplitPanel">
+        <div class="vv-left">
+          <div class="live-strip" id="vvStrip">
+            <div class="rb-pad"></div>
+            <div class="rb-item"><span class="rb-l">SPEED</span><b data-rb="speed">0.0 km/h</b></div>
+            <div class="rb-item"><span class="rb-l">INCLINE</span><b data-rb="inc">+0.0%</b></div>
+            <div class="rb-item"><span class="rb-l">DIST</span><b data-rb="dist">0.00 km</b></div>
+            <div class="rb-item"><span class="rb-l">TIME</span><b data-rb="time">00:00</b></div>
+            <div class="rb-item"><b data-rb="next">NEXT --</b></div>
+            <div class="rb-item"><b data-rb="hr">♥ --</b></div>
+            <div class="rb-grow"></div>
+            <span class="rb-state offline" data-rb="state">STOPPED</span>
+            <button class="rb-btn" onclick="App.restoreVideo()">⤢ RESTORE</button>
+            <button class="rb-btn" onclick="App.closeVideo()">✕ CLOSE VIDEO</button>
+            <button class="rb-stop" onclick="App.stopNow()">STOP</button>
+          </div>
+          <div class="vv-stage">
+            <div class="vv-frame">
+              <div class="vv-empty">
+                <div class="vv-row"><input type="text" id="vvInput" placeholder="Paste a YouTube video or playlist link" autocomplete="off"><button class="vv-play-btn" onclick="VideoView.playFromInput()">▶ PLAY</button></div>
+                <button class="vv-resume" id="vvResume" onclick="VideoView.resume()" style="display:none"></button>
+                <div class="vv-label">FAVOURITES — tap an empty slot to save the link above</div>
+                <div class="vv-favs" id="vvFavs"></div>
+                <div class="vv-label">RECENT</div>
+                <div class="vv-recent" id="vvRecent"></div>
+                <div class="vv-hint" id="vvHint">Paste a video or playlist link — favourites are saved. (Searching YouTube inside the app is not possible without an API key.)</div>
+              </div>
+              <div class="vv-fail">
+                <div class="vv-fail-msg" id="vvFailMsg">This video cannot be played here — pick another</div>
+                <div class="vv-favs" id="vvFavsFail"></div>
+                <button class="vv-back" onclick="VideoView.backToList()">☰ ALL VIDEOS</button>
+              </div>
+            </div>
+          </div>
+          <div class="vv-bar">
+            <div class="vv-ctl" id="vvCtl" style="display:none">
+              <button class="vv-btn" id="vvPlay" onclick="VideoView.togglePlay()">▶ PLAY</button>
+              <button class="vv-btn mute" id="vvMute" onclick="VideoView.toggleMute()">🔊 MUTE</button>
+              <button class="vv-btn sm" onclick="VideoView.volumeBy(-10)">−</button>
+              <span class="vv-vol" id="vvVol"></span>
+              <button class="vv-btn sm" onclick="VideoView.volumeBy(10)">+</button>
+              <button class="vv-btn sm" id="vvPrev" onclick="VideoView.prev()" style="display:none">⏮</button>
+              <button class="vv-btn sm" id="vvNext" onclick="VideoView.next()" style="display:none">⏭</button>
+              <button class="vv-btn sm" onclick="VideoView.backToList()" title="Pick another video">☰</button>
+              <button class="vv-btn sm" onclick="App.setVideoMode('full')" title="Full screen video with the stats strip on top">⤢ FULL</button>
+            </div>
+            <div class="vv-native" id="vvNativeNote" style="display:none">Using YouTube's own controls <button class="vv-btn sm" onclick="VideoView.backToList()">☰</button></div>
+            <div class="vv-title-row"><span class="vv-title" id="vvTitle"></span><span class="vv-ready" id="vvReady"></span></div>
+          </div>
+        </div>
+        <div class="vv-right" id="vvTiles">
+          <div class="vv-tile"><div class="vv-tl">TIME</div><div class="vv-tv" id="vvTime">00:00</div></div>
+          <div class="vv-tile"><div class="vv-tl">DISTANCE</div><div class="vv-tv" style="color:var(--green)"><span id="vvDist">0.00</span><small id="vvDistU">km</small></div></div>
+          <div class="vv-tile"><div class="vv-tl">HEART RATE</div><div class="vv-tv" style="color:var(--red)"><span id="vvHR">—</span><small>bpm</small></div><div class="vv-ts" id="vvZone">no HR</div></div>
+          <div class="vv-tile"><div class="vv-tl">PACE /KM</div><div class="vv-tv" style="color:var(--purple)" id="vvPace">—</div></div>
+          <div class="vv-tile"><div class="vv-tl">SPEED</div><div class="vv-tv" style="color:var(--cyan)"><span id="vvSpeed">0.0</span><small id="vvSpeedU">km/h</small></div></div>
+          <div class="vv-tile"><div class="vv-tl">INCLINE / GRADE</div><div class="vv-tv" style="color:var(--orange)"><span id="vvInc">+0.0</span><small>%</small></div></div>
+          <div class="vv-tile"><div class="vv-tl">CURRENT KM</div><div class="vv-tv" id="vvSplit">0:00</div><div class="vv-ts" id="vvSplitU">km 1</div></div>
+          <div class="vv-tile" data-needs-route><div class="vv-tl">ELEVATION</div><div class="vv-tv" style="color:var(--green)"><span id="vvElev">+0</span><small id="vvElevU">m gain</small></div></div>
+          <div class="vv-tile vv-cal"><div class="vv-tl">CALORIES</div><div class="vv-tv" style="color:var(--yellow)"><span id="vvCal">0</span><small>kcal</small></div></div>
+        </div>
+      </div>
+
       <!-- View-mode buttons (top-right). data-needs-route = removed while no route is loaded -->
       <div class="map-tl">
         <button class="map-mode-btn act" data-style="terrain" data-needs-route onclick="App.setMapStyle('terrain')" title="Terrain map">🏔</button>
@@ -218,7 +285,7 @@ if ('serviceWorker' in navigator) {
         <button class="map-mode-btn" data-style="track" data-needs-route onclick="App.setMapStyle('track')" title="Trail view (3D road)">🎮</button>
         <button class="map-mode-btn" data-style="oval" onclick="App.setMapStyle('oval')" title="Oval track">🟡</button>
         <button class="map-mode-btn" data-style="numbers" onclick="App.setMapStyle('numbers')" title="Big numbers">🔢</button>
-        <button class="map-mode-btn" data-style="trailcam" onclick="App.setMapStyle('trailcam')" title="Trail cam">🎥</button>
+        <button class="map-mode-btn" data-style="video" onclick="App.setMapStyle('video')" title="Video (YouTube + stats)">📺</button>
         <button class="map-mode-btn" data-style="media" onclick="App.setMapStyle('media')" title="Radio">📻</button>
       </div>
 
@@ -245,6 +312,7 @@ if ('serviceWorker' in navigator) {
           <div id="whStageName"></div>
           <div id="whStageTimer"></div>
         </div>
+        <div id="whNext"></div>
         <div class="wh-bar"><div id="whProgFill"></div></div>
       </div>
     </div>
@@ -290,7 +358,7 @@ if ('serviceWorker' in navigator) {
       <button class="fc-btn fc-start" id="fcStart" onclick="App.startRun()">▶ START</button>
       <button class="fc-btn fc-pause" id="fcPause" onclick="App.togglePause()" style="display:none">⏸ PAUSE</button>
       <button class="fc-btn fc-resume" id="fcResume" onclick="App.togglePause()" style="display:none">▶ RESUME</button>
-      <button class="fc-btn fc-stop" id="fcStop" onclick="App.finishRun()" style="display:none">⏹ STOP</button>
+      <button class="fc-btn fc-stop" id="fcStop" onclick="App.stopNow()" style="display:none">⏹ STOP</button>
       <button class="fc-btn fc-cooldown" id="fcCooldown" onclick="App.startCooldown()" style="display:none">🧊 COOL DOWN</button>
     </div>
   </div>
@@ -302,6 +370,7 @@ if ('serviceWorker' in navigator) {
       <div class="edge-label">SPEED</div>
       <div class="edge-num" id="bigSpeedVal">0.0</div>
       <div class="edge-unit" id="bigSpeedUnit">km/h</div>
+      <div class="edge-belt" id="spBelt"></div>
       <div class="edge-target" id="spTarget"></div>
     </div>
     <button class="edge-btn down spd" onclick="App.adjustSpeed(-0.5)">−</button>
@@ -324,7 +393,7 @@ if ('serviceWorker' in navigator) {
       <div class="fm-item" data-needs-route onclick="App.toggleSplits();App.closeFocusMenu()"><span class="fm-item-icon">📊</span> Route splits</div>
       <div class="fm-item" onclick="App.openHistory();App.closeFocusMenu()"><span class="fm-item-icon">👻</span> Ghost race</div>
       <div class="fm-item" onclick="App.toggleMoreStats();App.closeFocusMenu()"><span class="fm-item-icon">📈</span> More stats</div>
-      <div class="fm-item" onclick="VideoWin.open();App.closeFocusMenu()"><span class="fm-item-icon">📺</span> Video window</div>
+      <div class="fm-item" onclick="VideoWin.open();App.closeFocusMenu()"><span class="fm-item-icon">🗔</span> Float video window</div>
     </div>
 
     <div class="fm-section">CONTROL MODE</div>
@@ -349,7 +418,7 @@ if ('serviceWorker' in navigator) {
       <div class="fm-item" data-needs-route onclick="App.setMapStyle('track');App.closeFocusMenu()"><span class="fm-item-icon">🎮</span> Trail view</div>
       <div class="fm-item" onclick="App.setMapStyle('oval');App.closeFocusMenu()"><span class="fm-item-icon">🟡</span> Oval track</div>
       <div class="fm-item" onclick="App.setMapStyle('numbers');App.closeFocusMenu()"><span class="fm-item-icon">🔢</span> Big numbers</div>
-      <div class="fm-item" onclick="App.setMapStyle('trailcam');App.closeFocusMenu()"><span class="fm-item-icon">🎥</span> Trail cam</div>
+      <div class="fm-item" onclick="App.setMapStyle('video');App.closeFocusMenu()"><span class="fm-item-icon">📺</span> Video (YouTube)</div>
       <div class="fm-item" onclick="App.setMapStyle('media');App.closeFocusMenu()"><span class="fm-item-icon">📻</span> Radio</div>
       <div class="fm-item" data-needs-route onclick="App.setMapStyle('street');App.closeFocusMenu()"><span class="fm-item-icon">📍</span> Street view</div>
     </div>
@@ -375,7 +444,7 @@ if ('serviceWorker' in navigator) {
   <div class="pause-joke" id="pauseJoke"></div>
   <div class="pause-btns">
     <button class="fc-btn fc-resume xl" onclick="App.togglePause()">▶ RESUME</button>
-    <button class="fc-btn fc-stop xl" onclick="App.finishRun()">⏹ FINISH RUN</button>
+    <button class="fc-btn fc-stop xl" onclick="App.stopNow()">⏹ STOP</button>
   </div>
 </div>
 
@@ -420,6 +489,7 @@ if ('serviceWorker' in navigator) {
       <button class="btn-outline" onclick="App.shareRunSummary(this)">SHARE</button>
       <button class="btn-outline" onclick="App.exportGPX()">GPX</button>
       <button class="btn-outline" onclick="App.exportTCX()">TCX</button>
+      <button class="btn-outline ra-entry" onclick="App.runAgainFromSummary()">↻ RUN AGAIN</button>
       <button class="btn-ghost" onclick="App.discardRun()">DISCARD</button>
   </div>
 </div>
@@ -454,6 +524,21 @@ if ('serviceWorker' in navigator) {
 </div>
 <input type="file" id="gpxFileInput" accept=".gpx,.GPX">
 
+<!-- ══ LIVE RIBBON / FULL-MODE STRIP: SPEED · DIST · TIME always visible above every overlay, with STOP ═══ -->
+<div class="live-ribbon" id="liveRibbon">
+  <div class="rb-pad"></div>
+  <div class="rb-item rb-speed"><span class="rb-l">SPEED</span><b data-rb="speed">0.0 km/h</b></div>
+  <div class="rb-item rb-inc strip-only"><span class="rb-l">INCLINE</span><b data-rb="inc">+0.0%</b></div>
+  <div class="rb-item rb-dist"><span class="rb-l">DIST</span><b data-rb="dist">0.00 km</b></div>
+  <div class="rb-item rb-time"><span class="rb-l">TIME</span><b data-rb="time">00:00</b></div>
+  <div class="rb-item rb-next strip-only"><b data-rb="next">NEXT --</b></div>
+  <div class="rb-item rb-hr strip-only"><b data-rb="hr">♥ --</b></div>
+  <div class="rb-grow"></div>
+  <span class="rb-state offline strip-only" data-rb="state" data-strip-only="1">STOPPED</span>
+  <button class="rb-btn strip-only" onclick="App.restoreVideo()" title="Back to the half-screen split">⤢ RESTORE</button>
+  <button class="rb-stop" onclick="App.stopNow()">STOP</button>
+</div>
+
 </div><!-- #rootApp -->
 
 <!-- Scripts — order matters, no modules, no build step -->
@@ -484,6 +569,8 @@ if ('serviceWorker' in navigator) {
 <script src="js/workout-builder.js"></script>
 <script src="js/settings-panel.js"></script>
 <script src="js/video.js"></script>
+<script src="js/run-again.js"></script>
+<script src="js/video-view.js"></script>
 <script src="js/past-run-splits.js"></script>
 <script src="js/split-compare.js"></script>
 <script src="js/app.js"></script>

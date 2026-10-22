@@ -106,6 +106,7 @@ var TM = {
         if (self.onStatus) self.onStatus('connected', 'Bridge HTTP');
         self._startPolling();
         self._startWatchdog();
+        self._learnLimits();
       })
       .catch(function(err) {
         self._httpRetries = (self._httpRetries || 0) + 1;
@@ -345,7 +346,7 @@ var TM = {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({kph: parseFloat(obj.values.KPH)})
-        }).catch(function(){});
+        }).then(function(r) { return r.json(); }).then(function(d) { self._afterCommand('speed', d); }).catch(function(){});
       }
       if (obj.values.MPH !== undefined) {
         fetch(base + '/speed', {
@@ -360,7 +361,7 @@ var TM = {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({percent: parseFloat(obj.values.Incline)})
-        }).catch(function(){});
+        }).then(function(r) { return r.json(); }).then(function(d) { self._afterCommand('incline', d); }).catch(function(){});
       }
       // Fan — no dedicated endpoint, use /command
       if (obj.values['Fan Speed'] !== undefined) {
@@ -402,6 +403,19 @@ var TM = {
       // State is fetched by polling — no action needed
     }
   },
+
+  /** A rejected /speed or /incline reply ({ok:false}: safety key, ramp cap, not running…): clear the dedup so the
+   *  next engine tick re-sends, and tell the app so it can show the reason + the REAL belt values. (audit P1-e) */
+  onCommandRejected: null,   // (what, reason) =>
+  _afterCommand: function(what, d) {
+    if (!d || d.ok !== false) return;
+    if (what === 'speed') { this._lastSpeed = -1; this._sentSpeed = -1; this._cancelRamp(); }
+    else { this._lastIncline = -9999; }
+    if (this.onCommandRejected) this.onCommandRejected(what, d.error || 'rejected');
+  },
+
+  /** Fan: the real bridge ignores "Fan Speed" (/command only handles KPH/MPH/Incline/Grade) — off unless a bridge says otherwise. */
+  fanSupported: false,
 
   // ── Message handler ───────────────────────────────────────────────────
 
@@ -451,7 +465,7 @@ var TM = {
     // Heart Rate
     if (v['Heart Rate'] !== undefined) {
       var hr = parseInt(v['Heart Rate']);
-      if (hr > 0) data.hr = hr;
+      data.hr = isNaN(hr) ? 0 : hr;          // 0 = no sensor: the engine must see it (P0-1)
     }
 
     // Calories
@@ -489,38 +503,74 @@ var TM = {
   /** Set belt speed (km/h).
    *  Bridge handles rate limiting (4 kph/s, 100ms min interval).
    *  PWA only dedup-filters to avoid redundant network traffic. */
-  setSpeed: function(kmh, force) {
+  setSpeed: function(kmh, force, source) {
     if (this._estopActive) return; // SAFETY: e-stop blocks all speed commands
     if (!this.connected) return;
     var kph = +(+kmh).toFixed(1);
     if (isNaN(kph)) return;
-    // SAFETY: hard clamp to machine maximum (X32i: 0–19.31 kph)
-    kph = Math.max(0, Math.min(19.3, kph));
-    // DEDUP: skip if value unchanged (reduces network chatter), unless a stepped ramp is still running
-    if (kph === this._lastSpeed && !force && !this._rampTimer) return;
-    this._lastSpeed = kph;
-    this._lastSpeedT = Date.now();
-    this._cancelRamp();
-    // SAFETY: a stop (0) always goes out at once. Small moves go out at once. Big moves are STEPPED because
-    // the bridge caps any single command to 4 kph from the current speed (it never finishes a ramp itself).
-    if (kph === 0 || Math.abs(kph - this._rampBase()) <= this._stepKph) {
-      this._sendSpeedNow(kph);
+    source = source || 'app';
+    // SAFETY: clamp to the machine maximum (bridge /api/console max_kph, else X32i 19.3) AND the user's
+    // configured 'Maximum speed' (Settings). A clipped request is reported so the UI can say so.
+    var requested = kph;
+    var cap = this.maxKph();
+    kph = Math.max(0, Math.min(cap, kph));
+    if (kph < requested - 1e-9) { this._lastClip = { requested: requested, sent: kph, at: Date.now(), cap: cap }; if (this.onClipped) this.onClipped(requested, kph, cap); }
+    // STOP (0) always goes out AT ONCE and cancels any ramp
+    if (kph === 0) {
+      this._cancelRamp();
+      this._lastSpeed = 0; this._lastSpeedT = Date.now(); this._target = 0;
+      this._sendSpeedNow(0, source === 'app' ? 'stop' : source, requested);
       return;
     }
-    this._rampStep(kph);
+    // DEDUP: skip if the target is unchanged and either already sent or a ramp towards it is still running
+    if (kph === this._lastSpeed && !force && (this._rampTimer || this._sentSpeed === kph)) return;
+    this._lastSpeed = kph;
+    this._lastSpeedT = Date.now();
+    this._target = kph; this._targetSrc = source; this._targetReq = requested;
+    this._cancelRamp();
+    this._rampTick();
   },
 
-  // ── Stepped speed ramp (see setSpeed) ──
-  _stepKph: 3.0,      // per step; bridge limit is 4 kph per second, so this leaves margin
-  _stepMs: 1000,      // time between steps
+  // ── Speed rate limiter ───────────────────────────────────────────────────
+  // Real-device evidence (22 Oct): one big command let the belt go 1.6 -> 16 kph in ~5 s. So EVERY speed
+  // request from ANY path (buttons, presets, workouts, HR autopilot, engine ramps) passes through here:
+  // in any sliding window of _stepMs (1 s) the commanded speed may change by at most stepKph()
+  // (Settings 'Speed change rate': 0.5 / 1 (default) / 2 / 3 kph per second). A move within that budget goes
+  // out at once; a bigger one is stepped. 0 (stop) is never limited. Downward moves are stepped too.
+  _stepMs: 1000,
   _rampTimer: null,
+  _target: 0, _targetSrc: 'app', _targetReq: 0,
   _sentSpeed: -1,     // last speed this app sent (-1 = unknown)
   _lastSendT: 0,
   _beltKph: -1,       // last real belt speed reported by the bridge (-1 = unknown)
+  _hist: [],          // recent sends [{t, k}] for the sliding window
+  machineMaxKph: 19.3,
+  machineMaxIncline: 15,   // X32i: -6 .. +40 % on paper; the bridge reports the real limits in /api/console
+  machineMinIncline: -3,
+  cmdLog: [],         // ring buffer of the last 200 outgoing commands (Settings > About > Command log)
 
-  _sendSpeedNow: function(kph) {
+  /** kph per step (= per _stepMs) from Settings; default 1.0 */
+  stepKph: function() {
+    var v = 1.0;
+    try { if (typeof Store !== 'undefined') { var s = Store.getSettings(); if (s && s.speedRateKph > 0) v = +s.speedRateKph; } } catch (e) {}
+    if (this._stepOverride > 0) v = this._stepOverride;
+    return Math.max(0.1, Math.min(4, v));
+  },
+  /** effective maximum: min(machine max, user's 'Maximum speed') */
+  maxKph: function() {
+    var m = this.machineMaxKph > 0 ? this.machineMaxKph : 19.3;
+    try { if (typeof Store !== 'undefined') { var s = Store.getSettings(); if (s && s.maxSpeedKph > 0) m = Math.min(m, +s.maxSpeedKph); } } catch (e) {}
+    return Math.max(1, m);
+  },
+
+  _sendSpeedNow: function(kph, source, requested) {
+    var now = Date.now();
+    var base = this._rampBase();
     this._sentSpeed = kph;
-    this._lastSendT = Date.now();
+    this._lastSendT = now;
+    this._hist.push({ t: now, k: kph, base: base });
+    if (this._hist.length > 60) this._hist.shift();
+    this._log('speed', source || this._targetSrc || 'app', requested != null ? requested : (this._targetReq || kph), kph, base);
     this._send({ values: { KPH: kph }, type: 'set' });
   },
   /** Where a new move starts from: what we just sent if recent (a ramp is in flight), else the measured belt. */
@@ -529,20 +579,55 @@ var TM = {
     if (this._beltKph >= 0) return this._beltKph;
     return this._sentSpeed >= 0 ? this._sentSpeed : 0;
   },
-  _rampStep: function(target) {
+  /** The speed that was in force one window ago: the reference for the sliding-window budget. */
+  _refKph: function(now) {
+    // forget sends older than three windows, and anything that is not from this app's current state
+    if (this._sentSpeed < 0) this._hist = [];
+    var keep = [], i;
+    for (i = 0; i < this._hist.length; i++) { var h = this._hist[i]; if (h.t <= now && now - h.t <= this._stepMs * 3 && h.t <= this._lastSendT) keep.push(h); }
+    this._hist = keep;
+    // quiet for a whole window: the full budget is available from the last sent speed
+    if (this._sentSpeed >= 0 && this._lastSendT > 0 && now - this._lastSendT >= this._stepMs) return this._sentSpeed;
+    // the latest send that is at least one window old
+    for (i = this._hist.length - 1; i >= 0; i--) if (now - this._hist[i].t >= this._stepMs) return this._hist[i].k;
+    // only recent sends: the budget counts from the speed before the burst started
+    if (this._hist.length) return this._hist[0].base;
+    return this._rampBase();
+  },
+  _rampTick: function() {
+    this._rampTimer = null;
     if (this._estopActive || !this.connected) { this._cancelRamp(); return; }
-    var from = this._rampBase();
-    var d = target - from;
-    var step = Math.min(this._stepKph, Math.abs(d));
-    var next = +(from + (d > 0 ? step : -step)).toFixed(1);
-    this._sendSpeedNow(next);
+    var now = Date.now(), target = this._target, step = this.stepKph();
+    var ref = this._refKph(now);
+    var next = +Math.min(ref + step, Math.max(ref - step, target)).toFixed(1);
+    if (next !== this._sentSpeed) this._sendSpeedNow(next);
     if (next !== target) {
+      // try again when the oldest send inside the window ages out
+      var oldest = now; for (var i = 0; i < this._hist.length; i++) if (now - this._hist[i].t < this._stepMs) { oldest = this._hist[i].t; break; }
+      var wait = Math.max(20, this._stepMs - (now - oldest) + 5);
       var self = this;
-      this._rampTimer = setTimeout(function() { self._rampTimer = null; self._rampStep(target); }, this._stepMs);
+      this._rampTimer = setTimeout(function() { self._rampTick(); }, wait);
     }
+  },
+  /** The hardware stopped the belt behind our back (safety key, console STOP): forget what we last sent so the
+   *  next move starts from the measured belt speed, not from the stale command. */
+  resetSentState: function() {
+    this._cancelRamp();
+    this._sentSpeed = -1; this._lastSpeed = -1; this._target = 0; this._hist = [];
   },
   _cancelRamp: function() {
     if (this._rampTimer) { clearTimeout(this._rampTimer); this._rampTimer = null; }
+  },
+
+  /** Command log: ISO time, source, requested, sent, base (last 200; also console.log). The real bridge's
+   *  /command only understands KPH/MPH/Incline/Grade (main.go v3.2 processMessage), so nothing is sent to it. */
+  _log: function(what, source, requested, sent, base) {
+    var line = { t: new Date().toISOString(), what: what, src: source, req: +(+requested).toFixed(1), sent: +(+sent).toFixed(1), base: +(+base).toFixed(1) };
+    this.cmdLog.push(line); if (this.cmdLog.length > 200) this.cmdLog.shift();
+    try { console.log('[CMD] ' + line.t + ' ' + what + ' src=' + source + ' req=' + line.req + ' sent=' + line.sent + ' base=' + line.base); } catch (e) {}
+  },
+  cmdLogText: function() {
+    return this.cmdLog.map(function(l) { return l.t.slice(11, 19) + ' ' + l.what.toUpperCase() + ' ' + l.src + ' req ' + l.req + ' → sent ' + l.sent + ' (base ' + l.base + ')'; }).reverse().join('\n');
   },
 
   /** Set ramp incline (%).
@@ -557,12 +642,13 @@ var TM = {
     if (rounded === this._lastIncline && !force) return;
     this._lastIncline = rounded;
     this._lastInclineT = Date.now();
+    this._log('incline', 'app', pct, rounded, this._lastIncline);
     this._send({ values: { Incline: rounded }, type: 'set' });
   },
 
   /** Set fan speed (0–100%). Quantised to 10% steps. */
   setFan: function(pct) {
-    if (!this.connected) return;
+    if (!this.connected || !this.fanSupported) return;
     var r = Math.round(Math.max(0, Math.min(100, pct)) / 10) * 10;
     if (r === this._lastFan) return;
     this._lastFan = r;
@@ -580,10 +666,12 @@ var TM = {
     this._sentSpeed = 0;
     this._lastSendT = Date.now();
     this._expectRunning = false;
-    // PRIORITY 1: Stop the belt immediately
+    // PRIORITY 1: Stop the belt immediately (never limited)
+    this._cancelRamp();
     this._lastSpeed = 0;
     this._lastSpeedT = 0;
-    this._send({ values: { KPH: 0 }, type: 'set' });
+    this._target = 0;
+    this._sendSpeedNow(0, 'estop', 0);
     // Send speed=0 again for redundancy
     this._send({ values: { KPH: 0 }, type: 'set' });
     console.warn('[TM] EMERGENCY STOP — belt speed zeroed');
@@ -642,6 +730,7 @@ var TM = {
 
   _showSafetyKeyWarning: function() {
     this._safetyKeyWarning = true;
+    if (typeof App !== 'undefined' && App.pauseForSafetyKey) { try { App.pauseForSafetyKey(); } catch (e) {} }
     var el = document.getElementById('safetyKeyBanner');
     if (el && el.classList.contains('safety-banner')) {
       // ui-v4: designed in-DOM banner
@@ -680,6 +769,19 @@ var TM = {
     console.log('[TM] Safety key restored');
   },
 
+  /** Machine limits from the bridge (/api/console max_kph); fallback 19.3 */
+  _learnLimits: function() {
+    var self = this;
+    this.getConsoleInfo(function(info) {
+      var m = info && (info.max_kph || info.max_speed_kph || info.maxKph);
+      if (m > 5 && m < 40) { self.machineMaxKph = +m; console.log('[TM] machine max ' + m + ' kph'); }
+      var mi = info && (info.max_incline_pct != null ? info.max_incline_pct : info.maxIncline);
+      if (mi > 0 && mi <= 40) self.machineMaxIncline = +mi;
+      var mn = info && (info.min_incline_pct != null ? info.min_incline_pct : info.minIncline);
+      if (typeof mn === 'number' && mn <= 0 && mn >= -10) self.machineMinIncline = +mn;
+    });
+  },
+
   /** Fetch console hardware info from bridge */
   getConsoleInfo: function(callback) {
     fetch(this._bridgeBase + '/api/console')
@@ -714,7 +816,7 @@ var BLEHR = {
           'transition:opacity 0.5s;pointer-events:none;';
         document.body.appendChild(el);
       }
-      el.textContent = 'Bluetooth not available — pair HR strap in Android Settings';
+      el.textContent = 'Pair your heart-rate strap in iFIT (Workout settings > Devices); TrailRunner reads it from the treadmill.';
       el.style.opacity = '1';
       setTimeout(function() { el.style.opacity = '0'; }, 5000);
       return Promise.resolve(false);

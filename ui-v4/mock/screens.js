@@ -24,7 +24,7 @@ function post(p, body) {
   var page = await browser.newPage({ viewport: { width: 1920, height: VPH } });
   var errors = [];
   page.on('pageerror', function (e) { errors.push('pageerror: ' + e.message); });
-  page.on('console', function (m) { if (m.type() === 'error') errors.push('console: ' + m.text()); });
+  page.on('console', function (m) { if (m.type() === 'error' && m.text().indexOf('ERR_CONNECTION_REFUSED') < 0 /* the bridge-down START step probes a dead port on purpose */) errors.push('console: ' + m.text() + (m.location && m.location().url ? ' @ ' + m.location().url : '')); });
   async function shot(name) { await sleep(300); await page.screenshot({ path: path.join(OUT, name + '.png') }); console.log('shot', name); }
 
   await page.goto(BASE, { waitUntil: 'load' });
@@ -210,9 +210,9 @@ function post(p, body) {
   await page.evaluate(function () { App.setMapStyle('oval'); });
   await sleep(1200);
   await shot('31-route-oval-dot');
-  await page.evaluate(function () { App.setMapStyle('trailcam'); });
+  await page.evaluate(function () { App.setMapStyle('video'); });
   await sleep(1200);
-  await shot('32-route-trailcam-dot');
+  await shot('32-route-video-view');
   await page.evaluate(function () { App.finishRun(); });
   await sleep(800);
   await page.evaluate(function () { App.discardRun(); });

@@ -101,3 +101,4 @@
 #routeStravaBtn, #homeStravaBtn { color: #fc5200; border-color: #fc5200; }
 #homeStravaBtn { background: var(--surf, #12151e); }
 #rootApp.racing #ghostPanel { display: none !important; }
+.sv-again { display: block; width: 100%; margin: 16px 0 0; border-color: var(--cyan, #37d0ff); color: var(--cyan, #37d0ff); }

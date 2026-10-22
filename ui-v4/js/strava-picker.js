@@ -111,8 +111,12 @@
       var box = el('div', 'sv-connect');
       box.appendChild(el('div', 'sv-msg', 'Connect Strava to choose from your recent runs and routes, race your past self, and save runs back.'));
       var app = A.app();
+      var hasProxy = false; try { hasProxy = !!(A.prefs && A.prefs().tokenProxyUrl); } catch (e) {}
+      var isMock = false; try { isMock = !!(A.isMock && A.isMock()); } catch (e) {}
       if (!app || !app.clientId) {
         box.appendChild(el('div', 'sv-msg sv-small', 'First enter your Strava Client ID in Settings > Integrations.'));
+      } else if (!app.clientSecret && !hasProxy && !isMock) {
+        box.appendChild(el('div', 'sv-msg sv-small', 'Enter your Strava Client Secret in Settings > Integrations, then come back here to connect.'));
       } else {
         // Official asset (download from developers.strava.com/guidelines into ui-v4/img/): falls back to a text button.
         var b = btn('sv-btn sv-btn-strava', 'CONNECT WITH STRAVA', function () { A.connect(); });
@@ -193,6 +197,13 @@
       }
       if (this._kind === 'activity') {
         var a = el('a', 'sv-link', 'View on Strava'); a.href = api().activityUrl(it.id); a.target = '_blank'; d.appendChild(a);
+      }
+      if (this._kind === 'activity' && prep.streams && prep.streams.velocity_smooth && root.RunAgain) {
+        d.appendChild(btn('sv-btn sv-again', '↻ RUN AGAIN / HARDER (as a workout)', function () {
+          var src = root.RunAgain.fromStrava(prep.streams, { id: it.id, name: it.name, routeId: null });
+          self.close();
+          root.RunAgain.open(src, {});
+        }));
       }
       d.appendChild(btn('sv-btn sv-btn-main sv-use', 'USE THIS ROUTE', function () { self.use(); }));
       try { SR().drawProfile(cv, prep.route.resampled, {}); } catch (e) {}

@@ -13,6 +13,7 @@ const App = {
     if (typeof IDBStore !== 'undefined') IDBStore.init();
 
     UI.init();
+    this._checkRunAgainPending();
 
     // ── Wire treadmill callbacks ─────────────────────────────────────────
     TM.onConnect = () => {
@@ -78,8 +79,10 @@ const App = {
       // ui-v4: show "→ target" under the live number while the belt/ramp is still moving
       this._updateTargetHints();
       this._updateStateBanner();
+      this._updateRibbon();
       this._updateElevStrip();
       this._updateBigNumbers();
+      if (typeof VideoView !== 'undefined' && VideoView.active) VideoView.update();
       if (Engine.hasRoute()) {
         // Throttle map pan to every 500ms (halves Leaflet repaints vs every tick)
         if (now - this._lastMapPanTime >= 500) {
@@ -471,13 +474,33 @@ const App = {
       }
       this._updateStateBanner();
     };
-    this._bannerTimer = setInterval(() => this._updateStateBanner(), 1000);
+    TM.onClipped = (req, sent, cap) => { this._clipNote = { req: req, sent: sent, cap: cap, at: Date.now() }; this._toast('Speed clipped to your maximum: ' + sent.toFixed(1) + ' km/h (asked ' + req.toFixed(1) + ')', 'var(--orange)'); };
+    TM.onCommandRejected = (what, reason) => {
+      var real = Engine.run ? (what === 'speed' ? (Engine.run.speed || 0).toFixed(1) + ' km/h' : (Engine.run.incline || 0).toFixed(1) + '%') : '';
+      this._toast('Treadmill refused the ' + what + ' change: ' + reason + (real ? ' (belt is at ' + real + ')' : ''), 'var(--orange)');
+    };
+    Engine.onHRLost = () => { UI.update(); this._updateRibbon(true); };
+    // audit P1-c: no dead mic button — hide it when SpeechRecognition is missing, say so in Settings
+    if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
+      var mic = document.getElementById('voiceMicBtn');
+      if (mic) {
+        mic.classList.add('unavailable');
+        mic.title = 'Voice commands are not available on this treadmill';
+        mic.setAttribute('onclick', '');
+        mic.onclick = function (e) { e.stopPropagation(); App._voiceToast('Voice commands are not available on this treadmill'); };
+      }
+      this.voiceUnavailable = true;
+    }
+    this._installSplitSim();
+    window.TR_onVideoSplit = (mode) => this._onVideoSplit(mode);
+    this._bannerTimer = setInterval(() => { this._updateStateBanner(); this._updateRibbon(); }, 1000);
     this._updateStateBanner();
     this._updateHomeRoute();
     this._updateElevStrip();
     this.setControlMode(Engine.ctrl.mode);
     this._applyRouteVisibility();
     if (typeof VideoWin !== 'undefined') VideoWin.init();
+    if (typeof VideoView !== 'undefined') VideoView.init();
 
     // ── ui-v4 demo helpers for testing the route / no-route states on the mock:
     //    ?demo=route   → imports mock/sample.gpx if no routes exist, makes it active
@@ -627,8 +650,17 @@ const App = {
     var unit = s.speedButtonUnit || 'kph';
     if (sT) {
       var diff = Math.abs(Engine.ctrl.targetSpeed - Engine.run.speed);
-      sT.textContent = (diff > 0.15 && Engine.run.status === 'running')
+      var txt = (diff > 0.15 && Engine.run.status === 'running')
         ? '→ ' + SpeedUnits.format(SpeedUnits.fromKph(Engine.ctrl.targetSpeed, unit), unit) : '';
+      if (this._clipNote && Date.now() - this._clipNote.at < 15000) txt += (txt ? ' ' : '') + 'MAX ' + this._clipNote.cap.toFixed(1);
+      sT.textContent = txt;
+    }
+    var sB = document.getElementById('spBelt');
+    if (sB) {
+      var belt = TM.connected && TM._beltKph >= 0 ? TM._beltKph : null;
+      var stopping = belt != null && belt > 0.5 && (TM._target === 0 || TM._sentSpeed === 0) && (TM._lastSpeedT || TM._lastSendT) > 0;
+      sB.textContent = belt == null ? '' : (stopping ? 'STOPPING… belt ' + belt.toFixed(1) : 'belt ' + belt.toFixed(1));
+      sB.classList.toggle('stopping', !!stopping);
     }
     if (iT) {
       var idiff = Math.abs(Engine.ctrl.targetIncline - Engine.run.incline);
@@ -652,7 +684,18 @@ const App = {
       subText = engineRunning ? 'app timer running · belt not controlled' : 'tap START to retry';
     } else {
       var ws = TM.workoutState || 'IDLE';
-      var belt = Engine.run && Engine.run.speedSource === 'treadmill' ? Engine.run.speed : null;
+      var belt = TM._beltKph >= 0 ? TM._beltKph : (Engine.run && Engine.run.speedSource === 'treadmill' ? Engine.run.speed : null);
+      var stopCmd = (TM._sentSpeed === 0 || TM._target === 0) && TM._lastSendT > 0;
+      if (stopCmd && belt != null && belt > 0.5 && !enginePaused) {
+        // STOP accepted, belt still slowing (hardware decel ~1.4 kph/s): say so, and hint the safety key when fast
+        cls = 'paused'; text = 'STOPPING'; subText = 'belt ' + belt.toFixed(1) + ' km/h — slowing';
+        if (belt > 6 && !this._keyHintAt) { this._keyHintAt = Date.now(); this._toast('Pull the safety key for a faster stop', 'var(--red)'); }
+        if (belt > 6) subText += ' · pull the safety key for a faster stop';
+        if (b.className !== 'state-banner ' + cls) b.className = 'state-banner ' + cls;
+        t.textContent = text; if (sub) sub.textContent = subText;
+        return;
+      }
+      if (!(stopCmd && belt != null && belt > 0.5)) this._keyHintAt = 0;
       if (ws === 'RUNNING') {
         cls = 'running'; text = 'RUNNING';
         subText = belt != null ? ('belt ' + belt.toFixed(1) + ' km/h') : '';
@@ -680,6 +723,13 @@ const App = {
     // Home menu item only when no run is active
     var fh = document.getElementById('fmHome');
     if (fh) fh.classList.toggle('disabled', !!(engineRunning || enginePaused));
+  },
+
+  /** feedback in the #voiceToast element the voice module (and the audit) use */
+  _voiceToast(msg) {
+    var t = document.getElementById('voiceToast');
+    if (!t) { t = document.createElement('div'); t.id = 'voiceToast'; t.style.cssText = 'position:absolute;top:110px;left:50%;transform:translateX(-50%);background:#3a2a05;color:#ffd54a;border:2px solid #ffd54a;border-radius:16px;padding:14px 28px;font-size:26px;font-weight:800;z-index:9700;pointer-events:none;transition:opacity .4s'; (document.getElementById('rootApp') || document.body).appendChild(t); }
+    t.textContent = msg; t.style.opacity = '1'; clearTimeout(t._t); t._t = setTimeout(function () { t.style.opacity = '0'; }, 3500);
   },
 
   _toast(msg, color) {
@@ -724,6 +774,13 @@ const App = {
     // ui-v4: this is the ONLY place the belt is started, and only from the big
     // green START tap. Everything else (home tiles, route/workout pickers) just arms.
     document.getElementById('setupOverlay').style.display = 'none';
+    if (!TM.connected) {
+      // audit P1-i: never silently start a belt-less "run"; the START button shows NO LINK and we retry the bridge
+      this._toast('No link to treadmill — reconnecting…', 'var(--red)');
+      this._autoConnectBridge(false);
+      this._updateFloatingControls();
+      return;
+    }
     if (!Engine.run || Engine.run.status !== 'ready') Engine.newRun();
     // Clear e-stop flag — user is explicitly starting a new run
     TM.clearEstop();
@@ -926,10 +983,27 @@ const App = {
     this._updateStateBanner();
   },
 
-  finishRun() {
+  /** Safety key out while running: the belt is already stopped by the console → pause the run (no commands),
+   *  show the pause overlay; the user puts the key back and taps RESUME (→ new treadmill workout, target re-sent). */
+  pauseForSafetyKey() {
+    if (!Engine.run || Engine.run.status !== 'running') return;
+    Engine.pauseRun(true);
+    var jokeEl = document.getElementById('pauseJoke'); if (jokeEl) jokeEl.textContent = 'Safety key out';
+    var pm = document.getElementById('pauseMsg'); if (pm) pm.textContent = 'The console stopped the belt. Put the key back, then tap RESUME — the belt ramps back up gently.';
+    var po = document.getElementById('pauseOverlay'); if (po) po.classList.add('show');
+    this._updateRunButton(); this._updateFloatingControls(); this._updateStateBanner();
+  },
+
+  /** STOP button rule: zero the belt at once (never rate-limited), cancel any ramp, then show the summary. */
+  stopNow() {
+    if (!Engine.run || Engine.run.status === 'ready') { TM.setSpeed(0, true); return; }
+    this.finishRun(true);
+  },
+
+  finishRun(immediate) {
     if (!Engine.run || Engine.run.status === 'finished' || Engine.run.status === 'ready') return;
     document.getElementById('pauseOverlay').classList.remove('show');
-    Engine.finishRun();
+    Engine.finishRun(!!immediate);
     UI.showRunComplete();
     this._updateRunButton();
     this._updateFloatingControls();
@@ -1122,10 +1196,10 @@ const App = {
         if (btn) { var orig = btn.textContent; btn.textContent = 'COPIED!'; setTimeout(function() { btn.textContent = orig; }, 1500); }
       }).catch(function() {
         // Fallback for clipboard failures
-        prompt('Copy your run summary:', text);
+        UI.prompt('Copy your run summary:', text);
       });
     } else {
-      prompt('Copy your run summary:', text);
+      UI.prompt('Copy your run summary:', text);
     }
   },
 
@@ -1147,6 +1221,11 @@ const App = {
   },
 
   connectHR() {
+    if (!navigator.bluetooth) {
+      // audit P1-d: this console has no Web Bluetooth; HR comes from the treadmill's own sensor link
+      UI.info('Pair your heart-rate strap in iFIT (Workout settings > Devices); TrailRunner reads it from the treadmill.', 'var(--card2)');
+      return;
+    }
     BLEHR.connect();
   },
 
@@ -1211,7 +1290,7 @@ const App = {
         UI.renderRouteList();
         console.log('[App] Route imported:', route.name, route.totalDistKm.toFixed(1) + 'km');
       } catch (err) {
-        alert('Failed to parse GPX file: ' + err.message);
+        UI.info('Failed to parse GPX file: ' + err.message, 'var(--red)');
         console.error('[App] GPX parse error:', err);
       }
     };
@@ -1277,6 +1356,28 @@ const App = {
   openHistory() { UI.openHistoryPanel(); },
   closeHistory() { UI.closeHistoryPanel(); },
 
+  // ── RUN AGAIN / X% HARDER (js/run-again.js): armed only, START is still the user's tap ──
+  runAgainFromSummary() {
+    if (typeof RunAgain === 'undefined' || !Engine.run) return;
+    var r = Engine.run;
+    var src = RunAgain.fromRun({ id: null, routeName: r.routeName, routeId: r.routeId, elapsed: r.elapsed, distanceM: r.distanceM, trackPoints: r.trackPoints });
+    var self = this;
+    RunAgain.open(src, { onArm: function (w) { if (Engine.run && Engine.run.status === 'finished') self.saveAndNewRun(); self.armWorkout(w); } });
+  },
+  runAgainSaved(runId) {
+    if (typeof RunAgain === 'undefined') return;
+    var run = Store.getRuns().find(function (r) { return r.id === runId; });
+    if (!run) { this._toast('Run not found', 'var(--red)'); return; }
+    UI.closeHistoryPanel();
+    var self = this;
+    RunAgain.open(RunAgain.fromRun(run), { onArm: function (w) { self.armWorkout(w); } });
+  },
+  _checkRunAgainPending() {
+    if (typeof RunAgain === 'undefined') return;
+    var id = RunAgain.takePending();
+    if (id) setTimeout(() => this.runAgainSaved(id), 300);
+  },
+
   loadGhost(runId) {
     const runs = Store.getRuns();
     const run = runs.find(r => r.id === runId);
@@ -1312,9 +1413,9 @@ const App = {
   },
 
   adjustSpeed(delta) {
-    Engine.ctrl.targetSpeed = Math.max(0, Math.min(19.3, +(Engine.ctrl.targetSpeed + delta).toFixed(1)));
+    Engine.ctrl.targetSpeed = Math.max(0, Math.min(TM.maxKph ? TM.maxKph() : 19.3, +(Engine.ctrl.targetSpeed + delta).toFixed(1)));
     if (TM.connected) {
-      TM.setSpeed(Engine.ctrl.targetSpeed);
+      TM.setSpeed(Engine.ctrl.targetSpeed, false, 'button');
     }
     // Speed ramps gradually via Engine.tick() — don't set run.speed directly
     this._updateNudgeDisplays();
@@ -1375,10 +1476,15 @@ const App = {
     if (bigNum) bigNum.classList.toggle('show', style === 'numbers');
     var zone = document.querySelector('.map-zone');
     if (zone) zone.classList.toggle('mapview', /^(terrain|sat|dark)$/.test(style));
+    if (typeof VideoView !== 'undefined' && VideoView.active && style !== 'video') VideoView.hide();
 
     if (style === 'numbers') {
       this._updateBigNumbers();
+    } else if (style === 'video') {
+      // Split VIDEO view (replaces Trail Cam): YouTube left, live tiles right. Pure display — never touches the belt.
+      if (typeof VideoView !== 'undefined') VideoView.show();
     } else if (style === 'trailcam') {
+      // Trail Cam has no entry point any more (replaced by the VIDEO view); kept callable for old links
       if (typeof TrailCam !== 'undefined') TrailCam.show();
     } else if (style === 'track') {
       TrackView.show();
@@ -1562,14 +1668,12 @@ const App = {
       Sync.stravaApp = { clientId: clientId || old.clientId || '', clientSecret: secret || old.clientSecret || '' };
     }
     if (StravaApi.isConnected()) {
-      if (confirm('Disconnect from Strava? Strava routes and cached Strava data on this treadmill will be deleted.')) {
-        this.disconnectStrava();
-      }
+      UI.ask('Disconnect from Strava? Strava routes and cached Strava data on this treadmill will be deleted.', 'DISCONNECT').then(function (y) { if (y) App.disconnectStrava(); });
     } else {
       var app = StravaApi.app();
-      if (!app || !app.clientId) { alert('Enter your Strava Client ID in Settings first'); return; }
+      if (!app || !app.clientId) { UI.info('Enter your Strava Client ID in Settings first', 'var(--orange)'); return; }
       if (!StravaApi.prefs().tokenProxyUrl && !app.clientSecret && !StravaApi.isMock()) {
-        alert('Enter the Strava Client Secret (or a token proxy URL) in Settings first'); return;
+        UI.info('Enter the Strava Client Secret (or a token proxy URL) in Settings first', 'var(--orange)'); return;
       }
       StravaApi.connect();
     }
@@ -1614,7 +1718,7 @@ const App = {
         break;
       case 'speed_set':
         if (args !== null) {
-          Engine.ctrl.targetSpeed = Math.max(0, Math.min(19.3, args));
+          Engine.ctrl.targetSpeed = Math.max(0, Math.min(TM.maxKph ? TM.maxKph() : 19.3, args));
           if (TM.connected) TM.setSpeed(Engine.ctrl.targetSpeed);
           this._updateNudgeDisplays();
           VoiceCoach.announceSpeed(args, 'kph');
@@ -1848,9 +1952,11 @@ const App = {
     if (unit === 'mph') kph = val * 1.60934;
     else if (unit === 'min/mi') kph = val > 0 ? (60 / val) * 1.60934 : 0;
     else if (unit === 'min/km') kph = val > 0 ? 60 / val : 0;
-    kph = Math.max(0, Math.min(19.3, kph));
+    var capQ = TM.maxKph ? TM.maxKph() : 19.3;
+    if (kph > capQ) { this._toast('Preset ' + val + ' clipped to your maximum ' + capQ.toFixed(1) + ' km/h', 'var(--orange)'); kph = capQ; }
+    kph = Math.max(0, Math.min(capQ, kph));
     Engine.ctrl.targetSpeed = kph;
-    if (TM.connected) TM.setSpeed(kph);
+    if (TM.connected) TM.setSpeed(kph, false, 'preset');
     // Speed ramps gradually via Engine.tick() — don't set run.speed directly
     this._updateNudgeDisplays();
     // Highlight active button
@@ -1911,6 +2017,9 @@ const App = {
     const isCooling = Engine.run && Engine.run._cooldown;
 
     start.style.display = status === 'ready' ? '' : 'none';
+    var noLink = !TM.connected;
+    start.classList.toggle('nolink', noLink);
+    start.textContent = noLink ? '⚠ NO LINK TO TREADMILL' : '▶ START';
     pause.style.display = (status === 'running' && !isCooling) ? '' : 'none';
     resume.style.display = status === 'paused' ? '' : 'none';
     if (cooldown) cooldown.style.display = (status === 'running' && !isCooling) ? '' : 'none';
@@ -1944,6 +2053,157 @@ const App = {
     return v;
   },
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // VIDEO SPLIT (native chooser4 contract) — half / full / off — and the live ribbon / strip
+  // ════════════════════════════════════════════════════════════════════════════
+  STRIP_PX: 56,
+  _splitMode: 'off',
+  _splitPrev: 'off',
+
+  /** Native split available? (chooser4 AndroidBridge or the ?splitSim=1 stub) */
+  videoSplitSupported() {
+    try { return !!(window.AndroidBridge && typeof AndroidBridge.videoSplitSupported === 'function' && AndroidBridge.videoSplitSupported()); } catch (e) { return false; }
+  },
+  _normMode(m) { return m === true ? 'half' : (m === false || m == null || m === '') ? 'off' : String(m); },
+
+  /** Ask the wrapper for a mode ('half' | 'full' | 'off'); the fallback embed view handles it in-page. */
+  setVideoMode(mode, url) {
+    mode = this._normMode(mode);
+    if (this.videoSplitSupported()) {
+      try {
+        if (mode === 'full' && typeof AndroidBridge.setStatsStripHeight === 'function') AndroidBridge.setStatsStripHeight(this.STRIP_PX);
+        this._rememberVideoMode(mode);
+        AndroidBridge.videoSplit(mode, url || '');
+      } catch (e) { this._toast('Video split failed: ' + e.message, 'var(--red)'); }
+      return;
+    }
+    // Fallback (PC / phone / old wrapper): in-page youtube-nocookie embed view
+    if (mode === 'off') { if (typeof VideoView !== 'undefined') { VideoView.setFull(false); } if (this._mapStyle === 'video') this.setMapStyle(Engine.hasRoute() ? 'terrain' : 'oval'); this._applyEmbedMode('off'); }
+    else { this.setMapStyle('video'); if (typeof VideoView !== 'undefined') VideoView.setFull(mode === 'full'); this._applyEmbedMode(mode); }
+  },
+  /** Owner simplification (22 Oct): on the treadmill (native split) VIDEO is ONE tap: no paste-link / favourites /
+   *  playlist UI. videoSplit(mode, '') with an EMPTY url → the wrapper reopens the LAST YouTube page (or
+   *  m.youtube.com home) and Soph navigates inside YouTube itself. The mode is remembered (tr_video_mode: 'half'
+   *  first time; FULL / RESTORE switch it). VIDEO again (or CLOSE VIDEO) closes it. The paste-link UI stays only in
+   *  the PC / fallback embed view. */
+  VIDEO_MODE_KEY: 'tr_video_mode',
+  lastVideoMode() { try { return localStorage.getItem(this.VIDEO_MODE_KEY) === 'full' ? 'full' : 'half'; } catch (e) { return 'half'; } },
+  _rememberVideoMode(m) { if (m === 'half' || m === 'full') { try { localStorage.setItem(this.VIDEO_MODE_KEY, m); } catch (e) {} } },
+  openVideo() {
+    if (this.videoSplitSupported()) {
+      if (this._splitMode !== 'off') { this.closeVideo(); return; }   // VIDEO while open = close
+      this.setVideoMode(this.lastVideoMode(), '');
+      return;
+    }
+    this.setVideoMode('half', '');
+  },
+  closeVideo() { this.setVideoMode('off', ''); },
+  restoreVideo() { this.setVideoMode('half', ''); },   // out of 'full' back to the split
+  openNativeVideo(url) { this.setVideoMode(this.lastVideoMode(), url || ''); },
+  _applyEmbedMode(mode) { this._embedMode = mode; var r = document.getElementById('rootApp'); if (r) r.classList.toggle('embed-full', mode === 'full'); this._updateRibbon(true); },
+
+  /** native → JS: the wrapper resized us. Never reloads, never touches the belt. */
+  _onVideoSplit(mode) {
+    mode = this._normMode(mode);
+    if (mode !== this._splitMode) this._splitPrev = this._splitMode;
+    this._splitMode = mode;
+    this._scaleViewport();
+    this._updateRibbon(true);
+    setTimeout(() => this._updateRibbon(true), 400);
+    setTimeout(() => { try { MapView.invalidateSize(); } catch (e) {} try { window.dispatchEvent(new Event('resize')); } catch (e) {} }, 60);
+  },
+
+  /** ?splitSim=1 (or sessionStorage tr_split_sim): a stub AndroidBridge so the PC / tests can drive half / full / off. */
+  _installSplitSim() {
+    var on = false;
+    try {
+      if (/[?&]splitSim=1\b/.test(location.search)) { sessionStorage.setItem('tr_split_sim', '1'); on = true; }
+      else if (/[?&]splitSim=0\b/.test(location.search)) sessionStorage.removeItem('tr_split_sim');
+      else on = sessionStorage.getItem('tr_split_sim') === '1';
+    } catch (e) {}
+    if (!on || window.AndroidBridge) return;
+    var self = this;
+    window.AndroidBridge = {
+      _sim: true, _mode: 'off', _url: '', _strip: 56, calls: [],
+      videoSplitSupported: function () { return true; },
+      isVideoSplit: function () { return this._mode; },
+      setStatsStripHeight: function (px) { this._strip = px; this.calls.push('strip:' + px); },
+      videoNavigate: function (url) { this._url = url; this.calls.push('nav:' + url); },
+      videoSplit: function (mode, url) {
+        mode = self._normMode(mode); this._mode = mode; this._url = url || ''; this.calls.push(mode);
+        setTimeout(function () { if (window.TR_onVideoSplit) window.TR_onVideoSplit(mode); }, 0);
+        return true;
+      },
+    };
+    console.log('[App] splitSim: stub AndroidBridge installed');
+  },
+
+  /** Compact SPEED / DIST / TIME ribbon (+ STOP) that stays above every overlay; in 'full' it IS the thin strip. */
+  _updateRibbon(force) {
+    var rb = document.getElementById('liveRibbon');
+    if (!rb) return;
+    var r = Engine.run;
+    var beltActive = TM.workoutState === 'RUNNING' || TM.workoutState === 'PAUSED';
+    var runActive = !!(r && (r.status === 'running' || r.status === 'paused')) || (!!r && r.status === 'finished' && beltActive);
+    var stripMode = this._splitMode === 'full' || this._embedMode === 'full';
+    var show = false;
+    if (stripMode) show = true;
+    else if (runActive) {
+      // covered or hidden metric strip? (menus / overlays / side panels / home)
+      var t = document.getElementById('timerEl');
+      var covered = true;
+      if (t && t.offsetWidth) {
+        var b = t.getBoundingClientRect();
+        var hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+        // the ribbon itself (or a toast) over the strip does not count as "covered" — it would never hide again
+        covered = !(hit && (hit === t || t.contains(hit) || (hit.closest && (hit.closest('.metric-strip') || hit.closest('#liveRibbon') || hit.id === 'mediaToast'))));
+      }
+      show = covered;
+    }
+    var wasShown = rb.classList.contains('show');
+    rb.classList.toggle('show', show);
+    rb.classList.toggle('strip', stripMode);
+    if (!show && !force) return;
+    if (!r) return;
+    var set = function (sel, v) { var els = document.querySelectorAll(sel); for (var i = 0; i < els.length; i++) if (els[i].textContent !== v) els[i].textContent = v; };
+    var cls = function (sel, c, on) { var els = document.querySelectorAll(sel); for (var i = 0; i < els.length; i++) els[i].classList.toggle(c, !!on); };
+    set('[data-rb=speed]', UI.convSpeed(r.speed || 0) + ' ' + UI.speedLabel());
+    var inc = (r.currentGrade != null && Engine.hasRoute()) ? r.currentGrade : (r.incline || 0);
+    set('[data-rb=inc]', (inc >= 0 ? '+' : '') + inc.toFixed(1) + '%');
+    var rem = Engine.remaining ? Engine.remaining() : { distM: null, timeSec: null };
+    var dist = UI.convDist((r.distanceM || 0) / 1000);
+    set('[data-rb=dist]', rem.distM != null ? dist + ' / ' + UI.convDist(((r.distanceM || 0) + rem.distM) / 1000) + ' ' + UI.distLabel() : dist + ' ' + UI.distLabel());
+    set('[data-rb=time]', Engine.fmtTime(r.elapsed || 0) + (rem.timeSec != null ? ' / ' + Engine.fmtTime((r.elapsed || 0) + rem.timeSec) : ''));
+    var nx = Engine.nextChange ? Engine.nextChange() : null, nxt = 'NEXT --', up = null;
+    if (nx) {
+      var when = nx.inSec != null ? Engine.fmtTime(Math.max(0, nx.inSec)) : (nx.inM != null ? Math.round(nx.inM) + ' m' : '--');
+      var what = '';
+      if (nx.kind === 'end') what = 'finish';
+      else {
+        if (nx.speed != null) { var ds = nx.speed - (r.speed || 0); what += (ds > 0.2 ? '▲' : ds < -0.2 ? '▼' : '') + nx.speed.toFixed(1) + ' km/h '; up = ds > 0.2 ? true : ds < -0.2 ? false : up; }
+        if (nx.incline != null) { var di = nx.incline - inc; what += (di > 0.2 ? '▲' : di < -0.2 ? '▼' : '') + nx.incline + '%'; if (up == null) up = di > 0.2 ? true : di < -0.2 ? false : null; }
+      }
+      nxt = 'NEXT ' + when + '  ' + what.trim();
+    }
+    set('[data-rb=next]', nxt);
+    cls('[data-rb=next]', 'up', up === true); cls('[data-rb=next]', 'down', up === false);
+    var z = Engine.getCurrentZone();
+    var hrEls = document.querySelectorAll('[data-rb=hr]');
+    for (var h = 0; h < hrEls.length; h++) { hrEls[h].textContent = r.hr > 0 ? '♥ ' + r.hr + (z > 0 ? ' Z' + z : '') : (r._hrLostAt ? '♥ LOST' : '♥ --'); hrEls[h].style.color = r.hr > 0 && z > 0 ? Engine.HR_ZONES[z - 1].color : 'var(--dim)'; }
+    // state pill
+    var sb = document.getElementById('stateBanner'), st = document.getElementById('stateBannerText');
+    var stCls = sb ? (sb.className.replace('state-banner', '').trim() || 'offline') : 'offline';
+    var stTxt = st ? st.textContent : '';
+    if (!TM.connected && !TM._safetyKeyWarning) stTxt = 'NO LINK';
+    set('[data-rb=state]', stTxt);
+    var pills = document.querySelectorAll('[data-rb=state]');
+    for (var p = 0; p < pills.length; p++) pills[p].className = 'rb-state ' + stCls + (pills[p].getAttribute('data-strip-only') ? ' strip-only' : '');
+    var alarm = TM._safetyKeyWarning || (!TM.connected && runActive);
+    rb.classList.toggle('alarm', !!alarm);
+    var vs = document.getElementById('vvStrip'); if (vs) vs.classList.toggle('alarm', !!alarm);
+    if (show && !wasShown) rb.scrollTop = 0;
+  },
+
   _scaleViewport() {
     const root = document.getElementById('rootApp');
     if (!root) return;
@@ -1955,11 +2215,25 @@ const App = {
     // On the real X32i the ROM's 80px nav bar (Quick start / Workout settings / expand) is DRAWN OVER
     // the bottom of our window instead of shrinking it (innerHeight stays 1080), so a bottom safe strip
     // is reserved: usable height = innerHeight - safeBottom. See App.safeBottom() for the detection.
-    const DESIGN_W = 1920, DESIGN_MIN_H = 1000, DESIGN_MAX_H = 1080;
-    const safe = this.safeBottom();
-    const usableH = Math.max(300, window.innerHeight - safe);
-    const scale = Math.min(window.innerWidth / DESIGN_W, usableH / DESIGN_MIN_H);
-    const rootH = Math.round(Math.max(DESIGN_MIN_H, Math.min(DESIGN_MAX_H, usableH / scale)));
+    // Video split (chooser4): 'half' → our WebView is the RIGHT 50% (design width 960); 'full' → a thin strip
+    // across the top (design 1920 x STRIP_PX, no bottom ROM strip inside it). Explicit mode from TR_onVideoSplit
+    // wins; otherwise the window geometry decides (innerHeight <= 160 → full, innerWidth <= 1000 → half).
+    var mode = this._splitMode && this._splitMode !== 'off' ? this._splitMode
+      : (window.innerHeight <= 160 ? 'full' : (window.innerWidth <= 1000 && window.innerWidth < window.innerHeight * 1.2) ? 'half' : 'off');
+    root.classList.toggle('half', mode === 'half');
+    root.classList.toggle('strip', mode === 'full');
+    const DESIGN_W = mode === 'half' ? 960 : 1920, DESIGN_MIN_H = 1000, DESIGN_MAX_H = 1080;
+    if (root.style.width !== DESIGN_W + 'px') root.style.width = DESIGN_W + 'px';
+    const safe = mode === 'full' ? 0 : this.safeBottom();
+    const usableH = Math.max(mode === 'full' ? 40 : 300, window.innerHeight - safe);
+    let scale, rootH;
+    if (mode === 'full') {
+      scale = window.innerWidth / DESIGN_W;
+      rootH = Math.round(Math.max(40, Math.min(120, usableH / scale)));
+    } else {
+      scale = Math.min(window.innerWidth / DESIGN_W, usableH / DESIGN_MIN_H);
+      rootH = Math.round(Math.max(DESIGN_MIN_H, Math.min(DESIGN_MAX_H, usableH / scale)));
+    }
     document.documentElement.style.setProperty('--rom-bottom', safe + 'px');
     document.body.style.background = 'var(--bg)'; // the strip under the root shows the same dark background
     if (root.style.height !== rootH + 'px') {
@@ -2023,6 +2297,14 @@ const App = {
   },
 
   _downloadFile(content, filename, mimeType) {
+    // Android wrapper (chooser3+): AndroidBridge.saveFile(filename, mime, base64) → Download/TrailRunner (audit P1-b)
+    if (window.AndroidBridge && typeof AndroidBridge.saveFile === 'function') {
+      try {
+        var b64 = btoa(unescape(encodeURIComponent(String(content))));
+        var r = AndroidBridge.saveFile(filename, mimeType, b64);
+        if (typeof r === 'string' && r.indexOf('ERROR:') !== 0) { this._toast('Saved: ' + r, 'var(--green)'); return; }
+      } catch (e) { /* fall through to the browser path */ }
+    }
     const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

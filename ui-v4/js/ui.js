@@ -9,6 +9,48 @@ function _esc(s) {
 
 const UI = {
 
+  // ── In-page dialogs (audit P1-a): native confirm()/alert()/prompt() are dead in the plain WebView wrapper ──
+  _dlgHost() { return document.getElementById('rootApp') || document.body; },
+  _dlg(html) {
+    const d = document.createElement('div');
+    d.className = 'ui-dlg-backdrop';
+    d.innerHTML = '<div class="ui-dlg">' + html + '</div>';
+    this._dlgHost().appendChild(d);
+    return d;
+  },
+  /** Test hook: a page that REPLACED a native dialog (window.confirm/prompt = function …) wants it honoured. The real
+   *  wrapper leaves the natives in place (where they are dead no-ops), so the in-page dialog is used there. */
+  _stubbed(name) {
+    try { const f = window[name]; return typeof f === 'function' && !/\[native code\]/.test(Function.prototype.toString.call(f)) ? f : null; } catch (e) { return null; }
+  },
+  /** Confirm → Promise<boolean>. Always in-page, works everywhere. */
+  ask(msg, okLabel, danger) {
+    const self = this;
+    const stub = this._stubbed('confirm'); if (stub) return Promise.resolve(!!stub(msg));
+    return new Promise(function (res) {
+      const d = self._dlg('<div class="ui-dlg-msg">' + _esc(msg) + '</div><div class="ui-dlg-btns">' +
+        '<button class="btn-ghost ui-dlg-no">CANCEL</button><button class="fc-btn ' + (danger === false ? 'fc-start' : 'fc-stop') + ' ui-dlg-ok">' + _esc(okLabel || 'OK') + '</button></div>');
+      d.querySelector('.ui-dlg-no').onclick = function () { d.remove(); res(false); };
+      d.querySelector('.ui-dlg-ok').onclick = function () { d.remove(); res(true); };
+    });
+  },
+  /** Prompt → Promise<string|null>. */
+  prompt(msg, def) {
+    const self = this;
+    const stub = this._stubbed('prompt'); if (stub) return Promise.resolve(stub(msg, def));
+    return new Promise(function (res) {
+      const d = self._dlg('<div class="ui-dlg-msg">' + _esc(msg) + '</div><input class="ui-dlg-input" type="text" value="' + _esc(def || '') + '"><div class="ui-dlg-btns">' +
+        '<button class="btn-ghost ui-dlg-no">CANCEL</button><button class="fc-btn fc-start ui-dlg-ok">OK</button></div>');
+      const inp = d.querySelector('.ui-dlg-input');
+      d.querySelector('.ui-dlg-no').onclick = function () { d.remove(); res(null); };
+      d.querySelector('.ui-dlg-ok').onclick = function () { const v = inp.value; d.remove(); res(v); };
+      inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') d.querySelector('.ui-dlg-ok').click(); });
+      setTimeout(function () { try { inp.focus(); inp.select(); } catch (e) {} }, 50);
+    });
+  },
+  /** Non-blocking notice (replaces alert()). */
+  info(msg, color) { if (typeof App !== 'undefined' && App._toast) App._toast(msg, color || 'var(--card2)'); else console.log('[UI]', msg); },
+
   // ── Unit state ─────────────────────────────────────────────────────────────
   units: { speed: 'kmh', dist: 'km', elev: 'm' },
 
@@ -445,7 +487,7 @@ const UI = {
             '<span>Best ' + bestStr + '</span>' +
           '</div>' +
         '</div>' +
-        '<button class="rc-del" onclick="event.stopPropagation();if(confirm(\'Delete this route?\'))App.deleteRoute(\'' + safeId + '\')" title="Delete route">🗑</button>' +
+        '<button class="rc-del" onclick="event.stopPropagation();UI.ask(\'Delete this route?\',\'DELETE\').then(function(y){if(y)App.deleteRoute(\'' + safeId + '\')})" title="Delete route">🗑</button>' +
       '</div>';
     }).join('');
   },
@@ -759,6 +801,21 @@ const UI = {
     const hud = document.getElementById('workoutHud');
     if (!hud) return;
 
+    // Builder workouts (WorkoutSegments): stage name, time/distance left, next stage (audit P1-g)
+    var seg = (typeof WorkoutSegments !== 'undefined' && WorkoutSegments.active) ? WorkoutSegments.getCurrentSegment() : null;
+    if (seg) {
+      hud.style.display = 'block';
+      var $$ = function (i, v) { var e = document.getElementById(i); if (e && e.textContent !== v) e.textContent = v; };
+      var nx = Engine.nextChange ? Engine.nextChange() : null;
+      var nxTxt = nx && nx.kind !== 'ramp' ? ('NEXT: ' + (nx.kind === 'end' ? 'finish' : (nx.label || '') + (nx.speed != null ? ' · ' + nx.speed.toFixed(1) + ' km/h' : '') + (nx.incline != null ? ' · ' + nx.incline + '%' : ''))) : '';
+      $$('whProgName', ((Engine.run && Engine.run.routeName) || 'WORKOUT').toUpperCase() + (seg.total > 0 && seg.index >= 0 ? ' · ' + (seg.index + 1) + '/' + seg.total : ''));
+      $$('whStageName', seg.label || ('Segment ' + (seg.index + 1)));
+      $$('whStageTimer', seg.remainingType === 'distance' ? (seg.remaining >= 1000 ? (seg.remaining / 1000).toFixed(2) + ' km' : Math.round(seg.remaining) + ' m') + ' left' : Engine.fmtTime(Math.max(0, seg.remaining)) + ' left');
+      var nxEl = document.getElementById('whNext'); if (nxEl && nxEl.textContent !== nxTxt) nxEl.textContent = nxTxt;
+      var fill = document.getElementById('whProgFill');
+      if (fill) { var tp = WorkoutSegments.getTotalProgress(); fill.style.width = tp ? Math.round((tp.fraction || 0) * 100) + '%' : '0'; }
+      return;
+    }
     if (!Engine.workout) {
       hud.style.display = 'none';
       return;
@@ -835,6 +892,7 @@ const UI = {
         '<div class="hr-name">' + _esc(r.routeName || 'Free Run') + '</div>' +
         '<div class="hr-time">' + Engine.fmtTime(r.elapsed) + '</div>' +
         '<div class="hr-dist">' + (r.distanceKm || 0).toFixed(1) + ' km</div>' +
+        '<div class="hr-btn hr-again" onclick="event.stopPropagation();App.runAgainSaved(\'' + safeId + '\')">↻ AGAIN</div>' +
         '<div class="hr-btn">👻 RACE</div>' +
       '</div>';
     }).join('');

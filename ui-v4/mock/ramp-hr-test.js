@@ -1,4 +1,4 @@
-// Tests: (A) TM.setSpeed stepped ramp (bridge caps a single command at +/-4 kph), (B) Strava HR per km from the single streams call.
+// Tests: (A) TM.setSpeed stepped ramp (default limiter 1.0 kph per step, Settings 'Speed change rate'; bridge caps a single command at +/-4 kph), (B) Strava HR per km from the single streams call.
 // Run: node mock/ramp-hr-test.js
 var fs = require('fs'), path = require('path'), vm = require('vm');
 var UI = path.resolve(__dirname, '..');
@@ -22,11 +22,11 @@ globalThis.navigator = { userAgent: 'node' };
   function reset() { TM._cancelRamp(); TM._sentSpeed = -1; TM._beltKph = 0; TM._lastSpeed = -1; TM._estopActive = false; sent.length = 0; }
 
   reset(); TM.setSpeed(10);
-  ok(sent.length === 1 && sent[0] <= 3.0 + 1e-9, 'big raise 0 -> 10: first command is only one step', JSON.stringify(sent));
-  await wait(40 * 6);
+  ok(sent.length === 1 && sent[0] <= 1.0 + 1e-9, 'big raise 0 -> 10: first command is only one step (default 1.0 kph)', JSON.stringify(sent));
+  await wait(40 * 13);
   ok(sent[sent.length - 1] === 10, 'ramp reaches the 10 kph target', JSON.stringify(sent));
   var maxStep = 0, prev = 0; sent.forEach(function (v) { maxStep = Math.max(maxStep, Math.abs(v - prev)); prev = v; });
-  ok(maxStep <= 3.0 + 1e-9, 'no step larger than 3 kph (bridge allows 4/s)', 'max step ' + maxStep);
+  ok(maxStep <= 1.0 + 1e-9, 'no step larger than 1 kph per step (default rate; bridge allows 4/s)', 'max step ' + maxStep);
   ok(sent.every(function (v, i) { return i === 0 || v >= sent[i - 1]; }), 'ramp never goes backwards while raising');
 
   reset(); TM._sentSpeed = 8; TM._lastSendT = Date.now(); TM.setSpeed(9);
@@ -41,15 +41,26 @@ globalThis.navigator = { userAgent: 'node' };
   ok(sent.length === n1 && sent[n1 - 1] === 0 && !TM._rampTimer, 'emergency stop cancels the ramp and sends 0', JSON.stringify(sent));
   ok((function () { var c = sent.length; TM.setSpeed(8); return sent.length === c; })(), 'after e-stop no speed command is sent');
 
-  reset(); TM._sentSpeed = 16; TM._lastSendT = Date.now(); TM.setSpeed(6); await wait(40 * 6);
+  reset(); TM._sentSpeed = 16; TM._lastSendT = Date.now(); TM.setSpeed(6); await wait(40 * 13);
   var down = sent.slice(); var dprev = 16, dmax = 0; down.forEach(function (v) { dmax = Math.max(dmax, Math.abs(dprev - v)); dprev = v; });
-  ok(down[down.length - 1] === 6 && dmax <= 3.0 + 1e-9 && down.every(function (v, i) { return i === 0 || v <= down[i - 1]; }), 'big decrease 16 -> 6 is stepped down, never up', JSON.stringify(down));
+  ok(down[down.length - 1] === 6 && dmax <= 1.0 + 1e-9 && down.every(function (v, i) { return i === 0 || v <= down[i - 1]; }), 'big decrease 16 -> 6 is stepped down, never up', JSON.stringify(down));
 
-  reset(); TM.setSpeed(6); await wait(40 * 4); var before = sent.length; TM.setSpeed(6);
+  reset(); TM.setSpeed(6); await wait(40 * 8); var before = sent.length; TM.setSpeed(6);
   ok(sent.length === before, 'repeat of the same target is not re-sent (dedup kept)');
 
   reset(); TM.setSpeed(12); await wait(50); TM.disconnect(); var n2 = sent.length; await wait(40 * 5);
   ok(sent.length === n2, 'disconnect cancels a running ramp');
+
+  // ── A2: one test per Settings rate (0.5 / 1 / 2 / 3 kph per step) ──
+  var rateSettings = { speedRateKph: 1 };
+  globalThis.Store = { getSettings: function () { return rateSettings; } };
+  for (var ri = 0; ri < 4; ri++) {
+    var rate = [0.5, 1, 2, 3][ri]; rateSettings.speedRateKph = rate;
+    reset(); TM.connected = true; TM.setSpeed(12); await wait(Math.round(40 * Math.ceil(12 / rate) * 1.5) + 200);
+    var mx = 0, pv = 0; sent.forEach(function (v) { mx = Math.max(mx, Math.abs(v - pv)); pv = v; });
+    ok(sent[0] <= rate + 1e-9 && mx <= rate + 1e-9 && sent[sent.length - 1] === 12, 'rate ' + rate + ' kph/s: 0 -> 12 steps by <= ' + rate + ' and reaches 12', JSON.stringify(sent));
+  }
+  rateSettings.speedRateKph = 1; delete globalThis.Store;
 
   // ── B: Strava HR in the single stream call ─────────────────────────
   console.log('\n== B. Strava: heart rate per km from the same streams call');

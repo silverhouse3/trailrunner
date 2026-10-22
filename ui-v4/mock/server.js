@@ -234,7 +234,7 @@ var server = http.createServer(function (req, res) {
     kph: +sim.kph.toFixed(2), targetKph: sim.targetKph, incline: +sim.incline.toFixed(2), targetIncline: sim.targetIncline,
     hr: Math.round(sim.hr), hrOverride: sim.hrOverride, distanceKm: +sim.distanceKm.toFixed(3), elapsedSec: Math.round(sim.elapsedSec),
     calories: Math.round(sim.calories), watts: sim.watts, fan: sim.fan, wsClients: wsClients.length }, log: sim.log.slice(-12) });
-  if (path === '/api/console') return sendJSON(res, { console_state: sim.consoleState, safety_key_removed: sim.safetyKeyOut, model: 'MOCK X32i', mock: true });
+  if (path === '/api/console') return sendJSON(res, { console_state: sim.consoleState, safety_key_removed: sim.safetyKeyOut, model: 'MOCK X32i', max_kph: 19.3, max_incline_pct: 40, min_incline_pct: -6, mock: true }); // same keys as main.go /api/console
 
   if (req.method !== 'POST') return sendJSON(res, { ok: false, error: 'POST only' }, 405);
 

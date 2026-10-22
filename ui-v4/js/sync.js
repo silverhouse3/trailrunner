@@ -63,7 +63,7 @@ const Sync = {
   connectStrava() {
     const app = this.stravaApp;
     if (!app || !app.clientId) {
-      alert('Enter your Strava Client ID in Settings first');
+      if (typeof UI !== 'undefined' && UI.info) UI.info('Enter your Strava Client ID in Settings first', 'var(--orange)'); else console.warn('Strava: no client id');
       return;
     }
 

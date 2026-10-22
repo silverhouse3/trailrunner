@@ -322,7 +322,9 @@ if(v>0){document.body.className+=' rom-bottom';document.documentElement.style.se
   if (/[?&]demo=1/.test(location.search) && !DemoSeed.hasDemo()) DemoSeed.seed(18);
 })();
 function seedDemo() { DemoSeed.seed(18); location.href = location.pathname; }
-function clearDemo() { if (confirm('Remove all demo runs?')) { DemoSeed.clear(); location.href = location.pathname; } }
+function stToast(msg) { var t = document.getElementById('stToast'); if (!t) { t = document.createElement('div'); t.id = 'stToast'; t.style.cssText = 'position:fixed;left:50%;bottom:120px;transform:translateX(-50%);background:#1d2433;color:#fff;border:2px solid #37d0ff;border-radius:14px;padding:14px 24px;font-size:18px;font-weight:800;z-index:9999'; document.body.appendChild(t); } t.textContent = msg; t.style.display = ''; clearTimeout(t._t); t._t = setTimeout(function () { t.style.display = 'none'; }, 3500); }
+function stAsk(msg, ok) { return new Promise(function (res) { var d = document.createElement('div'); d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center'; d.innerHTML = '<div style="background:#10151e;border:2px solid #2a3345;border-radius:18px;padding:28px;max-width:640px;text-align:center"><div style="font-size:22px;font-weight:800;margin-bottom:22px">' + msg.replace(/</g, '&lt;') + '</div><button class="st-btn" id="stN" style="height:64px;font-size:18px">CANCEL</button><button class="st-btn danger" id="stY" style="height:64px;font-size:18px;background:#3a1212">' + (ok || 'OK') + '</button></div>'; document.body.appendChild(d); d.querySelector('#stN').onclick = function () { d.remove(); res(false); }; d.querySelector('#stY').onclick = function () { d.remove(); res(true); }; }); }
+function clearDemo() { stAsk('Remove all demo runs?', 'REMOVE').then(function (y) { if (y) { DemoSeed.clear(); location.href = location.pathname; } }); }
 </script>
 <script>
 (function() {
@@ -1479,12 +1481,16 @@ function openRunDetail(idx) {
     [r.effortScore > 0 ? r.effortScore : '—', 'EFFORT'], [r.avgSpeed ? f.n(r.avgSpeed, 1) : '—', 'AVG KPH'],
   ];
   document.getElementById('rdStats').innerHTML = stats.map(function(s) { return '<div class="rd-stat"><b>' + s[0] + '</b><span>' + s[1] + '</span></div>'; }).join('');
-  document.getElementById('rdDetail').innerHTML = window.__buildDetail(r);
+  document.getElementById('rdDetail').innerHTML = (r.id && !r.demo ? '<div style="margin:0 0 20px"><button class="st-btn ra-entry" style="height:72px;font-size:20px;margin-left:0;padding:0 24px" onclick="runAgain(\'' + String(r.id).replace(/'/g, '') + '\')">↻ RUN AGAIN / HARDER — opens the app with this run as a workout (armed only)</button></div>' : '') + window.__buildDetail(r);
   var sc = document.getElementById('rdSplits');
   try { SplitCompare.render(sc, r); } catch (e) { sc.innerHTML = '<div style="color:var(--dim)">No split data for this run.</div>'; }
   document.getElementById('runDetail').classList.add('show');
   window.scrollTo(0, 0);
   try { history.pushState({ rd: idx }, '', '#run-' + idx); } catch (e) {}
+}
+function runAgain(id) {
+  try { localStorage.setItem('tr_runagain_pending', id); } catch (e) {}
+  location.href = 'index.html' + (location.search || '');
 }
 function closeRunDetail() {
   document.getElementById('runDetail').classList.remove('show');
@@ -1496,7 +1502,7 @@ window.addEventListener('popstate', function() { closeRunDetail(); });
 function exportCSV() {
   var runs;
   try { runs = JSON.parse(localStorage.getItem('tr_runs') || '[]'); } catch(e) { runs = []; }
-  if (!runs.length) { alert('No runs to export'); return; }
+  if (!runs.length) { stToast('No runs to export'); return; }
 
   var headers = ['Date','Route','Distance (km)','Time (sec)','Avg Speed (kph)','Max Speed (kph)','Avg HR','Calories','Effort Score','Elevation (m)','Avg Power (W)','Cardiac Drift (%)','Efficiency Factor'];
   var csv = headers.join(',') + '\n';
@@ -1520,6 +1526,11 @@ function exportCSV() {
     csv += row.join(',') + '\n';
   });
 
+  var fname = 'trailrunner-runs-' + new Date().toISOString().slice(0, 10) + '.csv';
+  // Android wrapper (chooser3+): save straight to Download/TrailRunner via the AndroidBridge shim
+  if (window.AndroidBridge && typeof AndroidBridge.saveFile === 'function') {
+    try { var r = AndroidBridge.saveFile(fname, 'text/csv', btoa(unescape(encodeURIComponent(csv)))); if (typeof r === 'string' && r.indexOf('ERROR:') !== 0) { stToast('Saved: ' + r); return; } } catch (e) {}
+  }
   var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
   var url = URL.createObjectURL(blob);
   var a = document.createElement('a');

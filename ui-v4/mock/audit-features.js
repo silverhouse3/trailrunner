@@ -32,7 +32,7 @@ function rec(id, ok, obs) { results.push({ id: id, ok: ok, obs: String(obs === u
     authorizeUrls.push(route.request().url());
     route.fetch({ maxRedirects: 0 }).then(function (resp) {
       var loc = resp.headers()['location'] || ''; callbackLocations.push(loc);
-      route.fulfill({ status: 302, headers: { Location: loc.replace('https://silverhouse3.github.io/trailrunner/', UI) } });
+      route.fulfill({ status: 302, headers: { Location: loc.replace(/^https:\/\/silverhouse3\.github\.io\/trailrunner\/(ui-v4\/)?/, UI) } });
     });
   });
   var page = await ctx.newPage(); page.setDefaultTimeout(8000);
@@ -286,10 +286,10 @@ function rec(id, ok, obs) { results.push({ id: id, ok: ok, obs: String(obs === u
   });
 
   // ═════════ J. Strava (mock OAuth)
-  await T('J1 Strava not connected: creds fields present, connect without ID -> alert text', async function () {
-    await fresh(); dialogs.length = 0; await click('.icon-btn:has(.ib-label:text("SETTINGS"))'); await page.waitForSelector('#spInner');
-    await ev(function () { App.connectStrava(); }); await sleep(400);
-    return { ok: dialogs.some(function (d) { return /Client ID/.test(d); }), obs: JSON.stringify(dialogs) + ' (alert() => suppressed in WebView without WebChromeClient.onJsAlert: user sees NOTHING)' };
+  await T('J1 Strava not connected: Client ID default + secret requirement', async function () {
+    await fresh(); await click('.icon-btn:has(.ib-label:text("SETTINGS"))'); await page.waitForSelector('#spInner');
+    var i = await ev(function () { return { cfg: window.TR_STRAVA_CONFIG && TR_STRAVA_CONFIG.clientId, app: StravaApi.app(), idField: document.getElementById('spStravaId').value, secretField: document.getElementById('spStravaSecret').type, isMock: StravaApi.isMock() }; });
+    return { ok: !!(i.app && i.app.clientId) && i.secretField === 'password', obs: JSON.stringify(i) + ' (without the mock override and without a secret/proxy, connectStrava() shows alert(): invisible in a WebView with no onJsAlert)' };
   });
   await T('J2 connect through mock OAuth: authorize URL scope/redirect/state', async function () {
     await ev(function () { document.getElementById('spStravaId').value = '12345'; document.getElementById('spStravaSecret').value = 'sekret'; });

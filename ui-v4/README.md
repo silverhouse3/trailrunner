@@ -336,7 +336,154 @@ the window, and draws a **back-arrow over the top-left ~95×90 px** of every app
   viewport (`VIEWPORT_H=1080` for the PC); Strava `strava-test.js` (86/86) and `strava-e2e.js`
   (58/58) still pass.
 
+## Round 5 — VIDEO on the treadmill: native split (`AndroidBridge`), strip, ribbon, STOP rule
+
+The treadmill wrapper (chooser4) can split the screen natively: YouTube in its own WebView,
+this app resized beside / above it. Nothing is reloaded and the belt is never touched by a
+mode change.
+
+* **Contract** (`js/app.js` → `App.setVideoMode(mode, url)`): `AndroidBridge.videoSplit(mode, url)`
+  with `mode` = `'half'` | `'full'` | `'off'` (`true`/`false` accepted as half/off),
+  `AndroidBridge.isVideoSplit()`, `videoSplitSupported()`, `setStatsStripHeight(px)` (sent before
+  `'full'`, 56), `videoNavigate(url)`. Native → JS: `window.TR_onVideoSplit(mode)` after the
+  resize; the app then re-scales (`_scaleViewport`) and re-lays the ribbon.
+* **One-tap VIDEO (owner simplification, 22 Oct).** On the treadmill the 📺 button shows **no
+  paste-link / favourites / playlist UI**: it calls `videoSplit(mode, '')` with an **empty url**,
+  so the wrapper reopens the **last YouTube page** (or m.youtube.com home) and the runner
+  navigates inside YouTube. The mode is remembered in `localStorage.tr_video_mode` (`'half'`
+  the first time; **FULL** switches to `'full'`, **⤢ RESTORE** back to `'half'`); tapping
+  VIDEO again, or CLOSE VIDEO, closes it. The menu's "Float video window" does the same on the
+  treadmill. The paste-link / 6-favourite / playlist / recent UI (`js/video-view.js`,
+  `#videoSplitPanel`) exists **only** in the PC / fallback embed view (no `AndroidBridge`).
+* **Half (960 × 1000)**: `#rootApp.half` — a one-column live layout: top bar with MENU, 📺,
+  FULL, ✕ CLOSE VIDEO and a **red top STOP**; metric strip, view zone (map / oval / terrain /
+  numbers, race bar), edge speed / incline columns, run controls; menu, pause, cool-down and
+  summary all fit the 960 px pane (SAVE RUN above y = 1000).
+* **Full = thin strip (1920 × 56)**: `#rootApp.strip` hides everything except `#liveRibbon`,
+  which becomes the strip: the left 120 px stay empty (ROM back-arrow), then **SPEED /
+  INCLINE / DIST covered → remaining / TIME / NEXT change / HR / state pill**, a plain-text
+  **⤢ RESTORE** button and a **big red STOP** (≥ 150 × 56) at the far right. Text ≥ 30 px.
+  Safety key out turns the whole strip red and flashing with the SAFETY KEY OUT pill.
+  `Engine.nextChange()` feeds NEXT (`{kind: ramp|workout|stage|route|end, inSec, inM, speed,
+  incline, label}`) and `Engine.remaining()` the covered / remaining distance and time
+  (`mock/next-change-test.js`, 25 checks).
+* **Always-visible ribbon** (`#liveRibbon`, `App._updateRibbon`): whenever a run is active and
+  the metric strip is covered by an overlay (menu, settings, pause, cool-down, summary,
+  video window, dialog) a compact SPEED / DIST / TIME + STOP ribbon is shown above it.
+* **Fallback embed `'full'`** (PC): the youtube-nocookie embed fills the view zone with the
+  same 56 px strip (`#vvStrip`: RESTORE + STOP) on top; RESTORE returns to the split view.
+* **STOP rule**: every live layout and overlay has a visible, un-overlapped STOP (`#fcStop`,
+  `#topStop`, ribbon / strip `.rb-stop`, pause / cool-down overlay STOP). A tap calls
+  `App.stopNow()` → `Engine.finishRun(true)` → `TM.setSpeed(0)` **immediately** (never rate
+  limited; cancels any ramp) and then shows the summary.
+* **Harness**: `?splitSim=1` installs a stub `AndroidBridge` (records `calls[]`, calls
+  `TR_onVideoSplit`); `mock/screens-rd.js` `splitTour` drives off → half → full → half → off
+  mid-run (viewport resized like the wrapper would), checks the strip geometry, RESTORE /
+  CLOSE, remembered mode + empty url, run kept counting, **no speed command sent by any mode
+  switch**, and writes `screens/rd-half-*.png`, `rd-full-strip-1920x56.png`,
+  `rd-full-strip-safety-key.png`, `rd-full-composite-1920x1080.png` (strip over a fake
+  YouTube box), plus `embedFullTour` → `rd-embedfull-01-full.png`.
+
+## Audit fixes (`docs/FEATURE_AUDIT.md`)
+
+* **P0-1 HR dropout** (`js/engine.js`): a sample of 0 / NaN / no fresh sample for 8 s →
+  **HR LOST** (pill text, beep + toast once, `Engine.onHRLost`); the HR autopilot and any HR-
+  based ramp **hold** the current speed / incline; after HR is back for ≥ 5 s it is trusted
+  again. `mock/audit-hr-stale.js` PASS; unit checks in `next-change-test.js`.
+* **P0-2 Strava first connect**: `tr_strava_app` (client id / secret / proxy) is persisted on
+  Save and before the authorize redirect; the callback page finds it on return
+  (`mock/audit-strava-first-connect.js` flow B lands on index.html with tokens).
+* **P1**: in-page dialogs (`UI.ask / prompt / info`, since native `confirm/alert/prompt` are
+  dead in the plain WebView; a page that *replaces* them, as the tests do, is honoured);
+  `AndroidBridge.saveFile` for GPX / CSV export (else blob download); honest mic (button stays,
+  greyed, tap says voice commands are not available) and TTS notes (beeps only without a
+  speech engine); HR pill text; rejected bridge commands (`{ok:false}`) → toast + dedup reset;
+  fan "not supported by this bridge" (`TM.fanSupported=false`); workout HUD on every view
+  (`mock/audit-workout-hud.js`); video fallback without `intent://`; START with the bridge
+  down is a no-link toast, never a belt command. `mock/audit-webview-sim.js` W1–W9 pass.
+
+## Speed-ramp safety (real-device evidence, 22 Oct)
+
+One big command let the belt go 1.6 → 16 km/h in ~5 s. Now **every** speed request passes
+through one limiter in `TM.setSpeed(kmh, force, source)` (`js/treadmill.js`):
+
+1. **Rate limiter** — in any sliding 1 s window the commanded speed may change by at most the
+   **Settings › Controls › "Speed change rate"** (0.5 / **1.0 default** / 2 / 3 km/h per
+   second, `speedRateKph`). A move within the budget goes out at once, a bigger one is stepped
+   (downward non-zero moves too). **0 / STOP / e-stop are never limited** and cancel any ramp.
+   Callers are tagged (`button`, `preset`, `workout`, `hr`, `hr-hold`, `ramp`, `resume`,
+   `stop`, `estop`) — route engine ramps, presets, +/- nudges, workout stages and the HR
+   autopilot all go through it; `Engine.resumeRun` re-sends the target through it.
+2. **Maximum speed** — `TM.maxKph()` = min(machine max from `/api/console` `max_kph`,
+   fallback 19.3; **Settings "Maximum speed"** `maxSpeedKph`, 0.5 steps). Every command is
+   clipped; a clipped request raises `TM.onClipped` → orange toast and a `MAX n` chip next to
+   the target speed.
+3. **Command log** — ring buffer of the last 200 speed / incline commands (ISO time, source,
+   requested, sent, base), `console.log('[CMD] …')` and **Settings › About · Command log**.
+   The real bridge's `/command` only understands KPH / MPH / Incline / Grade (main.go
+   `processMessage`), so no log message is sent to it.
+4. **Live UI** — the real belt speed is shown under the big speed number (`belt 11.2`); after
+   STOP while the belt is still > 0.5 km/h the banner says **STOPPING** with the belt speed,
+   and once the belt is > 6 km/h a one-time toast / banner hint says **"Pull the safety key for
+   a faster stop"**.
+* Tests: `mock/ramp-limiter-test.js` (fake clock; every caller path at 0.5 / 1 / 2 / 3:
+  preset 0→16, ten rapid +0.5 nudges, workout 12→4, runaway HR +0.5/250 ms, graceful ramp,
+  STOP mid-ramp, user max, machine max, command log — 37 checks) and `mock/ramp-hr-test.js`
+  (expectations updated to the 1.0 default + one test per rate, 19 checks).
+
+## Round 6 — RUN AGAIN and X% HARDER (`js/run-again.js`)
+
+Replay a saved run (or a Strava activity) as a programmed workout, optionally harder.
+**Armed only**: ARM puts the plan on the live screen in READY state; the belt moves only when
+the user taps START, and every stage then goes through `WorkoutSegments` → `TM.setSpeed`
+(rate limiter + maximum speed) / `TM.setIncline`.
+
+* **Source** — `RunAgain.fromRun(run)` uses the run's `trackPoints` (one every ~5 s: elapsed,
+  dist, speed, hr, ele and — new in this round — `incline`). Runs saved before this round have
+  no incline samples → the plan says **"incline not recorded"** and keeps 0 %.
+  `RunAgain.fromStrava(streams, meta)` derives speed from `velocity_smooth` (m/s → km/h) and
+  incline from `grade_smooth` (clamped to the incline limits); such plans are flagged
+  **derived / from Strava** in the card, the description and `workout.runAgain.derived`.
+* **Stages** — the timeline is smoothed into stages of **10–30 s** (time basis; adjacent stages
+  within 0.3 km/h / 0.5 % are merged up to 30 s; stages that are *identical* after rounding
+  merge further so a steady run is not 40 × 30 s). With a route, the default is
+  **distance-based** (`programmed` workout, segments in km that add up to the run distance);
+  otherwise **time-based** (`interval-time`, 1 round). Pauses (belt < 0.8 km/h) are dropped.
+* **X% harder** — selector +2.5 / **+5 (default)** / +10 / CUSTOM (≤ 20, in-page prompt), SAME
+  for 0 %; the last choice is remembered (`tr_runagain_pct`). Per stage: speed × (1 + 0.4 p),
+  incline × (1 + 0.6 p) with at least +0.25 pp where incline > 0, and a minimum +0.5 km/h nudge
+  when p ≥ 5 %. Caps: machine max (`/api/console` `max_kph`), the user's Maximum speed, +1.5 km/h
+  over the original; incline ≤ bridge max (`max_incline_pct`, fallback 15) / user safety max and
+  ≤ original + 3 pp; descents are never made steeper or taken below the machine minimum.
+  Clipped stages are counted and shown in the card.
+* **PREVIEW card** (`#runAgainCard`): source · time · distance, % chips, basis, STAGES / TIME /
+  KM / AVG (was …) / MAX km/h / MAX incline, notes (incline not recorded, derived, clipped), a
+  stage bar, CANCEL · SAVE TO LIBRARY · ARM. Saved to the workout library (`tr_workouts`) as
+  **"Run again +5%"** (↻ icon, tag `run again`, `runAgain` metadata), so it also appears in
+  the builder and can be re-armed from there.
+* **Entry points** — run-end summary **↻ RUN AGAIN** (saves the run first when armed);
+  Home/Ghost history rows **↻ AGAIN**; stats.html run detail **↻ RUN AGAIN / HARDER** (hands
+  over through `tr_runagain_pending` and opens the card in the app); Strava picker activity
+  detail **↻ RUN AGAIN / HARDER (as a workout)**.
+* **Tests** — `mock/run-again-test.js` (30 checks: stages, merging, pauses, every harder rule and
+  cap, build time/distance, preview, Strava derived, errors, save, remembered %) and
+  `mock/run-again-ui.js` (14 checks: summary button, card, +10 %, custom, ARM = run saved +
+  library + READY with belt idle, START drives the plan through the limiter, history row,
+  stats hand-over, library listing) → `screens/rd-run-again-card.png`.
+
+## Test suite (all green at hand-back)
+
+`node mock/ramp-limiter-test.js` (37) · `ramp-hr-test.js` (19) · `next-change-test.js` (25) ·
+`yt-parse-test.js` (27) · `run-again-test.js` (30) · `strava-test.js` (86) · `strava-e2e.js` (58) ·
+`screens.js` · `screens-rd.js` · `screens-splits.js` · `run-again-ui.js` (14) · `audit-hr-stale.js`
+· `audit-strava-first-connect.js` · `audit-workout-hud.js` · `audit-webview-sim.js`. The browser suites share the mock bridge on
+:4510 — run them one at a time (a parallel run drops each other's workout to IDLE).
+
 ## Known gaps / not verified
+* **Native split / YouTube not verifiable here**: the real chooser4 wrapper, real YouTube
+  playback in the native WebView, audio routing, embed-disabled videos, ads and bandwidth were
+  only exercised through the `?splitSim=1` stub and the local `mock/yt-stub.html` player.
+  The strip screenshots are composited over a fake YouTube box.
 * Not yet tested on the treadmill's Android 7.1.2 WebView. CSS avoids flex `gap`,
   `backdrop-filter`, `clamp()`, `:is()`; JS avoids optional chaining / top-level
   await. `grid-gap`, CSS variables and `position: sticky` are used (Chrome 57+).

@@ -769,7 +769,7 @@ var WorkoutSegments = {
       Engine.ctrl.targetSpeed = capped;
     }
     if (typeof TM !== 'undefined' && TM.setSpeed) {
-      TM.setSpeed(capped);
+      TM.setSpeed(capped, false, 'workout');
     }
     if (this.onSpeedChange) this.onSpeedChange(capped);
   },

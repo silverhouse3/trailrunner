@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>yt-stub</title>
+<style>
+html,body{margin:0;height:100%;background:#102a43;color:#fff;font-family:"Segoe UI",Roboto,Arial,sans-serif;overflow:hidden}
+.box{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+.box.playing{background:#0f5132}.box.paused{background:#5a3a00}.box.err{background:#5a0f0f}
+h1{font-size:40px;margin:0 0 10px}p{font-size:22px;margin:4px 0;opacity:.85}
+</style></head><body>
+<div class="box" id="box"><h1 id="t">STUB PLAYER</h1><p id="s">state: unstarted</p><p id="i"></p><p style="font-size:16px;opacity:.6">local test stub — speaks the YouTube IFrame postMessage protocol, no network</p></div>
+<script>
+// Local stand-in for a youtube-nocookie.com embed (tests only). Implements just enough of the
+// IFrame API postMessage protocol: "listening" → onReady + infoDelivery every second; "command"
+// playVideo/pauseVideo/stopVideo/mute/unMute/setVolume/nextVideo/previousVideo. A video id that
+// starts with FAIL raises onError 101 (embedding disabled) after onReady.
+(function () {
+  var q = {}; location.search.slice(1).split('&').forEach(function (kv) { var p = kv.split('='); if (p[0]) q[decodeURIComponent(p[0])] = decodeURIComponent(p[1] || ''); });
+  var v = q.v || '', list = q.list || '', controls = q.controls;
+  var st = -1, muted = false, volume = 100, idx = 0, len = list ? 5 : 1, parent = window.parent, dead = false;
+  var names = { '-1': 'unstarted', 0: 'ended', 1: 'playing', 2: 'paused', 3: 'buffering', 5: 'cued' };
+  function paint() {
+    var b = document.getElementById('box'); b.className = 'box' + (dead ? ' err' : st === 1 ? ' playing' : st === 2 ? ' paused' : '');
+    document.getElementById('t').textContent = (list ? 'PLAYLIST ' + list + ' #' + (idx + 1) : 'VIDEO ' + v);
+    document.getElementById('s').textContent = dead ? 'error 101 — embedding disabled' : 'state: ' + names[st] + (muted ? ' · muted' : ' · vol ' + volume) + (controls === '1' ? ' · native controls' : '');
+  }
+  function send(ev, info) { try { parent.postMessage(JSON.stringify({ event: ev, info: info, id: 'tr', channel: 'widget' }), '*'); } catch (e) {} }
+  function info() { return { playerState: st, muted: muted, volume: volume, currentTime: 0, duration: 600, playlistIndex: idx, playlist: list ? ['a','b','c','d','e'] : undefined, videoData: { title: (list ? 'Stub playlist item ' + (idx + 1) : 'Stub video ' + v), video_id: v } }; }
+  var started = false, tick = null;
+  window.addEventListener('message', function (e) {
+    var m = null; try { m = JSON.parse(e.data); } catch (err) { return; }
+    if (!m || !m.event) return;
+    if (m.event === 'listening' && !started) {
+      started = true; st = 5;
+      send('onReady', info()); send('infoDelivery', info());
+      tick = setInterval(function () { send('infoDelivery', info()); }, 1000);
+      if (/^FAIL/.test(v)) { dead = true; setTimeout(function () { send('onError', 101); }, 300); }
+      paint(); return;
+    }
+    if (m.event === 'command' && !dead) {
+      var f = m.func, a = m.args || [];
+      if (f === 'playVideo') st = 1; else if (f === 'pauseVideo') st = 2; else if (f === 'stopVideo') st = 0;
+      else if (f === 'mute') muted = true; else if (f === 'unMute') muted = false; else if (f === 'setVolume') volume = +a[0] || 0;
+      else if (f === 'nextVideo' && list) { idx = (idx + 1) % len; st = 1; } else if (f === 'previousVideo' && list) { idx = (idx + len - 1) % len; st = 1; }
+      send('onStateChange', st); send('infoDelivery', info()); paint();
+    }
+  });
+  paint();
+})();
+</script></body></html>

@@ -175,13 +175,23 @@ const Engine = {
     this._startTicker();
   },
 
-  pauseRun() {
+  pauseRun(hardwareStopped) {
     if (!this.run || this.run.status !== 'running') return;
     var speed = this.run.speed;
 
     // Set status immediately (UI shows pause overlay)
     this.run.status = 'paused';
     this._stopTicker();
+
+    // Safety key out: the console has already stopped the belt and dropped the workout. Nothing is sent;
+    // RESUME (user tap) starts a new treadmill workout and re-sends the target through the limiter.
+    if (hardwareStopped) {
+      if (this._decelTimer) { clearInterval(this._decelTimer); this._decelTimer = null; }
+      this._ramp = null;
+      if (TM.resetSentState) TM.resetSentState(); else { if (TM._cancelRamp) TM._cancelRamp(); TM._lastSpeed = -1; }
+      this.run._keyPaused = true;
+      return;
+    }
 
     if (speed < 0.5) {
       TM.setSpeed(0, true);
@@ -198,18 +208,35 @@ const Engine = {
 
   resumeRun() {
     if (!this.run || this.run.status !== 'paused') return;
+    // ui-v4 fix: a resume during the pause ramp-down must cancel that ramp (it would otherwise keep
+    // lowering the speed and finally send TM.pauseWorkout() under a running app)
+    if (this._decelTimer) { clearInterval(this._decelTimer); this._decelTimer = null; }
+    this._ramp = null;
     this.run.status = 'running';
+    // bring the belt back to the target through the rate limiter (the pause ramp sent 0)
+    if (this.ctrl.targetSpeed > 0) TM.setSpeed(this.ctrl.targetSpeed, true, 'resume');
     this.run._resumeElapsed = this.run.elapsed; // mark for gentle ramp-up
     this._lastTickTime = Date.now();
     this._startTicker();
-    TM.resumeWorkout();
+    // The bridge drops the workout to IDLE when the safety key comes out (and the real console does the
+    // same): a resume then has to START a new treadmill workout; TM.onWorkoutStarted re-sends the target.
+    if (TM.workoutState === 'IDLE' && TM.startWorkout) TM.startWorkout(); else TM.resumeWorkout();
   },
 
-  finishRun() {
+  finishRun(immediate) {
     if (!this.run) return;
     if (this.run.status === 'finished') return; // prevent double-call
     var speed = this.run.speed;
     var incline = Math.max(this.run.incline, 0);
+    if (immediate) {
+      // STOP button rule: zero the belt AT ONCE (never rate-limited), cancel any ramp, then finish normally
+      if (this._decelTimer) { clearInterval(this._decelTimer); this._decelTimer = null; }
+      this._ramp = null;
+      if (TM._cancelRamp) TM._cancelRamp();
+      this.ctrl.targetSpeed = 0;
+      TM.setSpeed(0, true);
+      speed = 0; incline = 0;
+    }
 
     // Finalize run state immediately (UI shows summary, save works)
     this.run.status = 'finished';
@@ -429,7 +456,7 @@ const Engine = {
     // Set treadmill to stage targets
     if (stage.speed) {
       this.ctrl.targetSpeed = stage.speed;
-      TM.setSpeed(stage.speed);
+      TM.setSpeed(stage.speed, false, 'workout');
     }
     if (stage.incline != null) {
       this.ctrl.targetIncline = stage.incline;
@@ -461,8 +488,10 @@ const Engine = {
       this.run.incline = data.incline;
     }
     if (data.hr != null && data.hr > 30 && data.hr < 220 && this.run.hrSource !== 'ble') {
-      this.run.hr = data.hr;
-      this.run.hrSource = 'treadmill';
+      this._hrValid(data.hr, 'treadmill');
+    } else if (data.hr != null && data.hr <= 30 && this.run.hrSource === 'treadmill') {
+      // real bridge reports "Heart Rate":"0" when the sensor drops out → HR is LOST, never reuse the frozen value
+      this._hrLost();
     }
     if (data.calories != null && data.calories > 0) {
       this.run.calories = data.calories;
@@ -491,8 +520,9 @@ const Engine = {
       this.run.incline = data.incline;
     }
     if (data.hr != null && data.hr > 30 && data.hr < 220 && this.run.hrSource !== 'ble') {
-      this.run.hr = data.hr;
-      this.run.hrSource = 'ftms';
+      this._hrValid(data.hr, 'ftms');
+    } else if (data.hr != null && data.hr <= 30 && this.run.hrSource === 'ftms') {
+      this._hrLost();
     }
 
     // Auto-resume for FTMS source
@@ -510,8 +540,41 @@ const Engine = {
   /** Called when BLE HR strap sends data (highest priority for HR). */
   onBLEHR(hr) {
     if (!this.run) return;
-    this.run.hr = hr;
-    this.run.hrSource = 'ble';
+    this._hrValid(hr, 'ble');
+  },
+
+  // ── HR validity (P0-1): a lost / stale heart rate must never drive the belt ─────────────────
+  HR_STALE_MS: 8000,      // no fresh sample for this long → LOST
+  HR_REVALID_MS: 5000,    // after a loss HR must be back for this long before autopilot may raise anything
+
+  _hrValid(hr, source) {
+    var r = this.run, now = Date.now();
+    r.hr = hr; r.hrSource = source; r._hrAt = now;
+    if (r._hrLostAt) {                       // recovering from a loss: start the re-validation clock
+      if (!r._hrBackAt) r._hrBackAt = now;
+      if (now - r._hrBackAt >= this.HR_REVALID_MS) { r._hrLostAt = 0; r._hrBackAt = 0; r._hrLostNotified = false; }
+    }
+  },
+
+  _hrLost() {
+    var r = this.run; if (!r) return;
+    var had = r.hr > 0 || r.hrSource !== 'none';
+    r.hr = 0; r.hrSource = 'none'; r._hrAt = 0; r._hrBackAt = 0;
+    if (!r._hrLostAt) r._hrLostAt = Date.now();
+    if (had && !r._hrLostNotified) {
+      r._hrLostNotified = true;
+      try { if (typeof VoiceCmd !== 'undefined' && VoiceCmd._playTone) { VoiceCmd._playTone(330, 180); setTimeout(function () { VoiceCmd._playTone(330, 180); }, 250); } } catch (e) {}
+      try { if (typeof App !== 'undefined' && App._toast) App._toast('HR LOST — heart-rate control is holding speed and incline', 'var(--orange)'); } catch (e) {}
+      if (this.onHRLost) this.onHRLost();
+    }
+  },
+
+  /** True when HR may drive autopilot: fresh sample AND (no loss, or back for >= HR_REVALID_MS). */
+  hrUsable() {
+    var r = this.run; if (!r || !(r.hr > 0)) return false;
+    if (Date.now() - (r._hrAt || 0) > this.HR_STALE_MS) return false;
+    if (r._hrLostAt && !(r._hrBackAt && Date.now() - r._hrBackAt >= this.HR_REVALID_MS)) return false;
+    return true;
   },
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -811,8 +874,21 @@ const Engine = {
   /** Apply auto-control based on current mode.
    *  TM.setSpeed/setIncline have built-in dedup so redundant calls are cheap,
    *  but we still gate on meaningful changes to avoid unnecessary function overhead. */
+  AP_MIN_INTERVAL_MS: 5000,   // autopilot may change speed/incline at most once every 5 s (and never above the user's max)
+  _apLastAdjust: 0,
+
   _applyAutoControl() {
     const maxHR = this.run.maxHR;
+    // P0-1: a stale sample (no fresh HR for HR_STALE_MS) counts as LOST
+    if (this.run.hr > 0 && Date.now() - (this.run._hrAt || 0) > this.HR_STALE_MS) this._hrLost();
+    const hrMode = (this.ctrl.mode === 'hr-incline' || this.ctrl.mode === 'hr-speed');
+    if (hrMode && !this.hrUsable()) {
+      // HOLD: re-send the current targets unchanged, never raise anything until HR is valid again
+      TM.setSpeed(this.ctrl.targetSpeed, false, 'hr-hold');
+      TM.setIncline(this.ctrl.targetIncline);
+      return;
+    }
+    const apMayAdjust = Date.now() - this._apLastAdjust >= this.AP_MIN_INTERVAL_MS;
 
     if (this.ctrl.mode === 'route') {
       // Auto-incline to match route gradient
@@ -831,15 +907,16 @@ const Engine = {
       const zMax = Math.round(maxHR * zone.max);
       const hr = this.run.hr;
 
-      if (hr > 0) {
+      if (hr > 0 && apMayAdjust) {
+        const maxInc = Math.min(15, (Store.getSettings().safetyMaxIncline || 15));
         if (hr > zMax + 3) {
-          this.ctrl.targetIncline = Math.max(-3, this.ctrl.targetIncline - 0.3);
+          this.ctrl.targetIncline = Math.max(-3, this.ctrl.targetIncline - 0.5); this._apLastAdjust = Date.now();
         } else if (hr < zMin - 3) {
-          this.ctrl.targetIncline = Math.min(15, this.ctrl.targetIncline + 0.3);
+          this.ctrl.targetIncline = Math.min(maxInc, this.ctrl.targetIncline + 0.5); this._apLastAdjust = Date.now();
         }
       }
       // Dedup in TM.setSpeed/setIncline prevents redundant gRPC calls
-      TM.setSpeed(this.ctrl.targetSpeed);
+      TM.setSpeed(this.ctrl.targetSpeed, false, 'hr');
       TM.setIncline(this.ctrl.targetIncline);
 
     } else if (this.ctrl.mode === 'hr-speed') {
@@ -849,16 +926,16 @@ const Engine = {
       const zMax = Math.round(maxHR * zone.max);
       const hr = this.run.hr;
 
-      if (hr > 0) {
+      if (hr > 0 && apMayAdjust) {
         if (hr > zMax + 3) {
-          this.ctrl.targetSpeed = Math.max(3, this.ctrl.targetSpeed - 0.2);
+          this.ctrl.targetSpeed = Math.max(3, this.ctrl.targetSpeed - 0.5); this._apLastAdjust = Date.now();
         } else if (hr < zMin - 3) {
           const settings = Store.getSettings();
-          this.ctrl.targetSpeed = Math.min(settings.safetyMaxSpeed, this.ctrl.targetSpeed + 0.2);
+          this.ctrl.targetSpeed = Math.min(settings.safetyMaxSpeed || 20, (typeof TM !== 'undefined' && TM.maxKph) ? TM.maxKph() : 19.3, this.ctrl.targetSpeed + 0.5); this._apLastAdjust = Date.now();
         }
       }
       // Dedup in TM.setSpeed/setIncline prevents redundant gRPC calls
-      TM.setSpeed(this.ctrl.targetSpeed);
+      TM.setSpeed(this.ctrl.targetSpeed, false, 'hr');
       TM.setIncline(this.ctrl.targetIncline);
     }
     // mode === 'manual' — no auto-control, user controls treadmill directly
@@ -932,6 +1009,7 @@ const Engine = {
       hr: this.run.hr,
       ele: this.run.currentEle,
       elapsed: Math.round(this.run.elapsed),
+      incline: +((this.run.incline || 0).toFixed(1)),
     };
 
     // Add lat/lon if on a route
@@ -953,9 +1031,97 @@ const Engine = {
     const settings = Store.getSettings();
     if (!settings.fanAuto) return;
 
+    if (!TM.fanSupported) return;            // the real bridge ignores "Fan Speed" (audit P1-f)
     const zone = this.getCurrentZone();
     const fanLevels = [0, 20, 30, 50, 70, 100];
     TM.setFan(fanLevels[zone] || 30);
+  },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // NEXT CHANGE / REMAINING (strip + workout HUD)
+  // ════════════════════════════════════════════════════════════════════════════
+
+  /**
+   * What the belt will do next. → { kind, inSec, inM, speed (kph|null), incline (%|null), label } or null.
+   *   kind: 'ramp' (graceful ramp in progress) | 'workout' (PWA-managed segment/interval) | 'stage' (legacy stage
+   *   programme) | 'route' (auto-incline: next point ahead where the commanded incline step changes >= 0.5 pp) | 'end'
+   *   Free run without a plan → null.
+   */
+  nextChange() {
+    var r = this.run; if (!r) return null;
+    var now = Date.now(), spd = r.speed || 0;
+    var secFor = function (m) { return spd > 0.3 ? m / (spd / 3.6) : null; };
+    if (this._ramp && this._ramp.endsAt > now) {
+      return { kind: 'ramp', inSec: (this._ramp.endsAt - now) / 1000, inM: null, speed: this._ramp.endSpeed, incline: this._ramp.endIncline, label: 'ramp' };
+    }
+    if (typeof WorkoutSegments !== 'undefined' && WorkoutSegments.active) {
+      var s = WorkoutSegments.active, w = s.workout, seg = WorkoutSegments.getCurrentSegment();
+      if (seg) {
+        var toKph = function (v) { return (typeof SpeedUnits !== 'undefined') ? SpeedUnits.toKph(v, w.speedUnit) : v; };
+        var nxt = null, lbl = '';
+        var cd = (w.coolDown && w.coolDown.enabled !== false) ? { speed: w.coolDown.speed, incline: w.coolDown.incline || 0, label: 'Cool down' } : null;
+        if (s.phase === 'warmup') {
+          var first = w.type === 'programmed' ? (w.segments || [])[0] : (w.intervals || [])[0];
+          nxt = first ? { speed: first.speed, incline: first.incline || 0, label: first.label || 'Segment 1' } : cd;
+        } else if (s.phase === 'segment') {
+          if (w.type === 'programmed') {
+            var ns = (w.segments || [])[s.segmentIndex + 1];
+            nxt = ns ? { speed: ns.speed, incline: ns.incline || 0, label: ns.label || 'Segment ' + (s.segmentIndex + 2) } : cd;
+          } else {
+            var ivs = w.intervals || [], ni = (s.intervalIndex + 1) % Math.max(1, ivs.length);
+            var lastRound = (s.round + 1) >= (w.rounds || 1) && s.intervalIndex + 1 >= ivs.length;
+            nxt = lastRound ? cd : (ivs[ni] ? { speed: ivs[ni].speed, incline: ivs[ni].incline || 0, label: ivs[ni].label || 'Interval ' + (ni + 1) } : cd);
+          }
+        } else if (s.phase === 'cooldown') { nxt = null; }
+        var inSec = seg.remainingType === 'time' ? seg.remaining : secFor(seg.remaining);
+        var inM = seg.remainingType === 'distance' ? seg.remaining : (spd > 0.3 && inSec != null ? inSec * spd / 3.6 : null);
+        if (!nxt) return { kind: 'end', inSec: inSec, inM: inM, speed: 0, incline: null, label: 'finish' };
+        return { kind: 'workout', inSec: inSec, inM: inM, speed: toKph(nxt.speed), incline: nxt.incline, label: nxt.label };
+      }
+    }
+    if (this.workout && this.workout.programme) {
+      var w2 = this.workout, st = w2.programme.stages[w2.stageIdx], n2 = w2.programme.stages[w2.stageIdx + 1];
+      if (st) {
+        var left = Math.max(0, (st.duration || 0) - (w2.stageElapsed || 0));
+        if (!n2) return { kind: 'end', inSec: left, inM: spd > 0.3 ? left * spd / 3.6 : null, speed: 0, incline: null, label: 'finish' };
+        return { kind: 'stage', inSec: left, inM: spd > 0.3 ? left * spd / 3.6 : null, speed: n2.speed != null ? n2.speed : null, incline: n2.incline != null ? n2.incline : null, label: n2.name || 'Stage ' + (w2.stageIdx + 2) };
+      }
+    }
+    if (this.ctrl.mode === 'route' && this.hasRoute()) {
+      var N = this.resampled.length, totalM = this.route.totalDistM || 0, idx = r.routeIdx || 0;
+      var cur = Math.round(this._calcGrade(idx) * 2) / 2;
+      for (var i = idx + 1; i < N; i++) {
+        var g = Math.round(this._calcGrade(i) * 2) / 2;
+        if (Math.abs(g - cur) >= 0.5) {
+          var inM2 = Math.max(0, (i / (N - 1)) * totalM - (r.distanceM || 0));
+          return { kind: 'route', inSec: secFor(inM2), inM: inM2, speed: null, incline: g, label: 'hill' };
+        }
+      }
+      var leftM = Math.max(0, totalM - (r.distanceM || 0));
+      return { kind: 'end', inSec: secFor(leftM), inM: leftM, speed: 0, incline: null, label: 'finish' };
+    }
+    return null;
+  },
+
+  /** Distance / time remaining to the plan's end. → { distM: number|null, timeSec: number|null } */
+  remaining() {
+    var r = this.run; if (!r) return { distM: null, timeSec: null };
+    var out = { distM: null, timeSec: null };
+    if (this.hasRoute()) out.distM = Math.max(0, (this.route.totalDistM || 0) - (r.distanceM || 0));
+    if (typeof WorkoutSegments !== 'undefined' && WorkoutSegments.active) {
+      var s = WorkoutSegments.active, w = s.workout;
+      if (w.type === 'programmed' && WorkoutSegments._getTotalDistanceM) {
+        out.distM = Math.max(0, WorkoutSegments._getTotalDistanceM(s) - (s.totalCoveredM || 0));
+      } else if (w.type === 'interval-time') {
+        var per = 0; (w.intervals || []).forEach(function (iv) { per += iv.duration || 0; });
+        var total = per * (w.rounds || 1) + ((w.warmUp && w.warmUp.enabled !== false) ? (w.warmUp.duration || 0) : 0) + ((w.coolDown && w.coolDown.enabled !== false) ? (w.coolDown.duration || 0) : 0);
+        out.timeSec = Math.max(0, total - (s.elapsed || 0));
+      }
+    } else if (this.workout && this.workout.programme) {
+      var tot = 0; this.workout.programme.stages.forEach(function (st) { tot += st.duration || 0; });
+      out.timeSec = Math.max(0, tot - (this.workout.totalElapsed || 0));
+    }
+    return out;
   },
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -1135,6 +1301,7 @@ const Engine = {
     var started = Date.now();
     var self = this;
     var rampIncline = (startIncline !== endIncline);
+    this._ramp = { endSpeed: endSpeed, endIncline: rampIncline ? endIncline : null, endsAt: started + duration * 1000 };
 
     // 250ms interval — bridge rate-limits to 4 kph/s, handles beep prevention
     this._decelTimer = setInterval(function() {
@@ -1144,7 +1311,7 @@ const Engine = {
       var eased = 1 - (1 - progress) * (1 - progress);
 
       var newSpeed = startSpeed + (endSpeed - startSpeed) * eased;
-      TM.setSpeed(Math.max(0, +(newSpeed.toFixed(1))), true);
+      TM.setSpeed(Math.max(0, +(newSpeed.toFixed(1))), true, 'ramp');
 
       if (rampIncline) {
         var newIncline = startIncline + (endIncline - startIncline) * eased;
@@ -1154,6 +1321,7 @@ const Engine = {
       if (progress >= 1) {
         clearInterval(self._decelTimer);
         self._decelTimer = null;
+        self._ramp = null;
         TM.setSpeed(Math.max(0, endSpeed), true);
         if (rampIncline) TM.setIncline(endIncline, true);
         if (onComplete) onComplete();

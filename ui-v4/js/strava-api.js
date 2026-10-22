@@ -97,6 +97,7 @@
       var a = jget('tr_strava_app', null) || {};
       var cfg = root.TR_STRAVA_CONFIG;
       if (!a.clientId && cfg && cfg.clientId) a = { clientId: String(cfg.clientId), clientSecret: a.clientSecret || '' };
+      if (!a.clientSecret) { try { var st = JSON.parse(lsGet('tr_settings') || '{}') || {}; if (st.stravaClientSecret) a.clientSecret = st.stravaClientSecret; if (!a.clientId && st.stravaClientId) a.clientId = st.stravaClientId; } catch (e) {} }
       return a.clientId ? a : null;
     },
     isConnected: function () { var t = this.tokens(); return !!(t && t.access_token); },
@@ -107,6 +108,13 @@
     authorizeUrl: function () {
       var app = this.app();
       if (!app || !app.clientId) return null;
+      // P0-2: the callback page reads localStorage 'tr_strava_app' directly → persist the EFFECTIVE app
+      // (default public Client ID from strava-config.js + the secret typed in Settings) before leaving the page.
+      try {
+        var st = {}; try { st = JSON.parse(lsGet('tr_settings') || '{}') || {}; } catch (e0) {}
+        var saved = jget('tr_strava_app', null) || {};
+        lsSet('tr_strava_app', JSON.stringify({ clientId: app.clientId, clientSecret: app.clientSecret || saved.clientSecret || st.stravaClientSecret || '' }));
+      } catch (e1) {}
       lsSet('tr_strava_scope_requested', this.SCOPES);
       var state = 'tr' + Math.random().toString(36).slice(2, 10);
       lsSet('tr_strava_oauth_state', state);

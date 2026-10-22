@@ -47,6 +47,8 @@ var VideoWin = {
   // ── Open / close / minimise ─────────────────────────────────────────────
 
   open: function() {
+    // on the treadmill (native split) there is no paste-link UI: the menu item just opens YouTube
+    if (typeof App !== 'undefined' && App.videoSplitSupported && App.videoSplitSupported()) { App.openVideo(); return; }
     if (!this.el) return;
     if (!this._pos) this._defaultPos();
     this.el.classList.add('show');
@@ -137,6 +139,12 @@ var VideoWin = {
     if (f) { try { f.src = 'about:blank'; } catch (e) {} f.parentNode.removeChild(f); }
     if (this.setup) this.setup.style.display = 'none';
     var isAndroid = /Android/i.test(navigator.userAgent || '');
+    // audit P1-h: with the native split available, never navigate the app away (Back is ignored by the wrapper)
+    if (typeof App !== 'undefined' && App.videoSplitSupported && App.videoSplitSupported()) {
+      var a0 = this.fallback.querySelector('.vf-open');
+      if (a0) { a0.href = '#'; a0.onclick = function (ev) { ev.preventDefault(); App.openNativeVideo('https://m.youtube.com/watch?v=' + id); }; a0.textContent = '▶ OPEN IN YOUTUBE (SPLIT SCREEN)'; }
+      this.fallback.classList.add('show'); this._setTitle('VIDEO UNAVAILABLE'); return;
+    }
     var href = isAndroid
       ? 'intent://www.youtube.com/watch?v=' + id + '#Intent;scheme=https;package=com.google.android.youtube;end'
       : 'https://www.youtube.com/watch?v=' + id;
@@ -185,13 +193,16 @@ var VideoWin = {
   saveFav: function(i) {
     var id = this.parseId(this.input ? this.input.value : '') || this._currentId;
     if (!id) { this._hint('Paste a link first, then tap a slot to save it'); return; }
-    var title = '';
-    try { title = window.prompt('Name this favourite', 'Video ' + (i + 1)) || ''; } catch (e) {}
-    if (!title) title = 'Video ' + (i + 1);
-    var favs = this.getFavs();
-    favs[i] = { id: id, title: title.slice(0, 40) };
-    this._saveFavs(favs);
-    this.renderFavs();
+    var self = this;
+    var done = function (title) {
+      if (!title) title = 'Video ' + (i + 1);
+      var favs = self.getFavs();
+      favs[i] = { id: id, title: title.slice(0, 40) };
+      self._saveFavs(favs);
+      self.renderFavs();
+    };
+    if (typeof UI !== 'undefined' && UI.prompt) UI.prompt('Name this favourite', 'Video ' + (i + 1)).then(function (t) { if (t !== null) done(t); });
+    else done('');
   },
 
   removeFav: function(i) {
