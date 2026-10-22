@@ -1923,9 +1923,23 @@ const App = {
   _scaleViewport() {
     const root = document.getElementById('rootApp');
     if (!root) return;
-    const sx = window.innerWidth / 1920;
-    const sy = window.innerHeight / 1080;
-    const scale = Math.min(sx, sy);
+    // Design width is 1920; design HEIGHT follows the real window. The X32i's in-app WebView is
+    // 1920x1000 CSS px (the ROM's 80px nav bar sits below the window), the PC is 1920x1080.
+    // scale = fit-to-width, limited so at least DESIGN_MIN_H design px fit vertically; the root then
+    // gets the height that exactly fills the window (1000 on the treadmill, 1080 on the PC), capped
+    // at DESIGN_MAX_H so a tall/portrait window (phone) letterboxes instead of stretching the layout.
+    const DESIGN_W = 1920, DESIGN_MIN_H = 1000, DESIGN_MAX_H = 1080;
+    const scale = Math.min(window.innerWidth / DESIGN_W, window.innerHeight / DESIGN_MIN_H);
+    const rootH = Math.round(Math.max(DESIGN_MIN_H, Math.min(DESIGN_MAX_H, window.innerHeight / scale)));
+    if (root.style.height !== rootH + 'px') {
+      root.style.height = rootH + 'px';
+      // let canvases / Leaflet / the video window re-measure after the height change
+      setTimeout(function() {
+        try { if (typeof MapView !== 'undefined') MapView.invalidateSize(); } catch (e) {}
+        try { if (typeof VideoWin !== 'undefined' && VideoWin.el && VideoWin._pos) { VideoWin._clamp(); VideoWin._apply(); } } catch (e) {}
+      }, 50);
+    }
+    this._rootH = rootH;
     this._scale = scale; // used by VideoWin to convert touch deltas into root px
     // Use CSS zoom instead of transform: scale() — Android 7 WebView has
     // broken touch coordinates with CSS transforms (taps miss their targets)

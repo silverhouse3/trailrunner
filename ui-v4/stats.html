@@ -18,7 +18,7 @@
 html { background: var(--bg); }
 body { background: var(--bg); color: var(--text); font-family: var(--font); padding: 20px 24px 60px; font-size: 16px; line-height: 1.35; }
 /* On the 32" treadmill screen (and any wide display) scale the whole page up so inline px sizes in the chart code stay legible */
-@media (min-width: 1500px) { body { zoom: 1.55; } }
+@media (min-width: 1500px) { body { zoom: 1.55; } .st-top, .rd-top { padding-left: 80px; } /* ROM back-arrow safe zone (110 px / 1.55) */ }
 a { color: var(--cyan); text-decoration: none; }
 button { font-family: inherit; cursor: pointer; }
 

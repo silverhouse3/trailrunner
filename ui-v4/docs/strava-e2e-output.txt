@@ -1,9 +1,9 @@
-Strava e2e 2026-10-22T13:02:36.675Z (viewport 1920x1080, app http://localhost:8099/?strava=localhost:8098)
+Strava e2e 2026-10-22T13:50:16.553Z (viewport 1920x1080, app http://localhost:8099/?strava=localhost:8098)
 PASS  start (no route): #rootApp.routeless and every [data-needs-route] element hidden  [14 elements]
 PASS  start (no route): no race bar, no racer dots, no Strava line when no route  [{"bar":false,"dots":0,"racers":0,"line":0}]
 PASS  mock override active (?strava=localhost:8098) and not yet connected
 PASS  old "Auto-Upload" toggle is gone from Settings
-PASS  authorize request carried state + scopes incl. activity:read_all, activity:write, read_all  [code=mockcode&scope=read,read_all,activity:read_all,activity:write&state=trtj8fe2r7]
+PASS  authorize request carried state + scopes incl. activity:read_all, activity:write, read_all  [code=mockcode&scope=read,read_all,activity:read_all,activity:write&state=trmykee7jt]
 PASS  callback stored tokens with the granted scope  [read,read_all,activity:read_all,activity:write / Soph]
 PASS  callback checked the state and cleared it
 PASS  Strava pill shows on Home when connected
@@ -18,17 +18,17 @@ PASS  pool mixes the treadmill run and Strava runs  [treadmill,strava,strava,str
 PASS  live position dot (blue) is on the map alongside the racers
 INFO  legend chips: F:rgb(62, 232, 159) A:rgb(255, 213, 74) S:rgb(255, 77, 77) YOU:rgb(55, 208, 255)
 PASS  race bar does not overlap metric strip, edge controls, run controls or the video window (default position)  []
-PASS  video window clamped inside the view zone at corner 0/0 (clear of race bar, STOP/PAUSE row, metric strip)  [video y 336-768, zone 336-832, bar 272-336]
-PASS  video window clamped inside the view zone at corner max/0 (clear of race bar, STOP/PAUSE row, metric strip)  [video y 336-768, zone 336-832, bar 272-336]
-PASS  video window clamped inside the view zone at corner 0/max (clear of race bar, STOP/PAUSE row, metric strip)  [video y 400-832, zone 336-832, bar 272-336]
-PASS  video window clamped inside the view zone at corner max/max (clear of race bar, STOP/PAUSE row, metric strip)  [video y 400-832, zone 336-832, bar 272-336]
+PASS  video window clamped inside the view zone at corner 0/0 (clear of race bar, STOP/PAUSE row, metric strip)  [video y 320-752, zone 320-844, bar 256-320]
+PASS  video window clamped inside the view zone at corner max/0 (clear of race bar, STOP/PAUSE row, metric strip)  [video y 320-752, zone 320-844, bar 256-320]
+PASS  video window clamped inside the view zone at corner 0/max (clear of race bar, STOP/PAUSE row, metric strip)  [video y 412-844, zone 320-844, bar 256-320]
+PASS  video window clamped inside the view zone at corner max/max (clear of race bar, STOP/PAUSE row, metric strip)  [video y 412-844, zone 320-844, bar 256-320]
 PASS  legacy Sync.autoSync is a no-op (returns false, uploads nothing)
 PASS  mock Strava has received 0 uploads so far
-INFO  samples [{"t":8,"d":6,"spd":5.9,"gaps":"-0:05/-0:03/-0:02","inc":11.862071384477265,"tgt":12,"cooldown":false,"status":"running","hr":75},{"t":42,"d":116,"spd":12,"gaps":"+0:07/+1:02/+1:24","inc":11.990957685616474,"tgt":12,"cooldown":false,"status":"running","hr":154}] bridge {"workoutState":"RUNNING","workoutId":"mock-mvjjwvho","safetyKeyOut":false,"kph":12,"targetKph":12,"incline":12,"targetIncline":12,"hr":154,"hrOverride":null,"d
-PASS  the mock belt ran: distance advances  [6 m -> 116 m]
-PASS  blue live dot moved along the route  [1.73e-3 / 1.66e-3]
+INFO  samples [{"t":8,"d":6,"spd":6.9,"gaps":"-0:05/-0:02/-0:01","inc":7.2,"tgt":12,"cooldown":false,"status":"running","hr":77},{"t":42,"d":115,"spd":12,"gaps":"+0:07/+1:04/+1:26","inc":11.990957685616474,"tgt":12,"cooldown":false,"status":"running","hr":136}] bridge {"workoutState":"RUNNING","workoutId":"mock-mvjlm7kj","safetyKeyOut":false,"kph":12,"targetKph":12,"incline":12,"targetIncline":12,"hr":137,"hrOverride":null,"d
+PASS  the mock belt ran: distance advances  [6 m -> 115 m]
+PASS  blue live dot moved along the route  [1.71e-3 / 1.64e-3]
 PASS  racer dots move by clock time too
-PASS  gaps update live (F/A/S)  [-0:05 -0:03 -0:02 -> +0:07 +1:02 +1:24]
+PASS  gaps update live (F/A/S)  [-0:05 -0:02 -0:01 -> +0:07 +1:04 +1:26]
 PASS  route incline stays inside the -3..+12 clamp (profile max 12.00%, target 11.990957685616474%)
 PASS  while running: race bar clear of STOP/PAUSE row, metric strip and edge controls
 PASS  oval-track wrapper installed (race shown on the oval as well as the map)
@@ -41,15 +41,15 @@ PASS  summary says how many past runs on this route  [Compared with 5 past runs 
 PASS  STOP / summary did not upload anything
 PASS  confirm screen is up and NOTHING was uploaded before the confirm tap (waited 2.5 s)
 PASS  confirm screen has SAVE TO STRAVA and SKIP  [SAVE TO STRAVA:104 SKIP:104]
-PASS  default mode treadmill (no GPS) with the virtual-run-on-route option  [SAVE TO STRAVA? 0:45 TIME 0.13 km DISTANCE +15 m CLIMB 115 AVG HR Cleeve Hill Loop TREADMILL RUN (no map) VIRTUAL RUN ON ROUTE (map) Recommended. Appears as an ]
+PASS  default mode treadmill (no GPS) with the virtual-run-on-route option  [SAVE TO STRAVA? 0:45 TIME 0.13 km DISTANCE +15 m CLIMB 107 AVG HR Cleeve Hill Loop TREADMILL RUN (no map) VIRTUAL RUN ON ROUTE (map) Recommended. Appears as an ]
 PASS  mock received exactly ONE upload after SAVE  [1]
-PASS  upload fields: trainer=1, tcx, sport_type=Run, external_id trailrunner-<run id>  [{"trainer":"1","type":"tcx","sport":"Run","ext":"trailrunner-run_1792674209899","name":"Cleeve Hill Loop (treadmill)"}]
+PASS  upload fields: trainer=1, tcx, sport_type=Run, external_id trailrunner-<run id>  [{"trainer":"1","type":"tcx","sport":"Run","ext":"trailrunner-run_1792677071819","name":"Cleeve Hill Loop (treadmill)"}]
 PASS  TCX has trackpoints and NO GPS positions (treadmill run)
 PASS  success shows "View on Strava"  [View on Strava https://www.strava.com/activities/9100000001]
 PASS  status: Saved to Strava View on Strava
-PASS  upload remembered locally (never offered again, never raced twice)  [{"run_1792674209899":9100000001}]
+PASS  upload remembered locally (never offered again, never raced twice)  [{"run_1792677071819":9100000001}]
 PASS  back on Home after save
-PASS  second run: race still built (5 pooled runs; the just-uploaded run is not raced twice)  [{"d":115.78138888888878,"t":41.748999999999995,"racers":3,"pool":5}]
+PASS  second run: race still built (5 pooled runs; the just-uploaded run is not raced twice)  [{"d":115.39315277777766,"t":41.749,"racers":3,"pool":5}]
 PASS  SKIP path: confirm screen shown, still only the first upload on the mock
 PASS  SKIP uploaded nothing and was remembered for that run  [uploads=1, skipped=1]
 PASS  SKIP did not queue anything for later

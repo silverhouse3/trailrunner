@@ -20,7 +20,8 @@ function post(p, body) {
 (async function () {
   await post('/mock/reset');
   var browser = await pw.chromium.launch();
-  var page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
+  var VPH = parseInt(process.env.VIEWPORT_H || '1000', 10); // 1000 = the X32i in-app WebView (primary target); VIEWPORT_H=1080 for the PC
+  var page = await browser.newPage({ viewport: { width: 1920, height: VPH } });
   var errors = [];
   page.on('pageerror', function (e) { errors.push('pageerror: ' + e.message); });
   page.on('console', function (m) { if (m.type() === 'error') errors.push('console: ' + m.text()); });

@@ -23,9 +23,13 @@ body { color: var(--text); font-family: var(--font); user-select: none; -webkit-
 button { font-family: inherit; color: inherit; cursor: pointer; }
 button:focus, input:focus { outline: none; }
 
-/* Fixed 1920x1080 design surface, scaled by App._scaleViewport (CSS zoom) */
-#rootApp { position: fixed; top: 0; left: 0; width: 1920px; height: 1080px; transform-origin: 0 0;
+/* 1920-wide design surface; the HEIGHT is set by App._scaleViewport from the real window
+   (1000 on the X32i's in-app WebView, 1080 on a PC; 1000 here is only the pre-JS fallback).
+   Scaled with CSS zoom. Everything below sizes vertically from 100%, never from a fixed 1080. */
+#rootApp { position: fixed; top: 0; left: 0; width: 1920px; height: 1000px; transform-origin: 0 0;
   background: var(--bg); overflow: hidden; }
+/* The ROM draws its own back-arrow over the top-left ~95x90 px of every app: keep 110x110 free of controls */
+:root { --rom-safe: 110px; }
 
 /* ── Shared buttons ─────────────────────────────────────────────────────── */
 .icon-btn { min-width: 80px; height: 80px; border-radius: 16px; background: var(--card); border: 2px solid var(--border);
@@ -69,8 +73,8 @@ button:focus, input:focus { outline: none; }
 
 /* ══ HOME ════════════════════════════════════════════════════════════════ */
 .home { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 150; background: var(--bg);
-  display: flex; flex-direction: column; padding: 40px 64px; }
-.home-top { display: flex; align-items: center; height: 96px; }
+  display: flex; flex-direction: column; padding: 24px 48px 24px; }
+.home-top { display: flex; align-items: center; height: 96px; padding-left: calc(var(--rom-safe) - 48px + 16px); /* brand clear of the ROM back-arrow */ }
 .brand { font-size: 40px; font-weight: 900; letter-spacing: .22em; color: var(--text); margin-right: 48px; }
 .brand span { color: var(--cyan); }
 .home-status { flex: 1; display: flex; align-items: center; }
@@ -95,7 +99,7 @@ button:focus, input:focus { outline: none; }
 .home-note { margin-left: auto; font-size: 22px; color: var(--dim); max-width: 760px; text-align: right; }
 
 /* ══ TOPBAR (live) ═══════════════════════════════════════════════════════ */
-.topbar { display: flex; align-items: center; height: 96px; padding: 0 20px; background: var(--surf);
+.topbar { display: flex; align-items: center; height: 96px; padding: 0 20px 0 calc(var(--rom-safe) + 12px); background: var(--surf);
   border-bottom: 2px solid var(--border); position: relative; z-index: 50; }
 .top-title { margin-left: 20px; min-width: 300px; max-width: 520px; }
 .rname { font-size: 30px; font-weight: 800; letter-spacing: .03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -127,7 +131,7 @@ button:focus, input:focus { outline: none; }
 .state-banner.danger .sb-dot { background: #fff; }
 
 /* ══ LAYOUT (live) ═══════════════════════════════════════════════════════ */
-.layout { display: grid; grid-template-columns: 230px 1fr 230px; height: 984px; position: relative; }
+.layout { display: grid; grid-template-columns: 230px 1fr 230px; height: calc(100% - 96px); position: relative; }
 
 /* Edge columns: incline left, speed right */
 .edge { display: flex; flex-direction: column; background: var(--surf); padding: 14px; }
@@ -275,7 +279,8 @@ button:focus, input:focus { outline: none; }
 .focus-menu-panel { position: absolute; top: 0; left: 0; width: 760px; bottom: 0; background: var(--surf); border-right: 2px solid var(--border);
   padding: 20px 24px 40px; overflow-y: auto; transform: translateX(-100%); transition: transform .25s ease; }
 .focus-menu-overlay.show .focus-menu-panel { transform: translateX(0); }
-.fm-head { display: flex; align-items: center; justify-content: space-between; height: 80px; font-size: 30px; font-weight: 900; letter-spacing: .2em; color: var(--mid); margin-bottom: 8px; }
+.fm-head { display: flex; align-items: center; justify-content: space-between; height: 80px; font-size: 30px; font-weight: 900; letter-spacing: .2em; color: var(--mid); margin-bottom: 8px;
+  padding-left: calc(var(--rom-safe) - 24px + 10px); /* "MENU" label clear of the ROM back-arrow */ }
 .fm-section { font-size: 18px; color: var(--dim); letter-spacing: .16em; font-weight: 800; padding: 22px 6px 10px; }
 .fm-grid { display: grid; grid-template-columns: 1fr 1fr; grid-gap: 10px; }
 .fm-item { display: flex; align-items: center; height: 84px; padding: 0 20px; border-radius: 18px; background: var(--card); border: 2px solid var(--border);
@@ -350,6 +355,7 @@ button:focus, input:focus { outline: none; }
 .side-panel { position: absolute; top: 96px; bottom: 0; width: 760px; background: var(--surf); z-index: 170; display: none; flex-direction: column; }
 .side-panel.right { right: 0; border-left: 2px solid var(--border); }
 .side-panel.left { left: 0; top: 0; border-right: 2px solid var(--border); }
+.side-panel.left .side-header { padding-left: calc(var(--rom-safe) + 12px); min-height: 112px; }
 .side-panel.open { display: flex; }
 .side-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 24px; border-bottom: 2px solid var(--border); }
 .side-title { font-size: 28px; font-weight: 900; letter-spacing: .12em; color: var(--cyan); }
@@ -621,3 +627,17 @@ button:focus, input:focus { outline: none; }
 
 /* ══ LEGACY (ids kept for modules; not shown in v4) ══════════════════════ */
 .focus-badges, .zoom-btns { display: none; }
+
+
+/* ══ X32i 1920x1000 FIT (must stay last: overrides the band heights above) ═══
+   The in-app WebView is 1920x1000 CSS px; every vertical band is trimmed a little so
+   the view zone still has room for the race bar + elevation strip at 1000 px. */
+.metric-strip { height: 160px; }
+.run-controls { height: 140px; }
+.fc-btn { height: 104px; }
+.edge-btn { min-height: 200px; }
+.edge-val { min-height: 196px; }
+.home-hero { margin: 20px 0 18px; font-size: 40px; }
+.home-foot { margin-top: 20px; }
+.focus-menu-panel { padding-top: 14px; }
+.finish-btns { height: 140px; }
