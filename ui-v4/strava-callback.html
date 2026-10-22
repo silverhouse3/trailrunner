@@ -59,7 +59,10 @@
   // CSRF check: the state the app generated (StravaApi.authorizeUrl) must come back unchanged.
   // Legacy flow (older app builds) stored no state: accept only when none was stored.
   const expected = lsGet('tr_strava_oauth_state');
-  if (expected && state !== expected) { fail('Security check failed (state mismatch). Start the connection again from TrailRunner Settings.'); return; }
+  // HAND-OFF from a phone/PC: the treadmill's browser is too old to run Strava's login page, so the owner signs in on a
+  // phone with a state starting 'trh' and the callback URL is then opened on the treadmill, which holds the client secret.
+  const handoff = /^trh[A-Za-z0-9]{6,}$/.test(state || '');
+  if (expected && state !== expected && !handoff) { fail('Security check failed (state mismatch). Start the connection again from TrailRunner Settings.'); return; }
   try { localStorage.removeItem('tr_strava_oauth_state'); } catch (e) {}
 
   // Get stored app credentials + optional secret-less token proxy
