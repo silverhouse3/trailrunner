@@ -27,7 +27,8 @@
 
   <div id="success" class="done">
     <p class="success">Connected!</p>
-    <p>Your runs will now auto-sync to Strava.<br>You can close this page.</p>
+    <p>TrailRunner can now read your Strava runs. After each run it asks before saving to Strava.<br>You can close this page.</p>
+    <p class="error" id="scopeNote" style="font-size:13px"></p>
     <p style="font-size:12px;color:#4a5568">Redirecting back to TrailRunner...</p>
   </div>
 
@@ -42,38 +43,53 @@
   const params = new URLSearchParams(window.location.search);
   const code = params.get('code');
   const err = params.get('error');
+  const state = params.get('state');
+  const grantedScope = params.get('scope') || '';
 
-  if (err || !code) {
+  function fail(msg) {
     document.getElementById('loading').style.display = 'none';
     document.getElementById('error').style.display = 'block';
-    document.getElementById('errorMsg').textContent = err || 'No authorization code received.';
+    document.getElementById('errorMsg').textContent = msg;
+  }
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+
+  if (err || !code) { fail(err || 'No authorization code received.'); return; }
+
+  // CSRF check: the state the app generated (StravaApi.authorizeUrl) must come back unchanged.
+  // Legacy flow (older app builds) stored no state: accept only when none was stored.
+  const expected = lsGet('tr_strava_oauth_state');
+  if (expected && state !== expected) { fail('Security check failed (state mismatch). Start the connection again from TrailRunner Settings.'); return; }
+  try { localStorage.removeItem('tr_strava_oauth_state'); } catch (e) {}
+
+  // Get stored app credentials + optional secret-less token proxy
+  let app = null, prefs = {};
+  try { app = JSON.parse(lsGet('tr_strava_app')); } catch (e) {}
+  try { prefs = JSON.parse(lsGet('tr_strava_prefs')) || {}; } catch (e) {}
+  const proxy = (prefs.tokenProxyUrl || '').trim();
+
+  if (!app || !app.clientId || (!app.clientSecret && !proxy)) {
+    fail('Strava credentials not found. Open TrailRunner Settings first.');
     return;
   }
 
-  // Get stored app credentials
-  let app;
+  // Local mock (tests only): TrailRunner remembers ?strava=host:port for this tab; loopback / private LAN hosts only.
+  let tokenUrl = proxy || 'https://www.strava.com/oauth/token';
   try {
-    app = JSON.parse(localStorage.getItem('tr_strava_app'));
-  } catch {}
+    const mh = sessionStorage.getItem('tr_strava_host') || '';
+    const h = mh.split(':')[0];
+    if (mh && (h === 'localhost' || h === '127.0.0.1' || /^10\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h) || /\.local$/.test(h))) {
+      tokenUrl = 'http://' + mh + '/oauth/token';
+    }
+  } catch (e) {}
 
-  if (!app || !app.clientId || !app.clientSecret) {
-    document.getElementById('loading').style.display = 'none';
-    document.getElementById('error').style.display = 'block';
-    document.getElementById('errorMsg').textContent = 'Strava credentials not found. Open TrailRunner Settings first.';
-    return;
-  }
-
-  // Exchange code for tokens
+  // Exchange code for tokens (the secret is only sent when there is no proxy)
   try {
-    const resp = await fetch('https://www.strava.com/oauth/token', {
+    const body = { client_id: app.clientId, code: code, grant_type: 'authorization_code' };
+    if (!proxy && app.clientSecret) body.client_secret = app.clientSecret;
+    const resp = await fetch(tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        client_id: app.clientId,
-        client_secret: app.clientSecret,
-        code: code,
-        grant_type: 'authorization_code',
-      }),
+      body: JSON.stringify(body),
     });
 
     if (!resp.ok) {
@@ -82,11 +98,13 @@
 
     const data = await resp.json();
 
-    // Store tokens
+    // Store tokens + the scope Strava actually granted (she can untick boxes on the consent screen)
+    const scope = grantedScope || data.scope || lsGet('tr_strava_scope_requested') || '';
     localStorage.setItem('tr_strava', JSON.stringify({
       access_token: data.access_token,
       refresh_token: data.refresh_token,
       expires_at: data.expires_at,
+      scope: scope,
       athlete: data.athlete ? {
         id: data.athlete.id,
         firstname: data.athlete.firstname,
@@ -96,16 +114,17 @@
 
     document.getElementById('loading').style.display = 'none';
     document.getElementById('success').style.display = 'block';
+    if (scope && (scope.indexOf('activity:write') < 0 || scope.indexOf('activity:read_all') < 0)) {
+      document.getElementById('scopeNote').textContent = 'Some permissions were not granted (' + scope + '). Reconnect and tick all boxes to read your runs and upload.';
+    }
 
     // Redirect back to TrailRunner after 2 seconds
     setTimeout(() => {
-      window.location.href = './index.html';
+      window.location.href = './ui-v4/index.html';
     }, 2000);
 
   } catch (e) {
-    document.getElementById('loading').style.display = 'none';
-    document.getElementById('error').style.display = 'block';
-    document.getElementById('errorMsg').textContent = e.message;
+    fail(e.message);
   }
 })();
 </script>
