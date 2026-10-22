@@ -17,6 +17,9 @@
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 html { background: var(--bg); }
 body { background: var(--bg); color: var(--text); font-family: var(--font); padding: 20px 24px 60px; font-size: 16px; line-height: 1.35; }
+/* X32i: the ROM paints an 80px bar over the bottom of the window; keep the last content scrollable above it */
+body.rom-bottom { padding-bottom: 160px; }
+body.rom-bottom .run-detail-page { padding-bottom: 160px; }
 /* On the 32" treadmill screen (and any wide display) scale the whole page up so inline px sizes in the chart code stay legible */
 @media (min-width: 1500px) { body { zoom: 1.55; } .st-top, .rd-top { padding-left: 80px; } /* ROM back-arrow safe zone (110 px / 1.55) */ }
 a { color: var(--cyan); text-decoration: none; }
@@ -304,6 +307,12 @@ details.section[open] > summary::after { content: '▴'; }
   <div class="section" id="rdDetail"></div>
 </div>
 
+<script>
+// Same bottom-strip detection as the app (App.safeBottom): ?safeBottom=N / ?rom=1 / X32i in-app WebView UA
+(function(){var v=null;try{var m=/[?&]safeBottom=(\d+)/.exec(location.search);if(m)v=Math.max(0,Math.min(200,parseInt(m[1],10)));else if(/[?&]rom=1\b/.test(location.search))v=80;if(v!=null)sessionStorage.setItem('tr_safe_bottom',String(v));else if(sessionStorage.getItem('tr_safe_bottom')!=null)v=parseInt(sessionStorage.getItem('tr_safe_bottom'),10);}catch(e){}
+if(v==null||isNaN(v)){var ua=navigator.userAgent||'';v=(/Android 7\.1\.2/.test(ua)&&/; wv\)/.test(ua))?80:0;}
+if(v>0){document.body.className+=' rom-bottom';document.documentElement.style.setProperty('--rom-bottom',v+'px');}})();
+</script>
 <script src="js/past-run-splits.js"></script>
 <script src="js/split-compare.js"></script>
 <script src="js/demo-seed.js"></script>

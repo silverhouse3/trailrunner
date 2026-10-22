@@ -28,8 +28,10 @@ button:focus, input:focus { outline: none; }
    Scaled with CSS zoom. Everything below sizes vertically from 100%, never from a fixed 1080. */
 #rootApp { position: fixed; top: 0; left: 0; width: 1920px; height: 1000px; transform-origin: 0 0;
   background: var(--bg); overflow: hidden; }
-/* The ROM draws its own back-arrow over the top-left ~95x90 px of every app: keep 110x110 free of controls */
-:root { --rom-safe: 110px; }
+/* The ROM draws its own back-arrow over the top-left ~95x90 px of every app: keep 110x110 free of controls.
+   It also paints its 80px nav bar OVER the bottom of the window; App.safeBottom() sets --rom-bottom and
+   shortens #rootApp so nothing is laid out under it (body keeps the same dark background beneath). */
+:root { --rom-safe: 110px; --rom-bottom: 0px; }
 
 /* ── Shared buttons ─────────────────────────────────────────────────────── */
 .icon-btn { min-width: 80px; height: 80px; border-radius: 16px; background: var(--card); border: 2px solid var(--border);
@@ -639,5 +641,5 @@ button:focus, input:focus { outline: none; }
 .edge-val { min-height: 196px; }
 .home-hero { margin: 20px 0 18px; font-size: 40px; }
 .home-foot { margin-top: 20px; }
-.focus-menu-panel { padding-top: 14px; }
+.focus-menu-panel { padding-top: 24px; } /* first section label starts below the 110px ROM zone */
 .finish-btns { height: 140px; }

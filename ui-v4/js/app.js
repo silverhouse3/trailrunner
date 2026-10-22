@@ -1920,6 +1920,30 @@ const App = {
     this._updateStateBanner();
   },
 
+  /**
+   * Height (CSS px) of the bottom strip the ROM paints over our window.
+   *   ?safeBottom=N  (0..200) overrides and is remembered for the session (?safeBottom=0 disables)
+   *   ?rom=1         alias for 80
+   *   otherwise 80 when the UA is the X32i's in-app WebView (Android 7.1.2 + "; wv)"), else 0.
+   */
+  safeBottom() {
+    if (this._safeBottom != null) return this._safeBottom;
+    var v = null;
+    try {
+      var m = /[?&]safeBottom=(\d+)/.exec(window.location.search);
+      if (m) v = Math.max(0, Math.min(200, parseInt(m[1], 10)));
+      else if (/[?&]rom=1\b/.test(window.location.search)) v = 80;
+      if (v != null) sessionStorage.setItem('tr_safe_bottom', String(v));
+      else if (sessionStorage.getItem('tr_safe_bottom') != null) v = parseInt(sessionStorage.getItem('tr_safe_bottom'), 10);
+    } catch (e) {}
+    if (v == null || isNaN(v)) {
+      var ua = navigator.userAgent || '';
+      v = (/Android 7\.1\.2/.test(ua) && /; wv\)/.test(ua)) ? 80 : 0;
+    }
+    this._safeBottom = v;
+    return v;
+  },
+
   _scaleViewport() {
     const root = document.getElementById('rootApp');
     if (!root) return;
@@ -1928,9 +1952,16 @@ const App = {
     // scale = fit-to-width, limited so at least DESIGN_MIN_H design px fit vertically; the root then
     // gets the height that exactly fills the window (1000 on the treadmill, 1080 on the PC), capped
     // at DESIGN_MAX_H so a tall/portrait window (phone) letterboxes instead of stretching the layout.
+    // On the real X32i the ROM's 80px nav bar (Quick start / Workout settings / expand) is DRAWN OVER
+    // the bottom of our window instead of shrinking it (innerHeight stays 1080), so a bottom safe strip
+    // is reserved: usable height = innerHeight - safeBottom. See App.safeBottom() for the detection.
     const DESIGN_W = 1920, DESIGN_MIN_H = 1000, DESIGN_MAX_H = 1080;
-    const scale = Math.min(window.innerWidth / DESIGN_W, window.innerHeight / DESIGN_MIN_H);
-    const rootH = Math.round(Math.max(DESIGN_MIN_H, Math.min(DESIGN_MAX_H, window.innerHeight / scale)));
+    const safe = this.safeBottom();
+    const usableH = Math.max(300, window.innerHeight - safe);
+    const scale = Math.min(window.innerWidth / DESIGN_W, usableH / DESIGN_MIN_H);
+    const rootH = Math.round(Math.max(DESIGN_MIN_H, Math.min(DESIGN_MAX_H, usableH / scale)));
+    document.documentElement.style.setProperty('--rom-bottom', safe + 'px');
+    document.body.style.background = 'var(--bg)'; // the strip under the root shows the same dark background
     if (root.style.height !== rootH + 'px') {
       root.style.height = rootH + 'px';
       // let canvases / Leaflet / the video window re-measure after the height change

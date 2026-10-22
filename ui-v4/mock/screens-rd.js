@@ -1,10 +1,14 @@
 #!/usr/bin/env node
-// Real-device layout test: viewport 1920x1000 (the X32i's in-app WebView; the ROM's 80 px nav bar is
-// below the window) with a 110x110 px top-left zone that the ROM's back-arrow covers.
-// For every screen it saves screens/rd-*.png and asserts that no VISIBLE interactive element
-//   (a) extends beyond the viewport bottom/right, or
-//   (b) intersects the top-left 110x110 zone (the brand text is checked too).
-// Also takes one shot at 1920x1080 and one at a phone viewport to prove those still fit.
+// Real-device layout test. Runs the whole screen tour twice:
+//   A) viewport 1920x1080 with ?safeBottom=80 — what the X32i's in-app WebView REALLY is: innerHeight 1080,
+//      but the ROM paints its 80px nav bar over y=1000..1080, so nothing may end below y=1000;
+//   B) viewport 1920x1000 (a window that is genuinely 1000 px tall).
+// Both have a 110x110 px top-left zone that the ROM's back-arrow covers.
+// For every screen it saves screens/rd-*.png (tour A) / rd1000-*.png (tour B) and asserts that no VISIBLE
+// interactive element and no visible text box
+//   (a) ends below the usable bottom (1000) or beyond the right edge, or
+//   (b) intersects the top-left 110x110 zone.
+// Plus a 1920x1080 PC shot (no strip) and a phone shot.
 //   node mock/screens-rd.js         (both servers must be running: ./start.sh)
 'use strict';
 var path = require('path'), fs = require('fs');
@@ -12,18 +16,29 @@ var pw = require(path.resolve(__dirname, '../../node_modules/playwright'));
 var BASE = process.argv[2] || 'http://localhost:8099/';
 var MOCK = 'http://localhost:4510';
 var OUT = path.resolve(__dirname, '../screens');
-var VW = 1920, VH = 1000, SAFE = 110;
+var VW = 1920, SAFE = 110;
 var fails = [], checks = 0;
+var TOUR = { name: '', vh: 1000, usable: 1000, q: '', prefix: 'rd-' }; // set per tour below
 
 function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 function post(p, body) { return fetch(MOCK + p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) }).then(function (r) { return r.json(); }); }
 function ok(cond, name, detail) { checks++; console.log((cond ? 'PASS  ' : 'FAIL  ') + name + (detail ? '  [' + detail + ']' : '')); if (!cond) fails.push(name + (detail ? ' ' + detail : '')); }
 
-// Bounding boxes of visible interactive elements (+ brand), in viewport px (CSS zoom already applied).
+// Bounding boxes of visible interactive elements (+ brand) AND of every element that carries its own text,
+// in viewport px (CSS zoom already applied).
 var COLLECT = function () {
   var sel = 'button, a[href], input, select, [onclick], .fm-item, .hrow, .route-card, .wb-card, .vs-fav, .brand, .sp-acc-header, .sv-row';
   var out = [], seen = [];
-  var els = document.querySelectorAll(sel);
+  var els = Array.prototype.slice.call(document.querySelectorAll(sel));
+  // text boxes: elements with a non-empty direct text node (labels, values, notes)
+  var all = document.querySelectorAll('body *');
+  for (var a = 0; a < all.length; a++) {
+    var e = all[a];
+    if (/^(SCRIPT|STYLE|CANVAS|SVG|IFRAME)$/.test(e.tagName)) continue;
+    var own = '';
+    for (var c = 0; c < e.childNodes.length; c++) if (e.childNodes[c].nodeType === 3) own += e.childNodes[c].nodeValue;
+    if (own.trim()) els.push(e);
+  }
   for (var i = 0; i < els.length; i++) {
     var el = els[i];
     if (seen.indexOf(el) >= 0) continue; seen.push(el);
@@ -53,31 +68,33 @@ var COLLECT = function () {
 
 async function check(page, name) {
   await sleep(250);
-  await page.screenshot({ path: path.join(OUT, 'rd-' + name + '.png') });
+  await page.screenshot({ path: path.join(OUT, TOUR.prefix + name + '.png') });
   var boxes = await page.evaluate(COLLECT);
   var vp = page.viewportSize();
-  // cut off = sticks out of the viewport while not being inside a scrollable list (a list row crossing the fold is fine)
-  var cut = boxes.filter(function (b) { return b.offscreen || ((b.b > vp.height + 1 || b.r > vp.width + 1) && !b.scrollable); });
+  var usable = TOUR.usable;
+  // cut off = ends below the usable bottom (ROM bar!) or beyond the right edge, unless inside a scrollable list
+  // (a list row crossing the fold is reachable by scrolling)
+  var cut = boxes.filter(function (b) { return b.offscreen || ((b.b > usable + 1 || b.r > vp.width + 1) && !b.scrollable); });
   var zone = boxes.filter(function (b) { return b.l < SAFE && b.t < SAFE; });
   var desc = function (b) { return (b.tag + (b.id ? '#' + b.id : '') + (b.cls ? '.' + b.cls.split(' ')[0] : '') + ' "' + b.text + '" ' + Math.round(b.l) + ',' + Math.round(b.t) + '-' + Math.round(b.r) + ',' + Math.round(b.b)); };
-  ok(cut.length === 0, name + ': no interactive element cut off at ' + vp.width + 'x' + vp.height, cut.map(desc).join(' | '));
-  ok(zone.length === 0, name + ': top-left ' + SAFE + 'x' + SAFE + ' zone free of controls/text', zone.map(desc).join(' | '));
-  console.log('shot rd-' + name + ' (' + boxes.length + ' interactive elements checked)');
+  ok(cut.length === 0, TOUR.name + ' ' + name + ': no control/text ends below y=' + usable + ' (viewport ' + vp.width + 'x' + vp.height + ')', cut.map(desc).join(' | '));
+  ok(zone.length === 0, TOUR.name + ' ' + name + ': top-left ' + SAFE + 'x' + SAFE + ' zone free of controls/text', zone.map(desc).join(' | '));
+  console.log('shot ' + TOUR.prefix + name + ' (' + boxes.length + ' boxes checked)');
 }
 
-(async function () {
+async function tour(browser, errors) {
   await post('/mock/reset');
-  var browser = await pw.chromium.launch();
-  var page = await browser.newPage({ viewport: { width: VW, height: VH } });
-  var errors = [];
+  var page = await browser.newPage({ viewport: { width: VW, height: TOUR.vh } });
   page.on('pageerror', function (e) { errors.push('pageerror: ' + e.message); });
   page.on('console', function (m) { if (m.type() === 'error' && m.text().indexOf('ERR_CONNECTION_REFUSED') < 0) errors.push('console: ' + m.text()); });
+  var Q = TOUR.q; // extra query (e.g. &safeBottom=80), remembered per session by App.safeBottom()
+  var BASE_Q = function (q) { return BASE + q + Q; };
 
-  await page.goto(BASE + '?demo=route', { waitUntil: 'load' });
+  await page.goto(BASE_Q('?demo=route'), { waitUntil: 'load' });
   await page.evaluate(function () { localStorage.removeItem('tr_video_favs'); });
   await sleep(1500);
-  var rootH = await page.evaluate(function () { return { h: document.getElementById('rootApp').offsetHeight, scale: App._scale, inner: innerHeight }; });
-  ok(rootH.h === 1000 && Math.abs(rootH.scale - 1) < 0.001, 'root height follows the 1000 px window (no fixed 1080)', JSON.stringify(rootH));
+  var rootH = await page.evaluate(function () { return { h: document.getElementById('rootApp').offsetHeight, scale: App._scale, inner: innerHeight, safe: App.safeBottom() }; });
+  ok(rootH.h === 1000 && Math.abs(rootH.scale - 1) < 0.001, TOUR.name + ' root ends at y=1000 (innerHeight ' + rootH.inner + ', strip ' + rootH.safe + ')', JSON.stringify(rootH));
   await check(page, '01-home');
 
   // Routes picker + workouts + settings from Home
@@ -91,7 +108,8 @@ async function check(page, name) {
   // Live run on the route with a synthetic 4-racer race bar
   await page.click('.tile-route'); await sleep(400); await page.click('#runRouteBtn'); await sleep(1200);
   await page.click('#fcStart'); await sleep(1200);
-  for (var i = 0; i < 20; i++) { await page.click('.edge-right .edge-btn.up'); await sleep(40); }
+  // speed nudges via the app API (a click can be intercepted if the belt auto-paused while the mock was still at 0)
+  await page.evaluate(function () { if (Engine.run && Engine.run.status === 'paused') App.togglePause(); for (var i = 0; i < 20; i++) App.adjustSpeed(0.5); });
   await sleep(4000);
   var raceOk = await page.evaluate(function () {
     if (typeof StravaRacers === 'undefined' || !Engine.route) return 'no StravaRacers';
@@ -110,7 +128,7 @@ async function check(page, name) {
     return { bar: R('#raceBar'), strip: R('.metric-strip'), ctl: R('.run-controls'), zone: R('.map-zone'), elev: R('#elevStrip'), stop: R('#fcStop') };
   });
   ok(boxes.bar && boxes.bar.h > 0 && boxes.bar.t >= boxes.strip.b - 1 && boxes.bar.b <= boxes.zone.t + 1, 'race bar sits between metric strip and view zone (no overlap)', JSON.stringify(boxes.bar));
-  ok(boxes.stop && boxes.stop.b <= VH && boxes.ctl.b <= VH + 1, 'STOP / run controls fully inside 1000 px', JSON.stringify(boxes.stop));
+  ok(boxes.stop && boxes.stop.b <= TOUR.usable && boxes.ctl.b <= TOUR.usable + 1, 'STOP / run controls end above y=1000', JSON.stringify(boxes.stop));
   ok(boxes.zone && boxes.zone.h >= 300, 'view zone keeps >= 300 px with race bar + elevation strip', 'zone h=' + Math.round(boxes.zone.h));
 
   // Video window open (default position) + presets + more stats
@@ -126,8 +144,8 @@ async function check(page, name) {
 
   // Summary with km splits (fast-forwarded) + comparison vs demo runs
   await page.evaluate(function () { StravaRacers.legend.hide(); StravaRacers.active = null; });
-  await page.goto(BASE + 'stats.html?demo=1', { waitUntil: 'load' }); await sleep(800);
-  await page.goto(BASE + '?demo=route', { waitUntil: 'load' }); await sleep(1200);
+  await page.goto(BASE_Q('stats.html?demo=1'), { waitUntil: 'load' }); await sleep(800);
+  await page.goto(BASE_Q('?demo=route'), { waitUntil: 'load' }); await sleep(1200);
   await page.click('.tile-route'); await sleep(400); await page.click('#runRouteBtn'); await sleep(1200);
   await page.click('#fcStart'); await sleep(2500);
   await page.evaluate(function () {
@@ -141,10 +159,24 @@ async function check(page, name) {
   await page.evaluate(function () { App.discardRun(); }); await sleep(600);
 
   // Stats page (zoomed body) + run detail
-  await page.goto(BASE + 'stats.html?demo=1', { waitUntil: 'load' }); await sleep(1000); await check(page, '15-stats');
+  await page.goto(BASE_Q('stats.html?demo=1'), { waitUntil: 'load' }); await sleep(1000); await check(page, '15-stats');
   await page.evaluate(function () { openRunDetail(0); }); await sleep(600); await check(page, '16-stats-run-detail');
 
-  // Other viewports still fit: 1920x1080 (PC) and a phone
+  await page.close();
+}
+
+(async function () {
+  var browser = await pw.chromium.launch();
+  var errors = [];
+
+  // Tour A: the real X32i — 1920x1080 window, ROM bar painted over y=1000..1080 → ?safeBottom=80
+  TOUR = { name: '[1080+strip]', vh: 1080, usable: 1000, q: '&safeBottom=80', prefix: 'rd-' };
+  await tour(browser, errors);
+  // Tour B: a window that is genuinely 1920x1000 (no strip)
+  TOUR = { name: '[1000]', vh: 1000, usable: 1000, q: '&safeBottom=0', prefix: 'rd1000-' };
+  await tour(browser, errors);
+
+  // Other viewports still fit: 1920x1080 PC (no strip) and a phone
   var pc = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
   await pc.goto(BASE, { waitUntil: 'load' }); await sleep(1200);
   var pcH = await pc.evaluate(function () { return document.getElementById('rootApp').offsetHeight; });

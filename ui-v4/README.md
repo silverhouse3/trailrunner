@@ -299,32 +299,42 @@ Nothing uploads automatically any more.
 * TrackView's mini elevation profile / grade used `{dist: km, elev}` but was fed
   Engine's `{dist: m, ele}` → the profile was always a single point. Converted in app.js.
 
-## Round 4 — real-device fit (X32i in-app WebView, 1920×1000) and the ROM's back-arrow
+## Round 4 — real-device fit (X32i in-app WebView) and the ROM's back-arrow / nav bar
 
-Findings from the treadmill: the app window is **1920×1000 CSS px** (the ROM's 80 px nav bar
-sits below the window and cannot be hidden), and the ROM draws a **back-arrow over the
-top-left ~95×90 px** of every app.
+Findings from the treadmill: the window reports **1920×1080** but the ROM **paints its 80 px
+nav bar (Quick start / Workout settings / expand) over y = 1000..1080** instead of shrinking
+the window, and draws a **back-arrow over the top-left ~95×90 px** of every app.
 
-* **No fixed 1080 anywhere.** `App._scaleViewport()` scales to fit the width (1920) with at
-  least 1000 design px vertically, then sets `#rootApp`'s height to exactly fill the window
-  (1000 on the treadmill, 1080 on a PC, capped 1000–1080; a phone letterboxes). `.layout`
-  is `calc(100% - 96px)`; every band is flex/percentage. The fixed-height bands were trimmed
-  (metric strip 160, run controls 140, edge buttons 200 min) so at 1000 px the view zone
-  still keeps ≥ 300 px with the race bar + elevation strip showing (444 px measured).
+* **Bottom safe strip** — `App.safeBottom()` returns the height of that painted-over strip:
+  `?safeBottom=N` (0..200, remembered for the session; `?safeBottom=0` disables), `?rom=1`
+  (alias for 80), otherwise **80 when the UA matches `/Android 7\.1\.2/` and `/; wv\)/`**
+  (the in-app WebView), else 0. On a PC/phone nothing is reserved. Test on a PC with a
+  1920×1080 window and `?safeBottom=80`. The same detection runs in stats.html (adds
+  160 px bottom padding so the last content scrolls above the bar).
+* **No fixed 1080 anywhere.** `App._scaleViewport()`: usable height = innerHeight − strip;
+  scale fits the width (1920) with at least 1000 design px; `#rootApp` is then given exactly
+  the usable height (1000 on the treadmill, 1080 on a PC, capped 1000–1080; a phone
+  letterboxes). The body keeps the same dark background so the strip under the root is not a
+  visible band; no control or text is laid out in it (everything, incl. STOP/controls, race
+  bar, video-window clamp zone, menu/settings/summary rows, ends above y = 1000). `.layout` is
+  `calc(100% - 96px)`; the fixed bands were trimmed (metric strip 160, run controls 140, edge
+  buttons 200 min) so the view zone still keeps ≥ 300 px with the race bar + elevation strip.
 * **110×110 top-left safe zone** (`--rom-safe`): the Home brand, the live top bar (MENU
   button), the slide-out menu's "MENU" label, the ghost/history side panel header, the Strava
   screen header and stats.html's BACK buttons are all pushed right of 110 px; nothing is
   placed there. (The incline column's `+` starts at y = 110.)
-* **Test**: `node mock/screens-rd.js` runs at 1920×1000, saves `screens/rd-*.png` (home,
-  routes, live ready, workouts, settings, running with a synthetic **4-racer race bar**,
-  video window, more-stats + presets, menu, ghost history, splits, pause, cool-down, summary
-  with km splits, stats, stats run detail, plus a 1920×1080 and a phone shot) and asserts for
-  every visible interactive element: not cut off by the viewport bottom/right (elements inside
-  scrollable lists are allowed to continue below the fold) and not intersecting the top-left
-  110×110 zone; plus race bar between metric strip and view zone, STOP inside 1000 px, root
-  height = 1000 / 1080, phone fits. **40/40 checks pass.** `mock/screens.js` now defaults to
-  the 1000 px viewport (`VIEWPORT_H=1080` for the PC); Strava `strava-test.js` (86/86) and
-  `strava-e2e.js` (58/58) still pass.
+* **Test**: `node mock/screens-rd.js` tours every screen twice — **A)** 1920×1080 with
+  `?safeBottom=80` (what the device really is) → `screens/rd-*.png`, **B)** a genuine
+  1920×1000 window → `screens/rd1000-*.png` — home, routes, live ready, workouts, settings,
+  running with a synthetic **4-racer race bar**, video window, more-stats + presets, menu,
+  ghost history, splits, pause, cool-down, summary with km splits, stats, stats run detail;
+  plus a 1920×1080 PC shot (no strip) and a phone shot. For every visible interactive element
+  **and every text box** it asserts: bottom ≤ 1000 and right ≤ 1920 (rows inside scrollable
+  lists may continue below the fold) and no intersection with the top-left 110×110 zone; plus
+  race bar between metric strip and view zone, STOP above y = 1000, root height 1000 / 1080,
+  phone fits, no page errors. **77/77 checks pass.** `mock/screens.js` defaults to the 1000 px
+  viewport (`VIEWPORT_H=1080` for the PC); Strava `strava-test.js` (86/86) and `strava-e2e.js`
+  (58/58) still pass.
 
 ## Known gaps / not verified
 * Not yet tested on the treadmill's Android 7.1.2 WebView. CSS avoids flex `gap`,
