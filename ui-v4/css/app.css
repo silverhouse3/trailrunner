@@ -900,3 +900,6 @@ button:focus, input:focus { outline: none; }
 .hr-btn.hr-again { margin-right: 12px; border-color: var(--cyan); color: var(--cyan); }
 #rootApp.half .ra-card { width: 900px; min-width: 0; }
 #rootApp.half .ra-card .fc-btn { min-width: 0; font-size: 24px; padding: 0 24px; }
+
+/* strip buttons: no clipping on the 56px strip */
+#rootApp.strip .rb-btn, .live-strip .rb-btn { line-height: 1; white-space: nowrap; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; }
