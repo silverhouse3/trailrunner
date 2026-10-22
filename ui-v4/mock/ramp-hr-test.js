@@ -19,7 +19,7 @@ globalThis.navigator = { userAgent: 'node' };
   var sent = [];
   TM._send = function (o) { if (o && o.values && o.values.KPH !== undefined) sent.push(o.values.KPH); };
   TM.connected = true; TM._stepMs = 40;
-  function reset() { TM._cancelRamp(); TM._sentSpeed = -1; TM._beltKph = 0; TM._lastSpeed = -1; TM._estopActive = false; sent.length = 0; }
+  function reset() { TM.connected = true; TM.markUserTap(); TM.startWorkout(); /* what App.userStart + START do */ TM._cancelRamp(); TM._sentSpeed = -1; TM._beltKph = 0; TM._lastSpeed = -1; TM._estopActive = false; sent.length = 0; }
 
   reset(); TM.setSpeed(10);
   ok(sent.length === 1 && sent[0] <= 1.0 + 1e-9, 'big raise 0 -> 10: first command is only one step (default 1.0 kph)', JSON.stringify(sent));
@@ -63,6 +63,17 @@ globalThis.navigator = { userAgent: 'node' };
   rateSettings.speedRateKph = 1; delete globalThis.Store;
 
   // ── B: Strava HR in the single stream call ─────────────────────────
+  // STOP is never refused by any guard (not started / e-stop latched / after reconnect / mid-ramp)
+  reset(); TM._sessionStarted = false; TM._userStartedAt = 0; TM._userTapAt = 0; TM._beltKph = 8; TM.setSpeed(0);
+  ok(sent[sent.length - 1] === 0, 'STOP (speed 0) goes out even when no START was tapped this session', JSON.stringify(sent));
+  reset(); TM.setSpeed(0); TM.emergencyStop(); sent.length = 0; TM.setSpeed(0);
+  ok(sent[sent.length - 1] === 0, 'STOP (speed 0) goes out even while the e-stop latch is set', JSON.stringify(sent));
+  reset(); TM.connected = false; TM.connected = true; TM._sessionStarted = false; TM.setSpeed(0);
+  ok(sent[sent.length - 1] === 0, 'STOP goes out right after a reconnect (session flag cleared)', JSON.stringify(sent));
+  reset(); TM.setSpeed(12); await wait(50); sent.length = 0; TM.setSpeed(0); var n3 = sent.length; await wait(40 * 5);
+  ok(sent[0] === 0 && sent.length === n3 && !TM._rampTimer, 'STOP mid-ramp goes out at once and cancels the ramp', JSON.stringify(sent));
+  reset(); TM.stopWorkout(); var stopSent = true; TM._send = (function (o) { return function (m) { if (m && m.action === 'stop') stopSent = 'ok'; return o(m); }; })(TM._send);
+  TM.stopWorkout(); ok(stopSent === 'ok', 'stopWorkout() always sends the stop command', String(stopSent));
   console.log('\n== B. Strava: heart rate per km from the same streams call');
   vm.runInThisContext(fs.readFileSync(path.join(UI, 'js/storage.js'), 'utf8'), { filename: 'storage.js' });
   globalThis.Store = vm.runInThisContext('Store');

@@ -27,7 +27,7 @@ var TM = ctx.TM;
 var sent = [];
 TM._send = function (o) { if (o && o.values && o.values.KPH !== undefined) sent.push({ t: NOW, k: o.values.KPH }); };
 TM.connected = true;
-function reset(belt) { TM._cancelRamp(); TM._sentSpeed = -1; TM._beltKph = belt || 0; TM._lastSpeed = -1; TM._estopActive = false; TM._hist = []; TM._lastSendT = 0; TM.cmdLog.length = 0; sent.length = 0; timers = []; }
+function reset(belt) { TM.markUserTap(); TM.startWorkout(); /* simulate the user START tap (App.userStart) */ TM._cancelRamp(); TM._sentSpeed = -1; TM._beltKph = belt || 0; TM._lastSpeed = -1; TM._estopActive = false; TM._hist = []; TM._lastSendT = 0; TM.cmdLog.length = 0; sent.length = 0; timers = []; }
 /** worst change of commanded speed over any sliding 1000 ms window (also vs the pre-existing belt speed) */
 function maxPerSecond(startKph) {
   var pts = [{ t: sent.length ? sent[0].t - 1000 : NOW, k: startKph }].concat(sent);

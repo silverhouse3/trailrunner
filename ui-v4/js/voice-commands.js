@@ -164,7 +164,7 @@ window.VoiceCommands = (function() {
     // ── Workout control ──
     if (matches(text, ['start', 'go', 'start running', 'begin', 'let\'s go', 'start workout'])) {
       showFeedback('▶ Starting', 'success');
-      if (typeof App !== 'undefined' && App.startRun) App.startRun();
+      showFeedback('Tap START on the screen — voice cannot start the belt', 'warn');
       return;
     }
     if (matches(text, ['stop', 'finish', 'end', 'stop workout', 'done', 'finished'])) {
@@ -179,7 +179,7 @@ window.VoiceCommands = (function() {
     }
     if (matches(text, ['resume', 'continue', 'unpause', 'carry on', 'keep going'])) {
       showFeedback('▶ Resuming', 'success');
-      if (typeof App !== 'undefined' && App.resumeRun) App.resumeRun();
+      showFeedback('Tap RESUME on the screen — voice cannot restart the belt', 'warn');
       return;
     }
 

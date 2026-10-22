@@ -520,6 +520,15 @@ const App = {
       }).catch(() => {});
     }
 
+    // SAFETY: a run saved as running/paused by any build is never resumed on load — the user must tap START.
+    try {
+      ['tr_active_run', 'tr_activeRun', 'tr_run_in_progress'].forEach((k) => {
+        if (localStorage.getItem(k)) { localStorage.removeItem(k); this._restoredNote = true; }
+      });
+    } catch (e) {}
+    this._safetyTimer = setInterval(() => this._updateSafetyBanners(), 500);
+    this._updateSafetyBanners();
+
     // ── Auto-connect to treadmill bridge on boot (connect only, no workout start)
     this._autoConnectBridge(false);
 
@@ -669,6 +678,31 @@ const App = {
   },
 
   /** The unmistakable STOPPED / RUNNING banner — reflects the REAL bridge state. */
+  /** Red BELT ACTIVE banner (belt started elsewhere) + 'run restored' note. Read-only, sends nothing. */
+  _updateSafetyBanners() {
+    var root = document.getElementById('rootApp') || document.body;
+    if (!root) return;
+    function mk(id, css, html) {
+      var el = document.getElementById(id);
+      if (!el) { el = document.createElement('div'); el.id = id; el.style.cssText = css; el.innerHTML = html; root.appendChild(el); }
+      return el;
+    }
+    var rb = mk('restoredBanner', 'position:fixed;top:0;left:0;right:0;z-index:100000;background:#b45309;color:#fff;font-weight:800;text-align:center;padding:10px;display:none;', 'Run restored - tap START to continue');
+    rb.style.display = this._restoredNote ? 'block' : 'none';
+    var eb = mk('beltElsewhereBanner', 'position:fixed;top:0;left:120px;right:0;z-index:100001;background:#dc2626;color:#fff;font-weight:900;text-align:center;padding:14px;font-size:22px;display:none;', 'BELT ACTIVE - started elsewhere <button id="beltElsewhereStop" onclick="App.stopElsewhere()" style="margin-left:20px;font-size:24px;font-weight:900;padding:10px 40px;background:#fff;color:#dc2626;border:0;border-radius:8px;">STOP</button>');
+    var rs = Engine.run && Engine.run.status;
+    var ours = rs === 'running' || rs === 'finished' || rs === 'stopping'; // this page is showing a run/summary: the belt is ours until the bridge settles
+    eb.style.display = (!ours && TM.beltActiveElsewhere()) ? 'block' : 'none';
+  },
+
+  /** STOP for a belt this page did not start. Sends stop/zero only. */
+  stopElsewhere() {
+    TM._sessionStarted = true; // let setSpeed(0) / stop through; stopWorkout() clears it again
+    TM.setSpeed(0, true);
+    TM.stopWorkout();
+    this._updateSafetyBanners();
+  },
+
   _updateStateBanner() {
     var b = document.getElementById('stateBanner');
     var t = document.getElementById('stateBannerText');
@@ -770,7 +804,15 @@ const App = {
   // RUN LIFECYCLE
   // ════════════════════════════════════════════════════════════════════════════
 
+  /** The ONE entry for anything that may start/resume the belt: records the user tap TM.startWorkout checks. */
+  userStart() {
+    TM.markUserTap();
+    this._restoredNote = false;
+    this._updateSafetyBanners();
+  },
+
   startRun() {
+    this.userStart();
     // ui-v4: this is the ONLY place the belt is started, and only from the big
     // green START tap. Everything else (home tiles, route/workout pickers) just arms.
     document.getElementById('setupOverlay').style.display = 'none';
@@ -927,7 +969,7 @@ const App = {
       // Already connected — just start workout if requested and needed
       if (startWorkout && TM.workoutState === 'IDLE') {
         console.log('[App] Starting workout (already connected)');
-        TM.startWorkout();
+        TM.startWorkout(); // refused unless a START tap just happened
       }
       return;
     }
@@ -940,10 +982,7 @@ const App = {
       var self = this;
       TM.onConnect = function(port) {
         if (baseOnConnect) baseOnConnect(port);
-        if (self._pendingStartWorkout && TM.workoutState === 'IDLE') {
-          console.log('[App] Auto-starting workout on bridge');
-          TM.startWorkout();
-        }
+        // SAFETY: connect handlers only READ state — never start a workout here.
         self._pendingStartWorkout = false;
       };
     }
@@ -974,6 +1013,7 @@ const App = {
       if (pm) pm.textContent = 'Belt stopping · timer paused · route holding position';
       document.getElementById('pauseOverlay').classList.add('show');
     } else if (Engine.run.status === 'paused') {
+      this.userStart();
       if (TM._estopActive) TM.clearEstop(); // explicit user resume after an e-stop
       Engine.resumeRun();
       document.getElementById('pauseOverlay').classList.remove('show');
@@ -996,7 +1036,10 @@ const App = {
 
   /** STOP button rule: zero the belt at once (never rate-limited), cancel any ramp, then show the summary. */
   stopNow() {
-    if (!Engine.run || Engine.run.status === 'ready') { TM.setSpeed(0, true); return; }
+    // SAFETY: STOP always zeroes the belt first, whatever the app believes about the run (it may already show
+    // 'finished' or 'ready' while the belt is still moving, e.g. started elsewhere or still decelerating).
+    TM.setSpeed(0, true);
+    if (!Engine.run || Engine.run.status === 'ready') return;
     this.finishRun(true);
   },
 

@@ -504,10 +504,12 @@ var TM = {
    *  Bridge handles rate limiting (4 kph/s, 100ms min interval).
    *  PWA only dedup-filters to avoid redundant network traffic. */
   setSpeed: function(kmh, force, source) {
-    if (this._estopActive) return; // SAFETY: e-stop blocks all speed commands
-    if (!this.connected) return;
     var kph = +(+kmh).toFixed(1);
+    // SAFETY: e-stop blocks speed commands > 0 only; a speed-0 request is NEVER refused by any guard
+    if (this._estopActive && !(kph === 0)) return;
+    if (!this.connected) return;
     if (isNaN(kph)) return;
+    if (kph > 0 && !this._sessionStarted) { console.warn('[TM] setSpeed(' + kph + ') REFUSED — no user START this session'); return; }
     source = source || 'app';
     // SAFETY: clamp to the machine maximum (bridge /api/console max_kph, else X32i 19.3) AND the user's
     // configured 'Maximum speed' (Settings). A clipped request is reported so the UI can say so.
@@ -636,6 +638,7 @@ var TM = {
     if (this._estopActive) return; // SAFETY: e-stop blocks all incline commands
     if (!this.connected) return;
     if (isNaN(pct)) return;
+    if (!this._sessionStarted) { console.warn('[TM] setIncline(' + pct + ') REFUSED — no user START this session'); return; }
     var clamped = Math.max(-6, Math.min(40, pct));
     var rounded = Math.round(clamped * 2) / 2;
     // DEDUP: skip if value unchanged
@@ -697,8 +700,30 @@ var TM = {
   _expectRunning: false,
 
   /** Start a new manual workout — spins up the belt motor. */
+  /** SAFETY: the belt only starts from a direct user tap. App.userStart()/togglePause set _userTapAt. */
+  _userTapAt: 0,
+  _userStartedAt: 0,
+  _sessionStarted: false,
+  _lastStopAt: 0,
+  _blockedStarts: 0,
+  markUserTap: function() { this._userTapAt = Date.now(); this._userStartedAt = this._userTapAt; },
+  _tapFresh: function() { return this._userTapAt > 0 && (Date.now() - this._userTapAt) < 5000; },
+  /** True when the bridge reports a moving/open workout this page session did not start. */
+  beltActiveElsewhere: function() {
+    if (!this.connected || this._sessionStarted) return false;
+    // a page session that sent a user START owns the belt (incl. deceleration after STOP/finish)
+    if (this._userStartedAt > 0) return false;
+    if (this._lastStopAt && Date.now() - this._lastStopAt < 30000) return false;
+    return this.workoutState === 'RUNNING' || this._beltKph > 0.5;
+  },
   startWorkout: function() {
+    if (!this._tapFresh()) {
+      this._blockedStarts++;
+      console.warn('[TM] startWorkout REFUSED — no START/RESUME tap in the last 5 s');
+      return;
+    }
     console.log('[TM] Starting workout...');
+    this._sessionStarted = true;
     this._expectRunning = true;
     this._send({ type: 'workout', action: 'start' });
   },
@@ -707,6 +732,8 @@ var TM = {
   stopWorkout: function() {
     console.log('[TM] Stopping workout...');
     this._expectRunning = false;
+    this._sessionStarted = false;
+    this._lastStopAt = Date.now();
     this._send({ type: 'workout', action: 'stop' });
   },
 
@@ -719,7 +746,13 @@ var TM = {
 
   /** Resume a paused workout. */
   resumeWorkout: function() {
+    if (!this._tapFresh() && !this._sessionStarted) {
+      this._blockedStarts++;
+      console.warn('[TM] resumeWorkout REFUSED — no RESUME tap and no session start');
+      return;
+    }
     console.log('[TM] Resuming workout...');
+    this._sessionStarted = true;
     this._expectRunning = true;
     this._send({ type: 'workout', action: 'resume' });
   },
