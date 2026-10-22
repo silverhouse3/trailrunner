@@ -127,7 +127,7 @@ const SettingsPanel = {
   },
 
   _tabControlsBody(s) {
-    const speedUnit = s.speedButtonUnit || 'mph';
+    const speedUnit = Units.buttonUnit();
     const speedMode = s.speedButtonMode || 'custom';
     const customs = s.customSpeeds || [4, 5, 6, 7, 8, 10];
     const incMode = s.inclineButtonMode || 'default';
@@ -139,7 +139,7 @@ const SettingsPanel = {
       <div class="sp-row">
         <span class="sp-label">Unit</span>
         <div class="sp-radio-group">
-          ${['mph','kph','min/mi','min/km'].map(u =>
+          ${(Units.imp() ? ['mph','min/mi'] : ['kph','min/km']).map(u =>
             `<label class="sp-radio"><input type="radio" name="spSpeedUnit" value="${u}" ${speedUnit===u?'checked':''}> ${u.toUpperCase()}</label>`
           ).join('')}
         </div>
@@ -243,31 +243,14 @@ const SettingsPanel = {
       </div>
 
       <div class="sp-divider"></div>
-      <div class="sp-section-label">DISPLAY UNITS</div>
-
-      <div class="sp-row">
-        <span class="sp-label">Distance</span>
-        <select class="sp-input" id="spDistUnit" style="width:100px">
-          <option value="km" ${s.distUnit==='km'?'selected':''}>Kilometres</option>
-          <option value="mi" ${s.distUnit==='mi'?'selected':''}>Miles</option>
-        </select>
+      <div class="sp-section-label">UNITS</div>
+      <div class="sp-units-choice" style="display:flex;gap:10px;margin:8px 0 12px">
+        ${['imperial','metric'].map(function (k) {
+          var on = (typeof Units !== 'undefined' ? Units.system() : 'imperial') === k;
+          return '<button type="button" class="sp-unit-big' + (on ? ' on' : '') + '" data-sys="' + k + '" onclick="Units.set(\'' + k + '\');var b=this.parentNode.children;for(var i=0;i<b.length;i++)b[i].classList.toggle(\'on\',b[i]===this);b=this.parentNode.parentNode.querySelectorAll(\'.sp-unit-big\');for(var j=0;j<b.length;j++){b[j].style.background=b[j].classList.contains(\'on\')?\'var(--cyan,#3ecfff)\':\'transparent\';b[j].style.color=b[j].classList.contains(\'on\')?\'#001\':\'inherit\';}" style="flex:1;padding:16px 8px;font-size:17px;font-weight:800;border-radius:12px;border:2px solid var(--cyan,#3ecfff);line-height:1.3;background:' + (on ? 'var(--cyan,#3ecfff)' : 'transparent') + ';color:' + (on ? '#001' : 'inherit') + '">' + (k === 'imperial' ? 'IMPERIAL<br><small>mph · miles · min/mi · ft</small>' : 'METRIC<br><small>km/h · km · min/km · m</small>') + '</button>';
+        }).join('')}
       </div>
-      <div class="sp-row">
-        <span class="sp-label">Speed</span>
-        <select class="sp-input" id="spSpeedDisplayUnit" style="width:100px">
-          <option value="kmh" ${(s.speedUnit||'kmh')==='kmh'?'selected':''}>km/h</option>
-          <option value="mph" ${s.speedUnit==='mph'?'selected':''}>mph</option>
-          <option value="minperkm" ${s.speedUnit==='minperkm'?'selected':''}>min/km</option>
-          <option value="minpermi" ${s.speedUnit==='minpermi'?'selected':''}>min/mi</option>
-        </select>
-      </div>
-      <div class="sp-row">
-        <span class="sp-label">Elevation</span>
-        <select class="sp-input" id="spElevUnit" style="width:100px">
-          <option value="m" ${(s.elevUnit||'m')==='m'?'selected':''}>Metres</option>
-          <option value="ft" ${s.elevUnit==='ft'?'selected':''}>Feet</option>
-        </select>
-      </div>
+      <div style="font-size:12px;opacity:.7;margin-bottom:8px">One setting drives speed, distance, pace and elevation everywhere. Belt commands and saved data stay metric internally.</div>
     `;
   },
 
@@ -676,29 +659,14 @@ const SettingsPanel = {
 
   _accUnits(s) {
     return `
-      <div class="sp-row">
-        <span class="sp-label">Speed</span>
-        <select class="sp-input" id="spUnitSpeed" style="width:100px">
-          <option value="kmh" ${(s.speedUnit||'kmh')==='kmh'?'selected':''}>km/h</option>
-          <option value="mph" ${s.speedUnit==='mph'?'selected':''}>mph</option>
-          <option value="minperkm" ${s.speedUnit==='minperkm'?'selected':''}>min/km</option>
-          <option value="minpermi" ${s.speedUnit==='minpermi'?'selected':''}>min/mi</option>
-        </select>
+      <div class="sp-section-label">UNITS</div>
+      <div class="sp-units-choice" style="display:flex;gap:10px;margin:8px 0 12px">
+        ${['imperial','metric'].map(function (k) {
+          var on = (typeof Units !== 'undefined' ? Units.system() : 'imperial') === k;
+          return '<button type="button" class="sp-unit-big' + (on ? ' on' : '') + '" data-sys="' + k + '" onclick="Units.set(\'' + k + '\');var b=this.parentNode.children;for(var i=0;i<b.length;i++)b[i].classList.toggle(\'on\',b[i]===this);b=this.parentNode.parentNode.querySelectorAll(\'.sp-unit-big\');for(var j=0;j<b.length;j++){b[j].style.background=b[j].classList.contains(\'on\')?\'var(--cyan,#3ecfff)\':\'transparent\';b[j].style.color=b[j].classList.contains(\'on\')?\'#001\':\'inherit\';}" style="flex:1;padding:16px 8px;font-size:17px;font-weight:800;border-radius:12px;border:2px solid var(--cyan,#3ecfff);line-height:1.3;background:' + (on ? 'var(--cyan,#3ecfff)' : 'transparent') + ';color:' + (on ? '#001' : 'inherit') + '">' + (k === 'imperial' ? 'IMPERIAL<br><small>mph · miles · min/mi · ft</small>' : 'METRIC<br><small>km/h · km · min/km · m</small>') + '</button>';
+        }).join('')}
       </div>
-      <div class="sp-row">
-        <span class="sp-label">Distance</span>
-        <select class="sp-input" id="spUnitDist" style="width:100px">
-          <option value="km" ${(s.distUnit||'km')==='km'?'selected':''}>Kilometres</option>
-          <option value="mi" ${s.distUnit==='mi'?'selected':''}>Miles</option>
-        </select>
-      </div>
-      <div class="sp-row">
-        <span class="sp-label">Elevation</span>
-        <select class="sp-input" id="spUnitElev" style="width:100px">
-          <option value="m" ${(s.elevUnit||'m')==='m'?'selected':''}>Metres</option>
-          <option value="ft" ${s.elevUnit==='ft'?'selected':''}>Feet</option>
-        </select>
-      </div>
+      <div style="font-size:12px;opacity:.7;margin-bottom:8px">One setting drives speed, distance, pace and elevation everywhere. Belt commands and saved data stay metric internally.</div>
       <div class="sp-row">
         <span class="sp-label">Weight</span>
         <select class="sp-input" id="spUnitWeight" style="width:100px">
@@ -848,7 +816,7 @@ const SettingsPanel = {
     // Controls tab — only save if tab is active (elements exist in DOM)
     var _suEl = document.querySelector('input[name="spSpeedUnit"]:checked');
     if (_suEl) {
-      s.speedButtonUnit = _suEl.value;
+      var _bu = _suEl.value; var _sp = Store.getSettings ? s : s; s.speedPaceMode = (_bu === 'min/mi' || _bu === 'min/km') ? 'pace' : 'speed'; s.speedButtonUnit = Units.buttonUnit(s.speedPaceMode);
       var _smEl = document.querySelector('input[name="spSpeedMode"]:checked');
       s.speedButtonMode = _smEl ? _smEl.value : (s.speedButtonMode || 'custom');
       s.speedButtonMax = n('spMaxSpeedBtn');
@@ -869,9 +837,6 @@ const SettingsPanel = {
     if (metricItems.length > 0) {
       s.statsBarMetrics = [];
       metricItems.forEach(function(el) { s.statsBarMetrics.push(el.dataset.key); });
-      s.distUnit = v('spDistUnit') || s.distUnit;
-      s.speedUnit = v('spSpeedDisplayUnit') || s.speedUnit;
-      s.elevUnit = v('spElevUnit') || s.elevUnit;
     }
 
     // Charts tab — only save if tab is active
@@ -966,9 +931,6 @@ const SettingsPanel = {
     s.fontSize = v('spFontSize');
 
     // Units
-    if (v('spUnitSpeed')) s.speedUnit = v('spUnitSpeed');
-    if (v('spUnitDist')) s.distUnit = v('spUnitDist');
-    if (v('spUnitElev')) s.elevUnit = v('spUnitElev');
     s.weightUnit = v('spUnitWeight') || 'kg';
 
     // Integrations

@@ -274,14 +274,14 @@
       if (pv.derived) notes.push('from Strava: speed/grade derived from GPS streams, flagged in the plan');
       if (pv.clipped) notes.push(pv.clipped + ' stage' + (pv.clipped > 1 ? 's' : '') + ' clipped by the speed / incline caps');
       d.innerHTML = '<div class="ui-dlg ra-card">' +
-        '<div class="ra-title">↻ RUN AGAIN <small>' + esc(src.name) + ' · ' + fmtT(src.elapsed || 0) + ' · ' + ((src.distM || 0) / 1000).toFixed(2) + ' km</small></div>' +
+        '<div class="ra-title">↻ RUN AGAIN <small>' + esc(src.name) + ' · ' + fmtT(src.elapsed || 0) + ' · ' + Units.distU(src.distM || 0) + '</small></div>' +
         '<div class="ra-row"><span class="ra-lab">HARDER</span>' + chips + '</div>' + basis +
         '<div class="ra-preview" id="raPreview">' +
           '<div class="ra-pv"><b>' + (w ? pv.stages : 0) + '</b><span>STAGES</span></div>' +
           '<div class="ra-pv"><b>' + fmtT(pv.totalSec) + '</b><span>TIME</span></div>' +
-          '<div class="ra-pv"><b>' + pv.totalKm.toFixed(1) + '</b><span>KM</span></div>' +
-          '<div class="ra-pv"><b>' + pv.avgKph.toFixed(1) + '</b><span>AVG KM/H' + (pv.origAvgKph ? ' (was ' + pv.origAvgKph.toFixed(1) + ')' : '') + '</span></div>' +
-          '<div class="ra-pv"><b>' + pv.maxKph.toFixed(1) + '</b><span>MAX KM/H</span></div>' +
+          '<div class="ra-pv"><b>' + Units.distKm(pv.totalKm, 1) + '</b><span>' + Units.distLabel().toUpperCase() + '</span></div>' +
+          '<div class="ra-pv"><b>' + Units.speed(pv.avgKph) + '</b><span>AVG ' + Units.speedLabel().toUpperCase() + (pv.origAvgKph ? ' (was ' + Units.speed(pv.origAvgKph) + ')' : '') + '</span></div>' +
+          '<div class="ra-pv"><b>' + Units.speed(pv.maxKph) + '</b><span>MAX ' + Units.speedLabel().toUpperCase() + '</span></div>' +
           '<div class="ra-pv"><b>' + pv.maxInc.toFixed(1) + '%</b><span>MAX INCLINE</span></div>' +
         '</div>' +
         (notes.length ? '<div class="ra-notes">' + notes.map(esc).join(' · ') + '</div>' : '') +

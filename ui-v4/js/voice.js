@@ -559,6 +559,14 @@ var VoiceCoach = {
   },
 
   _fmtDist(km) {
+    if (typeof Units !== 'undefined' && Units.imp()) {
+      var mi = km / Units.KM_PER_MI;
+      if (mi < 0.1) return Math.round(km * 1000 * 3.28084) + ' feet';
+      var w = Math.floor(mi), d = Math.round((mi - w) * 10);
+      if (d === 10) { w++; d = 0; }
+      if (d === 0) return w + (w === 1 ? ' mile' : ' miles');
+      return w + ' point ' + d + ' miles';
+    }
     if (km < 1) {
       return Math.round(km * 1000) + ' metres';
     }
@@ -661,6 +669,7 @@ var VoiceCoach = {
 
   announceSpeed(speed, unit) {
     unit = unit || 'kph';
+    if (unit === 'kph' && typeof Units !== 'undefined' && Units.imp()) { speed = speed / Units.KM_PER_MI; unit = 'mph'; }
     var text = 'Speed: ' + this._fmtSpeed(speed);
     text += unit === 'mph' ? ' miles per hour.' : ' kilometres per hour.';
     this.say(text, 'medium');
@@ -678,6 +687,7 @@ var VoiceCoach = {
 
   announceSpeedChange(newSpeed, oldSpeed, unit) {
     unit = unit || 'kph';
+    if (unit === 'kph' && typeof Units !== 'undefined' && Units.imp()) { newSpeed = newSpeed / Units.KM_PER_MI; oldSpeed = oldSpeed / Units.KM_PER_MI; unit = 'mph'; }
     var direction = newSpeed > oldSpeed ? 'increasing' : 'decreasing';
     var text = 'Speed ' + direction + ' to ' + this._fmtSpeed(newSpeed);
     text += unit === 'mph' ? ' miles per hour.' : ' kilometres per hour.';

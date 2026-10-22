@@ -70,10 +70,10 @@ const App = {
         this._settingsCacheTime = now;
       }
       if (this._elBigSpeed && Engine.run) {
-        var _unit = this._cachedSettings.speedButtonUnit || 'kph';
+        var _unit = Units.buttonUnit();
         var _disp = SpeedUnits.fromKph(Engine.run.speed, _unit);
         this._elBigSpeed.textContent = SpeedUnits.format(_disp, _unit);
-        if (this._elBigSpeedUnit) this._elBigSpeedUnit.textContent = _unit;
+        if (this._elBigSpeedUnit) this._elBigSpeedUnit.textContent = Units.unitText(_unit);
       }
       if (this._elBigInc && Engine.run) this._elBigInc.textContent = Engine.run.incline.toFixed(1);
       // ui-v4: show "→ target" under the live number while the belt/ramp is still moving
@@ -215,12 +215,12 @@ const App = {
           // Route-based progress
           OvalTrack.setProgress(Engine.run.routeProgress || 0);
           var totalKm = (Engine.route.totalDistM || 1) / 1000;
-          OvalTrack.setTotalDistance(distKm, totalKm, 'km');
+          OvalTrack.setTotalDistance(Units.distNum(distKm * 1000), Units.distNum(totalKm * 1000), Units.distLabel());
         } else {
           // Free run — loop the track every 1km
           var loopKm = 1;
           OvalTrack.setProgress((distKm % loopKm) / loopKm);
-          OvalTrack.setTotalDistance(distKm, distKm, 'km');
+          OvalTrack.setTotalDistance(Units.distNum(distKm * 1000), Units.distNum(distKm * 1000), Units.distLabel());
         }
         OvalTrack.setSpeedKph(Engine.run.speed || 0);
         OvalTrack.setHR(Engine.run.hr || 0, this._cachedSettings.maxHR || 185);
@@ -474,9 +474,9 @@ const App = {
       }
       this._updateStateBanner();
     };
-    TM.onClipped = (req, sent, cap) => { this._clipNote = { req: req, sent: sent, cap: cap, at: Date.now() }; this._toast('Speed clipped to your maximum: ' + sent.toFixed(1) + ' km/h (asked ' + req.toFixed(1) + ')', 'var(--orange)'); };
+    TM.onClipped = (req, sent, cap) => { this._clipNote = { req: req, sent: sent, cap: cap, at: Date.now() }; this._toast('Speed clipped to your maximum: ' + Units.speedU(sent) + ' (asked ' + req.toFixed(1) + ')', 'var(--orange)'); };
     TM.onCommandRejected = (what, reason) => {
-      var real = Engine.run ? (what === 'speed' ? (Engine.run.speed || 0).toFixed(1) + ' km/h' : (Engine.run.incline || 0).toFixed(1) + '%') : '';
+      var real = Engine.run ? (what === 'speed' ? Units.speedU(Engine.run.speed || 0) : (Engine.run.incline || 0).toFixed(1) + '%') : '';
       this._toast('Treadmill refused the ' + what + ' change: ' + reason + (real ? ' (belt is at ' + real + ')' : ''), 'var(--orange)');
     };
     Engine.onHRLost = () => { UI.update(); this._updateRibbon(true); };
@@ -616,7 +616,7 @@ const App = {
     var activeId = Store.getActiveRouteId();
     var r = Engine.hasRoute() ? Engine.route : (activeId ? Store.getRoute(activeId) : null);
     if (r) {
-      el.textContent = r.name + ' · ' + (r.totalDistKm || 0).toFixed(1) + ' km · +' + Math.round(r.totalAscent || 0) + ' m';
+      el.textContent = r.name + ' · ' + Units.distKmU(r.totalDistKm || 0, 1) + ' · +' + Units.elevU(r.totalAscent || 0);
     } else {
       el.textContent = 'Pick a GPX route · incline follows the hills';
     }
@@ -647,19 +647,19 @@ const App = {
     var iT = document.getElementById('incTarget');
     if (!Engine.run) return;
     var s = this._cachedSettings || Store.getSettings();
-    var unit = s.speedButtonUnit || 'kph';
+    var unit = Units.buttonUnit();
     if (sT) {
       var diff = Math.abs(Engine.ctrl.targetSpeed - Engine.run.speed);
       var txt = (diff > 0.15 && Engine.run.status === 'running')
         ? '→ ' + SpeedUnits.format(SpeedUnits.fromKph(Engine.ctrl.targetSpeed, unit), unit) : '';
-      if (this._clipNote && Date.now() - this._clipNote.at < 15000) txt += (txt ? ' ' : '') + 'MAX ' + this._clipNote.cap.toFixed(1);
+      if (this._clipNote && Date.now() - this._clipNote.at < 15000) txt += (txt ? ' ' : '') + 'MAX ' + Units.speed(this._clipNote.cap);
       sT.textContent = txt;
     }
     var sB = document.getElementById('spBelt');
     if (sB) {
       var belt = TM.connected && TM._beltKph >= 0 ? TM._beltKph : null;
       var stopping = belt != null && belt > 0.5 && (TM._target === 0 || TM._sentSpeed === 0) && (TM._lastSpeedT || TM._lastSendT) > 0;
-      sB.textContent = belt == null ? '' : (stopping ? 'STOPPING… belt ' + belt.toFixed(1) : 'belt ' + belt.toFixed(1));
+      sB.textContent = belt == null ? '' : (stopping ? 'STOPPING… belt ' + Units.speed(belt) : 'belt ' + Units.speed(belt));
       sB.classList.toggle('stopping', !!stopping);
     }
     if (iT) {
@@ -688,7 +688,7 @@ const App = {
       var stopCmd = (TM._sentSpeed === 0 || TM._target === 0) && TM._lastSendT > 0;
       if (stopCmd && belt != null && belt > 0.5 && !enginePaused) {
         // STOP accepted, belt still slowing (hardware decel ~1.4 kph/s): say so, and hint the safety key when fast
-        cls = 'paused'; text = 'STOPPING'; subText = 'belt ' + belt.toFixed(1) + ' km/h — slowing';
+        cls = 'paused'; text = 'STOPPING'; subText = 'belt ' + Units.speedU(belt) + ' — slowing';
         if (belt > 6 && !this._keyHintAt) { this._keyHintAt = Date.now(); this._toast('Pull the safety key for a faster stop', 'var(--red)'); }
         if (belt > 6) subText += ' · pull the safety key for a faster stop';
         if (b.className !== 'state-banner ' + cls) b.className = 'state-banner ' + cls;
@@ -698,10 +698,10 @@ const App = {
       if (!(stopCmd && belt != null && belt > 0.5)) this._keyHintAt = 0;
       if (ws === 'RUNNING') {
         cls = 'running'; text = 'RUNNING';
-        subText = belt != null ? ('belt ' + belt.toFixed(1) + ' km/h') : '';
+        subText = belt != null ? ('belt ' + Units.speedU(belt)) : '';
         if (enginePaused) {
           // Graceful ramp-down in progress (Engine.pauseRun ramps to 0 before telling the bridge)
-          if (belt != null && belt > 0.3) { cls = 'paused'; text = 'STOPPING…'; subText = 'belt slowing · ' + belt.toFixed(1) + ' km/h'; }
+          if (belt != null && belt > 0.3) { cls = 'paused'; text = 'STOPPING…'; subText = 'belt slowing · ' + Units.speedU(belt); }
           else { cls = 'paused'; text = 'PAUSED'; subText = 'belt stopped'; }
         }
       } else if (ws === 'PAUSED') {
@@ -714,7 +714,7 @@ const App = {
       if (ws === 'RUNNING' && !engineRunning && !enginePaused) {
         // Bridge still has a workout open but the app has no run (e.g. console-started)
         cls = 'warn'; text = 'BELT ACTIVE';
-        subText = belt != null && belt > 0.3 ? ('moving ' + belt.toFixed(1) + ' km/h — START takes over') : 'treadmill workout open — START takes over';
+        subText = belt != null && belt > 0.3 ? ('moving ' + Units.speedU(belt) + ' — START takes over') : 'treadmill workout open — START takes over';
       }
     }
     if (b.className !== 'state-banner ' + cls) b.className = 'state-banner ' + cls;
@@ -1073,7 +1073,7 @@ const App = {
       const mins = Math.floor(remaining / 60);
       const secs = Math.floor(remaining % 60);
       const el = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
-      el('cdSpeed', Engine.run.speed.toFixed(1));
+      el('cdSpeed', Units.speed(Engine.run.speed));
       el('cdTimer', mins + ':' + String(secs).padStart(2, '0'));
       el('cdHR', Engine.run.hr > 0 ? Engine.run.hr : '—');
       const fill = document.getElementById('cdFill');
@@ -1180,7 +1180,7 @@ const App = {
     var lines = [];
     lines.push((r.routeName || 'Free Run') + ' — TrailRunner');
     lines.push('Time: ' + Engine.fmtTime(r.elapsed));
-    lines.push('Distance: ' + (r.distanceM / 1000).toFixed(2) + ' km');
+    lines.push('Distance: ' + Units.distU(r.distanceM));
     var avgSpd = r._speedSamples > 0 ? (r._speedSum / r._speedSamples).toFixed(1) : '0';
     lines.push('Avg Speed: ' + avgSpd + ' kph');
     var avgHR = Engine.getAvgHR();
@@ -1413,6 +1413,7 @@ const App = {
   },
 
   adjustSpeed(delta) {
+    if (Units.imp()) delta = delta * Units.KM_PER_MI;   // nudge is defined in the displayed unit (0.5 mph)
     Engine.ctrl.targetSpeed = Math.max(0, Math.min(TM.maxKph ? TM.maxKph() : 19.3, +(Engine.ctrl.targetSpeed + delta).toFixed(1)));
     if (TM.connected) {
       TM.setSpeed(Engine.ctrl.targetSpeed, false, 'button');
@@ -1435,7 +1436,7 @@ const App = {
 
   _updateNudgeDisplays() {
     var _s = Store.getSettings();
-    var _unit = _s.speedButtonUnit || 'kph';
+    var _unit = Units.buttonUnit();
     var _disp = SpeedUnits.fromKph(Engine.ctrl.targetSpeed, _unit);
     var _formatted = SpeedUnits.format(_disp, _unit);
 
@@ -1448,7 +1449,7 @@ const App = {
     const bi = document.getElementById('bigIncVal');
     const bsu = document.getElementById('bigSpeedUnit');
     if (bs) bs.textContent = _formatted;
-    if (bsu) bsu.textContent = _unit;
+    if (bsu) bsu.textContent = Units.unitText(_unit);
     if (bi) bi.textContent = Engine.ctrl.targetIncline.toFixed(1);
   },
 
@@ -1895,12 +1896,12 @@ const App = {
       }
     }
     var _s = Store.getSettings();
-    var _unit = _s.speedButtonUnit || 'kph';
+    var _unit = Units.buttonUnit();
     var _disp = SpeedUnits.fromKph(Engine.run.speed || 0, _unit);
     el('fbSpeed', SpeedUnits.format(_disp, _unit));
-    el('fbSpeedUnit', _unit);
+    el('fbSpeedUnit', Units.unitText(_unit));
     el('fbInc', (Engine.run.incline || 0).toFixed(1));
-    el('fbDist', ((Engine.run.distanceM || 0) / 1000).toFixed(2));
+    el('fbDist', Units.dist(Engine.run.distanceM || 0));
     el('fbCal', Math.round(Engine.run.calories || 0));
   },
 
@@ -1910,12 +1911,14 @@ const App = {
     var s = Store.getSettings();
 
     // Speed panel (right)
-    var speedUnit = s.speedButtonUnit || 'kph';
-    var speeds = s.customSpeeds || (speedUnit === 'mph' ? [3, 4, 5, 6, 7, 8] : [5, 6, 8, 9, 10, 12]);
-    var unitLabel = speedUnit.toUpperCase();
+    var speedUnit = Units.buttonUnit();
+    var isPace = speedUnit.indexOf('min/') === 0;
+    var speeds = (s.customSpeeds && s.customSpeedsSystem === Units.system() && s.customSpeedsMode === Units.mode()) ? s.customSpeeds :
+      (speedUnit === 'mph' ? [3, 4, 5, 6, 7, 8] : speedUnit === 'kph' ? [5, 6, 8, 9, 10, 12] : [4, 5, 6, 7, 8, 10]);
+    var unitLabel = (isPace ? 'PACE ' : 'SPEED ') + Units.unitText(speedUnit).toUpperCase();
     var qsS = document.getElementById('qsSpeed');
     if (qsS) {
-      var html = '<div class="qs-title" onclick="App._cycleQSSpeedUnit()">SPEED ' + unitLabel + ' ⇅</div>';
+      var html = '<div class="qs-title" onclick="App._cycleQSSpeedUnit()">' + unitLabel + ' ⇅</div>';
       for (var i = 0; i < speeds.length && i < 10; i++) {
         html += '<button class="qs-btn speed" onclick="App._qsSetSpeed(' + speeds[i] + ')" data-val="' + speeds[i] + '">' + speeds[i] + '</button>';
       }
@@ -1946,14 +1949,14 @@ const App = {
 
   _qsSetSpeed(val) {
     var s = Store.getSettings();
-    var unit = s.speedButtonUnit || 'kph';
+    var unit = Units.buttonUnit();
     // Convert to kph for the engine
     var kph = val;
     if (unit === 'mph') kph = val * 1.60934;
     else if (unit === 'min/mi') kph = val > 0 ? (60 / val) * 1.60934 : 0;
     else if (unit === 'min/km') kph = val > 0 ? 60 / val : 0;
     var capQ = TM.maxKph ? TM.maxKph() : 19.3;
-    if (kph > capQ) { this._toast('Preset ' + val + ' clipped to your maximum ' + capQ.toFixed(1) + ' km/h', 'var(--orange)'); kph = capQ; }
+    if (kph > capQ) { this._toast('Preset ' + val + ' clipped to your maximum ' + Units.speedU(capQ), 'var(--orange)'); kph = capQ; }
     kph = Math.max(0, Math.min(capQ, kph));
     Engine.ctrl.targetSpeed = kph;
     if (TM.connected) TM.setSpeed(kph, false, 'preset');
@@ -1975,10 +1978,8 @@ const App = {
 
   _cycleQSSpeedUnit() {
     var s = Store.getSettings();
-    var units = ['mph', 'kph', 'min/mi', 'min/km'];
-    var idx = units.indexOf(s.speedButtonUnit || 'kph');
-    s.speedButtonUnit = units[(idx + 1) % units.length];
-    Store.saveSettings(s);
+    Units.toggleMode();   // SPEED <-> PACE, in the single unit system
+    this._cachedSettings = null;
     this._buildQSPanels();
     this._updateNudgeDisplays();
   },
@@ -2180,7 +2181,7 @@ const App = {
       var what = '';
       if (nx.kind === 'end') what = 'finish';
       else {
-        if (nx.speed != null) { var ds = nx.speed - (r.speed || 0); what += (ds > 0.2 ? '▲' : ds < -0.2 ? '▼' : '') + nx.speed.toFixed(1) + ' km/h '; up = ds > 0.2 ? true : ds < -0.2 ? false : up; }
+        if (nx.speed != null) { var ds = nx.speed - (r.speed || 0); what += (ds > 0.2 ? '▲' : ds < -0.2 ? '▼' : '') + Units.speedU(nx.speed) + ' '; up = ds > 0.2 ? true : ds < -0.2 ? false : up; }
         if (nx.incline != null) { var di = nx.incline - inc; what += (di > 0.2 ? '▲' : di < -0.2 ? '▼' : '') + nx.incline + '%'; if (up == null) up = di > 0.2 ? true : di < -0.2 ? false : null; }
       }
       nxt = 'NEXT ' + when + '  ' + what.trim();

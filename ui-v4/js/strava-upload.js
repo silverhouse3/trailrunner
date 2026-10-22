@@ -238,7 +238,7 @@
         card.appendChild(el('div', 'sv-up-title', 'SAVE TO STRAVA?'));
         var stats = el('div', 'sv-up-stats');
         function stat(label, val) { var s = el('div', 'sv-up-stat'); s.appendChild(el('div', 'sv-up-val', val)); s.appendChild(el('div', 'sv-up-lab', label)); stats.appendChild(s); }
-        stat('TIME', fmtDur(run.elapsed)); stat('DISTANCE', (run.distanceM / 1000).toFixed(2) + ' km');
+        stat('TIME', fmtDur(run.elapsed)); stat('DISTANCE', Units.distU(run.distanceM));
         stat('CLIMB', '+' + Math.round(run.elevGained || 0) + ' m'); stat('AVG HR', run.avgHR ? String(run.avgHR) : '--');
         card.appendChild(stats);
         var routeLine = el('div', 'sv-up-route', (run.routeName && run.routeName !== 'Free Run') ? run.routeName : 'Free run');

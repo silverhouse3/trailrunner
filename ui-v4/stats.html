@@ -228,7 +228,7 @@ details.section[open] > summary::after { content: '▴'; }
 
 <div class="two-col">
   <div class="section chart-section">
-    <div class="chart-title">WEEKLY DISTANCE (km)</div>
+    <div class="chart-title">WEEKLY DISTANCE (<span data-u="dist">km</span>)</div>
     <div id="weeklyChart"></div>
   </div>
   <div class="section chart-section">
@@ -274,7 +274,7 @@ details.section[open] > summary::after { content: '▴'; }
 <details class="section" style="margin-top:14px" open>
   <summary>TRENDS</summary>
   <div class="two-col">
-    <div class="chart-section"><div class="chart-title">PACE TREND (min/km)</div><div class="pace-chart" id="paceChart"></div></div>
+    <div class="chart-section"><div class="chart-title">PACE TREND (<span data-u="pace">min/km</span>)</div><div class="pace-chart" id="paceChart"></div></div>
     <div class="chart-section"><div class="chart-title">POWER TREND (watts)</div><div class="pace-chart" id="powerChart"></div></div>
     <div class="chart-section"><div class="chart-title">EFFICIENCY FACTOR TREND</div><div class="pace-chart" id="efChart"></div></div>
     <div class="chart-section"><div class="chart-title">CARDIAC DRIFT HISTORY</div><div id="driftChart" style="min-height:60px"></div></div>
@@ -313,6 +313,7 @@ details.section[open] > summary::after { content: '▴'; }
 if(v==null||isNaN(v)){var ua=navigator.userAgent||'';v=(/Android 7\.1\.2/.test(ua)&&/; wv\)/.test(ua))?80:0;}
 if(v>0){document.body.className+=' rom-bottom';document.documentElement.style.setProperty('--rom-bottom',v+'px');}})();
 </script>
+<script src="js/units.js"></script>
 <script src="js/past-run-splits.js"></script>
 <script src="js/split-compare.js"></script>
 <script src="js/demo-seed.js"></script>
@@ -380,11 +381,11 @@ function clearDemo() { stAsk('Remove all demo runs?', 'REMOVE').then(function (y
 
   var cards = [
     { value: totalRuns, label: 'TOTAL RUNS', cls: 'cyan' },
-    { value: fmt(totalDist, 1), label: 'TOTAL DISTANCE', sub: 'km', cls: 'green' },
+    { value: Units.distKm(totalDist, 1), label: 'TOTAL DISTANCE', sub: Units.distLabel(), cls: 'green' },
     { value: fmtTime(totalTime), label: 'TOTAL TIME', cls: 'orange' },
     { value: fmt(totalCals), label: 'TOTAL CALORIES', sub: 'kcal', cls: 'red' },
-    { value: fmt(topSpeed, 1), label: 'TOP SPEED', sub: 'kph', cls: 'cyan' },
-    { value: fmt(avgPace, 1), label: 'AVG PACE', sub: 'min/km', cls: 'purple' },
+    { value: Units.speed(topSpeed, 1), label: 'TOP SPEED', sub: Units.speedLabel(), cls: 'cyan' },
+    { value: fmt(Units.paceSecPerUnit(avgPace * 60) / 60, 1), label: 'AVG PACE', sub: Units.paceLabel(), cls: 'purple' },
     { value: avgHR > 0 ? avgHR : '—', label: 'AVG HEART RATE', sub: avgHR > 0 ? 'bpm' : '', cls: 'red' },
     { value: fmt(totalElevGain), label: 'TOTAL ELEVATION', sub: 'm gained', cls: 'green' },
   ];
@@ -484,7 +485,7 @@ function clearDemo() { stAsk('Remove all demo runs?', 'REMOVE').then(function (y
     var longest = runs.reduce(function(best, r) {
       return (r.distanceKm || 0) > (best.distanceKm || 0) ? r : best;
     }, runs[0]);
-    prs.push({ label: 'LONGEST RUN', value: fmt(longest.distanceKm, 2) + ' km', date: fmtDate(longest.savedAt) });
+    prs.push({ label: 'LONGEST RUN', value: Units.distKmU(longest.distanceKm, 2), date: fmtDate(longest.savedAt) });
 
     // Longest time
     var longestTime = runs.reduce(function(best, r) {
@@ -833,7 +834,7 @@ function clearDemo() { stAsk('Remove all demo runs?', 'REMOVE').then(function (y
     var weekStart = new Date(d.setDate(diff));
     var key = weekStart.toISOString().slice(0, 10);
     if (!weeks[key]) weeks[key] = 0;
-    weeks[key] += r.distanceKm || 0;
+    weeks[key] += Units.distNum((r.distanceKm || 0) * 1000);
   });
 
   var weekKeys = Object.keys(weeks).sort().slice(-12); // last 12 weeks
@@ -959,7 +960,7 @@ function clearDemo() { stAsk('Remove all demo runs?', 'REMOVE').then(function (y
       raceEl.innerHTML += '<div class="pr-card">' +
         '<div class="pr-label">' + rd.name + '</div>' +
         '<div class="pr-value">' + fmtTime(Math.round(predicted)) + '</div>' +
-        '<div class="pr-date">Pace: ' + fmtTime(Math.round(pacePerKm)) + '/km</div></div>';
+        '<div class="pr-date">Pace: ' + Units.pace(pacePerKm) + Units.paceSlash() + '</div></div>';
     });
   } else {
     raceEl.innerHTML = '<div style="color:var(--dim);padding:12px">Need a 2+ km run for predictions</div>';
@@ -1085,7 +1086,7 @@ function clearDemo() { stAsk('Remove all demo runs?', 'REMOVE').then(function (y
   if (paceRuns.length >= 2) {
     var paces = paceRuns.map(function(r) {
       var t = r.elapsedSec || r.elapsed || 0;
-      return t / 60 / r.distanceKm; // min/km
+      return Units.paceSecPerUnit(t / r.distanceKm) / 60; // min per display unit
     });
     var minPace = Math.min.apply(null, paces);
     var maxPace = Math.max.apply(null, paces);
@@ -1108,7 +1109,7 @@ function clearDemo() { stAsk('Remove all demo runs?', 'REMOVE').then(function (y
       var y = padTop + ((chartH - padTop - padBot) * (1 - yPct));
 
       paceEl.innerHTML += '<div class="pace-dot" style="left:' + x + '%;top:' + y + 'px" title="' +
-        paces[pi].toFixed(1) + ' min/km"></div>';
+        paces[pi].toFixed(1) + ' ' + Units.paceLabel() + '"></div>';
 
       // Date label (every 5th point or first/last)
       if (pi === 0 || pi === paces.length - 1 || pi % 5 === 0) {
@@ -1307,7 +1308,7 @@ function clearDemo() { stAsk('Remove all demo runs?', 'REMOVE').then(function (y
         var negIcon = sp.negativeSplit ? ' <span style="color:var(--green)" title="Negative split">&#x2935;</span>' : '';
         html += '<div class="detail-split-row">' +
           '<span class="detail-split-km">km ' + sp.km + negIcon + '</span>' +
-          '<span class="detail-split-pace">' + paceStr + '/km' + hrStr + powerStr + strideStr + '</span></div>';
+          '<span class="detail-split-pace">' + Units.pace(sp.timeSec) + Units.paceSlash() + hrStr + powerStr + strideStr + '</span></div>';
       }
     } else {
       html += '<div style="color:var(--dim)">No split data</div>';
@@ -1418,9 +1419,9 @@ function clearDemo() { stAsk('Remove all demo runs?', 'REMOVE').then(function (y
       '<div class="h-date">' + fmtDate(r.savedAt || r.date) + '<small>' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + '</small></div>' +
       '<div class="h-name">' + (r.routeName || 'Free Run').replace(/</g, '&lt;') + (r.demo ? '<span class="demo-tag">DEMO</span>' : '') +
         (pr ? '<div class="h-pr">★ ' + pr + '</div>' : '') + '</div>' +
-      '<div class="h-v">' + fmt(r.distanceKm, 2) + '<small>KM</small></div>' +
+      '<div class="h-v">' + Units.distKm(r.distanceKm || 0, 2) + '<small>' + Units.distLabel().toUpperCase() + '</small></div>' +
       '<div class="h-v">' + fmtTime(elapsed) + '<small>TIME</small></div>' +
-      '<div class="h-v h-hide">' + (paceSec > 0 ? fmtTime(paceSec) : '—') + '<small>/KM</small></div>' +
+      '<div class="h-v h-hide">' + (paceSec > 0 ? Units.pace(paceSec) : '—') + '<small>' + Units.paceSlash().toUpperCase() + '</small></div>' +
       '<div class="h-v h-hide">' + (hr > 0 ? fmt(hr) : '—') + '<small>AVG HR</small></div>' +
       '<div class="h-v h-hide">' + (r.effortScore > 0 ? '<span style="color:' + effortColor(r.effortScore) + '">' + r.effortScore + '</span>' : '—') + '<small>EFFORT</small></div>' +
       '<div class="h-go">' + (synced ? '<span class="synced">S</span> ' : '') + '›</div></div>';
@@ -1452,10 +1453,10 @@ function clearDemo() { stAsk('Remove all demo runs?', 'REMOVE').then(function (y
     var g = document.getElementById('periodGrid');
     g.innerHTML = periods.map(function(p) {
       var a = p.a;
-      var pace = a.km > 0 ? fmtTime(a.t / a.km) : '—';
+      var pace = a.km > 0 ? Units.pace(a.t / a.km) : '—';
       return '<div class="period ' + p.cls + '"><div class="period-title">' + p.title + '</div>' +
-        '<div class="period-main">' + a.km.toFixed(1) + '<small>km · ' + a.n + ' run' + (a.n === 1 ? '' : 's') + '</small></div>' +
-        '<div class="period-sub"><span>time <b>' + fmtTime(a.t) + '</b></span><span>avg pace <b>' + pace + '</b>/km</span><span>avg HR <b>' + (a.hrN ? Math.round(a.hr / a.hrN) : '—') + '</b></span><span>climb <b>' + Math.round(a.elev) + '</b> m</span></div></div>';
+        '<div class="period-main">' + Units.distKm(a.km, 1) + '<small>' + Units.distLabel() + ' · ' + a.n + ' run' + (a.n === 1 ? '' : 's') + '</small></div>' +
+        '<div class="period-sub"><span>time <b>' + fmtTime(a.t) + '</b></span><span>avg pace <b>' + pace + '</b>' + Units.paceSlash() + '</span><span>avg HR <b>' + (a.hrN ? Math.round(a.hr / a.hrN) : '—') + '</b></span><span>climb <b>' + Units.elev(a.elev) + '</b> ' + Units.elevLabel() + '</span></div></div>';
     }).join('');
   })();
 
@@ -1476,9 +1477,9 @@ function openRunDetail(idx) {
     '<small>' + f.date(r.savedAt || r.date) + ' · ' + new Date(r.savedAt || r.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + '</small>';
   var paceSec = (r.distanceKm || 0) > 0 ? elapsed / r.distanceKm : 0;
   var stats = [
-    ['' + f.n(r.distanceKm, 2), 'KM'], [f.time(elapsed), 'TIME'], [paceSec > 0 ? f.time(paceSec) : '—', 'AVG PACE /KM'],
-    [r.avgHR > 0 ? r.avgHR : '—', 'AVG HR'], [r.calories ? f.n(r.calories) : '—', 'KCAL'], [r.elevGained != null ? '+' + Math.round(r.elevGained) : '—', 'CLIMB M'],
-    [r.effortScore > 0 ? r.effortScore : '—', 'EFFORT'], [r.avgSpeed ? f.n(r.avgSpeed, 1) : '—', 'AVG KPH'],
+    [Units.distKm(r.distanceKm || 0, 2), Units.distLabel().toUpperCase()], [f.time(elapsed), 'TIME'], [paceSec > 0 ? Units.pace(paceSec) : '—', 'AVG PACE ' + Units.paceSlash().toUpperCase()],
+    [r.avgHR > 0 ? r.avgHR : '—', 'AVG HR'], [r.calories ? f.n(r.calories) : '—', 'KCAL'], [r.elevGained != null ? '+' + Units.elev(r.elevGained) : '—', 'CLIMB ' + Units.elevLabel().toUpperCase()],
+    [r.effortScore > 0 ? r.effortScore : '—', 'EFFORT'], [r.avgSpeed ? Units.speed(r.avgSpeed, 1) : '—', 'AVG ' + Units.speedLabel().toUpperCase()],
   ];
   document.getElementById('rdStats').innerHTML = stats.map(function(s) { return '<div class="rd-stat"><b>' + s[0] + '</b><span>' + s[1] + '</span></div>'; }).join('');
   document.getElementById('rdDetail').innerHTML = (r.id && !r.demo ? '<div style="margin:0 0 20px"><button class="st-btn ra-entry" style="height:72px;font-size:20px;margin-left:0;padding:0 24px" onclick="runAgain(\'' + String(r.id).replace(/'/g, '') + '\')">↻ RUN AGAIN / HARDER — opens the app with this run as a workout (armed only)</button></div>' : '') + window.__buildDetail(r);

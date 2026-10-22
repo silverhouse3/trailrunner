@@ -121,7 +121,7 @@ if ('serviceWorker' in navigator) {
         <div class="zone-bar"><div class="zone-cur" id="zCur" style="left:0"></div></div>
       </div>
       <div class="mcell">
-        <div class="ml">PACE /KM</div>
+        <div class="ml" data-u="PACE">PACE /KM</div>
         <div class="mv" style="color:var(--purple)" id="paceVal">—</div>
       </div>
       <div class="mcell">
@@ -136,7 +136,7 @@ if ('serviceWorker' in navigator) {
       <div class="mcell"><div class="ml">ELEVATION</div><div class="mv sm"><span id="eleVal">—</span><span class="mu" id="eleUnit">m</span></div><div class="ms" id="eleGain">+0m</div></div>
       <div class="mcell"><div class="ml">CADENCE</div><div class="mv sm"><span id="cadVal">—</span><span class="mu">spm</span></div><div class="ms" id="strideVal"></div></div>
       <div class="mcell"><div class="ml">POWER</div><div class="mv sm"><span id="powerVal">—</span><span class="mu">W</span></div><div class="ms" id="avgPowerVal"></div></div>
-      <div class="mcell"><div class="ml">AVG PACE</div><div class="mv sm"><span id="avgPace">—</span><span class="mu">/km</span></div><div class="ms" id="avgHR"></div></div>
+      <div class="mcell"><div class="ml">AVG PACE</div><div class="mv sm"><span id="avgPace">—</span><span class="mu" data-u="paceslash">/km</span></div><div class="ms" id="avgHR"></div></div>
       <div class="mcell" id="driftCard"><div class="ml">DRIFT / EF</div><div class="mv sm"><span id="driftVal">—</span><span class="mu">%</span></div><div class="ms" id="efVal"></div></div>
       <div class="mcell"><div class="ml">INCLINE NOW</div><div class="mv sm"><span id="incVal">+0.0</span><span class="mu">%</span></div><div class="ibar"><div class="ifill" id="iFill" style="width:13%"></div></div></div>
     </div>
@@ -268,10 +268,10 @@ if ('serviceWorker' in navigator) {
           <div class="vv-tile"><div class="vv-tl">TIME</div><div class="vv-tv" id="vvTime">00:00</div></div>
           <div class="vv-tile"><div class="vv-tl">DISTANCE</div><div class="vv-tv" style="color:var(--green)"><span id="vvDist">0.00</span><small id="vvDistU">km</small></div></div>
           <div class="vv-tile"><div class="vv-tl">HEART RATE</div><div class="vv-tv" style="color:var(--red)"><span id="vvHR">—</span><small>bpm</small></div><div class="vv-ts" id="vvZone">no HR</div></div>
-          <div class="vv-tile"><div class="vv-tl">PACE /KM</div><div class="vv-tv" style="color:var(--purple)" id="vvPace">—</div></div>
+          <div class="vv-tile"><div class="vv-tl" data-u="PACE">PACE /KM</div><div class="vv-tv" style="color:var(--purple)" id="vvPace">—</div></div>
           <div class="vv-tile"><div class="vv-tl">SPEED</div><div class="vv-tv" style="color:var(--cyan)"><span id="vvSpeed">0.0</span><small id="vvSpeedU">km/h</small></div></div>
           <div class="vv-tile"><div class="vv-tl">INCLINE / GRADE</div><div class="vv-tv" style="color:var(--orange)"><span id="vvInc">+0.0</span><small>%</small></div></div>
-          <div class="vv-tile"><div class="vv-tl">CURRENT KM</div><div class="vv-tv" id="vvSplit">0:00</div><div class="vv-ts" id="vvSplitU">km 1</div></div>
+          <div class="vv-tile"><div class="vv-tl" data-u="CURSPLIT">CURRENT KM</div><div class="vv-tv" id="vvSplit">0:00</div><div class="vv-ts" id="vvSplitU">km 1</div></div>
           <div class="vv-tile" data-needs-route><div class="vv-tl">ELEVATION</div><div class="vv-tv" style="color:var(--green)"><span id="vvElev">+0</span><small id="vvElevU">m gain</small></div></div>
           <div class="vv-tile vv-cal"><div class="vv-tl">CALORIES</div><div class="vv-tv" style="color:var(--yellow)"><span id="vvCal">0</span><small>kcal</small></div></div>
         </div>
@@ -452,7 +452,7 @@ if ('serviceWorker' in navigator) {
 <div class="cooldown-overlay" id="cooldownOverlay">
   <div class="cooldown-title">🧊 COOLING DOWN</div>
   <div class="cooldown-info">
-    <div class="cooldown-stat"><span class="cooldown-val" id="cdSpeed">—</span><span class="cooldown-unit">km/h</span></div>
+    <div class="cooldown-stat"><span class="cooldown-val" id="cdSpeed">—</span><span class="cooldown-unit" data-u="speed">km/h</span></div>
     <div class="cooldown-stat"><span class="cooldown-val" id="cdTimer">—</span><span class="cooldown-unit">remaining</span></div>
     <div class="cooldown-stat"><span class="cooldown-val" id="cdHR">—</span><span class="cooldown-unit">bpm</span></div>
   </div>
@@ -496,7 +496,7 @@ if ('serviceWorker' in navigator) {
 
 <!-- ══ SPLITS PANEL ═══════════════════════════════════════════════════════ -->
 <div class="side-panel right" id="splitsPanel">
-  <div class="side-header"><div class="side-title">KM SPLITS</div><button class="fm-x" onclick="App.toggleSplits()">✕</button></div>
+  <div class="side-header"><div class="side-title" data-u="SPLITS">KM SPLITS</div><button class="fm-x" onclick="App.toggleSplits()">✕</button></div>
   <div class="side-body" id="splitsList"></div>
 </div>
 
@@ -542,6 +542,7 @@ if ('serviceWorker' in navigator) {
 </div><!-- #rootApp -->
 
 <!-- Scripts — order matters, no modules, no build step -->
+<script src="js/units.js"></script>
 <script src="js/gpx.js"></script>
 <script src="js/storage.js"></script>
 <script src="js/idb-store.js"></script>

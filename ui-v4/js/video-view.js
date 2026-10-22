@@ -337,7 +337,7 @@ var VideoView = {
     var hrEl = document.getElementById('vvHR'), zEl = document.getElementById('vvZone');
     if (z > 0 && r.hr > 0) { var zz = Engine.HR_ZONES[z - 1]; if (hrEl) hrEl.style.color = zz.color; if (zEl) { zEl.textContent = 'Z' + z + ' · ' + zz.label.toUpperCase(); zEl.style.color = zz.color; } }
     else { if (hrEl) hrEl.style.color = 'var(--red)'; if (zEl) { zEl.textContent = r.hr > 0 ? 'below Z1' : 'no HR'; zEl.style.color = 'var(--dim)'; } }
-    set('vvPace', r.speed > 0.5 ? Engine.fmtTime(3600 / r.speed) : '—');
+    set('vvPace', Units.paceFromKmh(r.speed));
     set('vvSpeed', UI.convSpeed(r.speed || 0)); set('vvSpeedU', UI.speedLabel());
     var inc = r.currentGrade != null && Engine.hasRoute() ? r.currentGrade : (r.incline || 0);
     set('vvInc', (inc >= 0 ? '+' : '') + inc.toFixed(1));

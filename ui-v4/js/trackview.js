@@ -386,11 +386,11 @@ const TrackView = {
       c.fillRect(postX - 1, y - postH, 2, postH);
 
       // Label
-      const km = (markerDistM / 1000).toFixed(1);
+      const km = Units.dist(markerDistM, 1);
       c.font = `${Math.max(8, 12 * scale * H / 400)}px 'JetBrains Mono', monospace`;
       c.fillStyle = `rgba(150,200,255,${0.6 - d / 800})`;
       c.textAlign = 'center';
-      c.fillText(`${km}km`, postX, y - postH - 3);
+      c.fillText(`${km}${Units.distLabel()}`, postX, y - postH - 3);
     }
   },
 
@@ -507,7 +507,7 @@ const TrackView = {
       const deltaM = Math.round(distAhead);
       const sign = deltaM > 0 ? '+' : '';
       const label = Math.abs(deltaM) >= 1000
-        ? `${sign}${(deltaM / 1000).toFixed(1)}km`
+        ? `${sign}${Units.dist(deltaM, 1)}${Units.distLabel()}`
         : `${sign}${deltaM}m`;
 
       const fontSize = Math.max(9, 12 * scale * H / 400);
@@ -533,11 +533,11 @@ const TrackView = {
     c.font = 'bold 28px "Orbitron", sans-serif';
     c.fillStyle = '#00ffcc';
     c.textAlign = 'left';
-    const speedStr = this.runner.speedKmh.toFixed(1);
+    const speedStr = Units.speed(this.runner.speedKmh);
     c.fillText(speedStr, pad, H - pad - 16);
     c.font = '11px "Rajdhani", sans-serif';
     c.fillStyle = '#6688aa';
-    c.fillText('km/h', pad, H - pad - 2);
+    c.fillText(Units.speedLabel(), pad, H - pad - 2);
 
     // Incline (bottom center-left)
     const incStr = (this.runner.incline >= 0 ? '+' : '') + this.runner.incline.toFixed(1) + '%';
@@ -594,7 +594,7 @@ const TrackView = {
     c.font = 'bold 16px "Orbitron", sans-serif';
     c.fillStyle = '#aaccee';
     c.textAlign = 'right';
-    c.fillText(this.runner.distKm.toFixed(2) + ' km', W - pad, pad + 20);
+    c.fillText(Units.distKmU(this.runner.distKm), W - pad, pad + 20);
 
     // Drift / EF (below distance, top right)
     var drift = this.runner.driftPct || 0;
@@ -623,7 +623,7 @@ const TrackView = {
         var deltaM = Math.round((ghost.distKm - this.runner.distKm) * 1000);
         var sign = deltaM > 0 ? '+' : '';
         var label = Math.abs(deltaM) >= 1000
-          ? sign + (deltaM / 1000).toFixed(1) + 'km'
+          ? sign + Units.dist(deltaM, 1) + Units.distLabel()
           : sign + deltaM + 'm';
 
         c.font = '11px "JetBrains Mono", monospace';

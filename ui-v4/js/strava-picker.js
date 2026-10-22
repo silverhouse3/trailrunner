@@ -33,7 +33,7 @@
     var t = Date.parse(String(iso || '').replace(/Z$/, '')); if (isNaN(t)) return '';
     var d = new Date(t); return DAYS[d.getDay()] + ' ' + d.getDate() + ' ' + MONTHS[d.getMonth()];
   }
-  function pace(distM, s) { if (!distM || !s) return '--'; var p = s / (distM / 1000); return Math.floor(p / 60) + ':' + pad2(Math.round(p % 60)) + '/km'; }
+  function pace(distM, s) { if (!distM || !s) return '--'; var p = s / (distM / 1000); return Units.pace(p) + Units.paceSlash(); }
 
   var StravaPicker = {
 
@@ -140,7 +140,7 @@
         main.appendChild(el('div', 'sv-row-sub', self._tab === 'runs' ? fmtDate(it.start_date_local) + (it.sport_type === 'TrailRun' ? '  -  Trail run' : '') : 'Saved route'));
         row.appendChild(main);
         var st = el('div', 'sv-row-stats');
-        st.appendChild(el('div', 'sv-row-big', (it.distance / 1000).toFixed(1) + ' km'));
+        st.appendChild(el('div', 'sv-row-big', Units.distU(it.distance, 1)));
         st.appendChild(el('div', 'sv-row-sub', '+' + Math.round(it.total_elevation_gain || 0) + ' m' + (it.moving_time ? '  -  ' + fmtDur(it.moving_time) : (it.estimated_moving_time ? '  -  ~' + fmtDur(it.estimated_moving_time) : ''))));
         row.appendChild(st);
         row.onclick = function () { self.select(it); };
@@ -182,7 +182,7 @@
       d.appendChild(legend);
       var stats = el('div', 'sv-d-stats');
       function stat(l, v) { var s = el('div', 'sv-d-stat'); s.appendChild(el('div', 'sv-d-val', v)); s.appendChild(el('div', 'sv-d-lab', l)); stats.appendChild(s); }
-      stat('DISTANCE', (conv.totalDistM / 1000).toFixed(1) + ' km');
+      stat('DISTANCE', Units.distU(conv.totalDistM, 1));
       stat('CLIMB ON BELT', '+' + conv.ascent + ' m');
       stat('REAL CLIMB', '+' + conv.ascentReal + ' m');
       stat('STEEPEST' + (conv.stats.maxGradeRaw > conv.limits.max ? ' (REAL ' + Math.round(conv.stats.maxGradeRaw) + '%)' : ''), Math.min(conv.limits.max, Math.max(0, conv.stats.maxGradeRaw)).toFixed(0) + '%');

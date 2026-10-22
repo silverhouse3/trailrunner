@@ -669,10 +669,10 @@ var TrailCam = {
     c.font = 'bold 28px "Orbitron", sans-serif';
     c.fillStyle = '#00ffcc';
     c.textAlign = 'left';
-    c.fillText(this.runner.speedKmh.toFixed(1), pad, H - pad - 16);
+    c.fillText(Units.speed(this.runner.speedKmh), pad, H - pad - 16);
     c.font = '11px "Rajdhani", sans-serif';
     c.fillStyle = '#6688aa';
-    c.fillText('km/h', pad, H - pad - 2);
+    c.fillText(Units.speedLabel(), pad, H - pad - 2);
 
     // Incline (bottom center-left)
     var incStr = (this.runner.incline >= 0 ? '+' : '') + this.runner.incline.toFixed(1) + '%';
@@ -750,7 +750,7 @@ var TrailCam = {
     c.font = 'bold 16px "Orbitron", sans-serif';
     c.fillStyle = '#aaccee';
     c.textAlign = 'right';
-    c.fillText(this.runner.distKm.toFixed(2) + ' km', W - pad, pad + 46);
+    c.fillText(Units.distKmU(this.runner.distKm), W - pad, pad + 46);
 
     // Drift / EF (below distance)
     var drift = this.runner.driftPct || 0;

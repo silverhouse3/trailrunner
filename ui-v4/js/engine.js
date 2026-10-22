@@ -1148,7 +1148,7 @@ const Engine = {
   getAvgPace() {
     if (!this.run || this.run.distanceM < 100) return '—';
     const secPerKm = this.run.elapsed / (this.run.distanceM / 1000);
-    return this._fmtPace(secPerKm);
+    return (typeof Units !== 'undefined') ? Units.pace(secPerKm) : this._fmtPace(secPerKm);
   },
 
   getAvgHR() {

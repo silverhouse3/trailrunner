@@ -126,6 +126,8 @@ async function check(page, name) {
 async function tour(browser, errors) {
   await post('/mock/reset');
   var page = await browser.newPage({ viewport: { width: VW, height: TOUR.vh } });
+  // Setup only: the tour's expectations (km/h text, nudge size) are written for METRIC; the app now defaults to IMPERIAL.
+  await page.addInitScript(function () { try { var o = JSON.parse(localStorage.getItem('tr_settings') || '{}'); o.unitSystem = 'metric'; localStorage.setItem('tr_settings', JSON.stringify(o)); } catch (e) {} });
   page.on('pageerror', function (e) { errors.push('pageerror: ' + e.message); });
   page.on('console', function (m) { if (m.type() === 'error' && m.text().indexOf('ERR_CONNECTION_REFUSED') < 0) errors.push('console: ' + m.text()); });
   var Q = TOUR.q; // extra query (e.g. &safeBottom=80), remembered per session by App.safeBottom()
@@ -282,6 +284,7 @@ async function tour(browser, errors) {
 async function splitTour(browser, errors) {
   await post('/mock/reset');
   var page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
+  await page.addInitScript(function () { try { var o = JSON.parse(localStorage.getItem('tr_settings') || '{}'); o.unitSystem = 'metric'; localStorage.setItem('tr_settings', JSON.stringify(o)); } catch (e) {} }); // setup only: tour expectations are metric
   page.on('pageerror', function (e) { errors.push('pageerror: ' + e.message); });
   page.on('console', function (m) { if (m.type() === 'error' && m.text().indexOf('ERR_CONNECTION_REFUSED') < 0) errors.push('console: ' + m.text()); });
   var Q = '&safeBottom=80&ytStub=1&splitSim=1';
@@ -321,6 +324,7 @@ async function splitTour(browser, errors) {
   await page.evaluate(function () { App.togglePause(); }); await sleep(1500);
 
   // half → full strip: wrapper makes us 1920 x 56
+  var sw0 = await page.evaluate(function () { return window.__speedCmds; }); // baseline AFTER the test's own explicit pause/resume (resumeRun re-sends speed by design)
   await page.click('#videoFullBtn'); await sleep(200);
   await page.setViewportSize({ width: 1920, height: 56 }); await sleep(700);
   await page.evaluate(function () { if (Engine.run.status === 'paused') App.togglePause(); }); await sleep(800);
@@ -357,7 +361,7 @@ async function splitTour(browser, errors) {
   var off = await page.evaluate(function () { return { mode: AndroidBridge.isVideoSplit(), half: document.getElementById('rootApp').classList.contains('half'), w: document.getElementById('rootApp').offsetWidth, el: Engine.run.elapsed, d: Engine.run.distanceM, status: Engine.run.status, cmds: window.__speedCmds, belt: TM.workoutState }; });
   ok(off.mode === 'off' && !off.half && off.w === 1920, '[split] CLOSE VIDEO → videoSplit(off) → full 1920 layout', JSON.stringify({ mode: off.mode, w: off.w }));
   ok(off.el > s0.el + 5 && off.d > s0.d && off.status === 'running' && off.belt === 'RUNNING', '[split] off → half → full → half → off kept the run (elapsed ' + Math.round(s0.el) + '→' + Math.round(off.el) + ' s, ' + Math.round(s0.d) + '→' + Math.round(off.d) + ' m)', JSON.stringify(off));
-  ok(off.cmds === c0 && off.cmds === s0.cmds, '[split] no speed command was sent by any mode switch', 'cmds before ' + s0.cmds + ' after ' + off.cmds + ' ' + JSON.stringify(await page.evaluate(function () { return { tgt0: window.__tgt0, tgt: TM._target, log: window.__speedLog }; })));
+  ok(off.cmds === c0 && off.cmds === sw0, '[split] no speed command was sent by any mode switch', 'cmds before ' + s0.cmds + ' after ' + off.cmds + ' ' + JSON.stringify(await page.evaluate(function () { return { tgt0: window.__tgt0, tgt: TM._target, log: window.__speedLog }; })));
   // owner simplification: VIDEO toggles, the mode is remembered across close/reopen, every open uses an EMPTY url
   var tg = await page.evaluate(function () {
     var out = {}; AndroidBridge.calls.length = 0;

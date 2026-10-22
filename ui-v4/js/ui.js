@@ -64,9 +64,8 @@ const UI = {
 
   init() {
     const settings = Store.getSettings();
-    this.units.speed = settings.speedUnit || 'kmh';
-    this.units.dist = settings.distUnit || 'km';
-    this.units.elev = settings.elevUnit || 'm';
+    Units.system(); Units.syncSettings();   // single unit system -> UI.units.*
+    Units.refreshDom();
   },
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -88,8 +87,7 @@ const UI = {
   },
 
   speedLabel() {
-    const map = { kmh: 'km/h', mph: 'mph', minperkm: '/km', minpermi: '/mi' };
-    return map[this.units.speed] || 'km/h';
+    return Units.speedLabel();
   },
 
   convDist(km) {
@@ -100,19 +98,10 @@ const UI = {
   convElev(m) { return this.units.elev === 'ft' ? Math.round(m * 3.28084) : Math.round(m); },
   elevLabel() { return this.units.elev; },
 
-  cycleSpeed() {
-    const order = ['kmh', 'mph', 'minperkm', 'minpermi'];
-    this.units.speed = order[(order.indexOf(this.units.speed) + 1) % order.length];
-    this._saveUnits();
-  },
-  cycleDist() {
-    this.units.dist = this.units.dist === 'km' ? 'mi' : 'km';
-    this._saveUnits();
-  },
-  cycleElev() {
-    this.units.elev = this.units.elev === 'm' ? 'ft' : 'm';
-    this._saveUnits();
-  },
+  // One unit system drives everything (Units.set); the per-field cyclers now flip the whole system.
+  cycleSpeed() { Units.set(Units.imp() ? 'metric' : 'imperial'); },
+  cycleDist() { Units.set(Units.imp() ? 'metric' : 'imperial'); },
+  cycleElev() { Units.set(Units.imp() ? 'metric' : 'imperial'); },
   _saveUnits() {
     const s = Store.getSettings();
     s.speedUnit = this.units.speed;
@@ -145,10 +134,7 @@ const UI = {
 
     // Pace sub-line
     if (r.speed > 0.5) {
-      const secPerKm = 3600 / r.speed;
-      const pm = Math.floor(secPerKm / 60);
-      const ps = Math.round(secPerKm % 60);
-      set('paceVal', pm + ':' + String(ps).padStart(2, '0'));
+      set('paceVal', Units.paceFromKmh(r.speed));
     } else {
       set('paceVal', '—');
     }
@@ -242,6 +228,7 @@ const UI = {
 
     // ── Avg Pace ─────────────────────────────────────────────────────────
     set('avgPace', Engine.getAvgPace());
+    set('avgPaceU', Units.paceSlash());
     set('avgHR', Engine.getAvgHR() > 0 ? ('Avg ❤ ' + Engine.getAvgHR()) : '');
 
     // ── Cardiac Drift / EF ─────────────────────────────────────────────
@@ -392,16 +379,14 @@ const UI = {
     const existing = document.getElementById('kmToast');
     if (existing) existing.remove();
 
-    const pm = Math.floor(paceSecPerKm / 60);
-    const ps = Math.round(paceSecPerKm % 60);
-    const paceStr = pm + ':' + String(ps).padStart(2, '0');
+    const paceStr = Units.pace(paceSecPerKm);
 
     const toast = document.createElement('div');
     toast.id = 'kmToast';
     toast.className = 'km-toast show';
     toast.innerHTML =
       '<div class="kmt-km">' + km + ' KM</div>' +
-      '<div class="kmt-pace">' + paceStr + ' /km</div>' +
+      '<div class="kmt-pace">' + paceStr + ' ' + Units.paceSlash() + '</div>' +
       (hr > 0 ? '<div class="kmt-hr">❤ ' + hr + '</div>' : '');
 
     const mapZone = document.querySelector('.map-zone');
@@ -431,11 +416,9 @@ const UI = {
       return;
     }
     el.innerHTML = splits.map(s => {
-      const pm = Math.floor(s.paceSecPerKm / 60);
-      const ps = Math.round(s.paceSecPerKm % 60);
       return '<div class="split-row">' +
         '<div class="split-km">' + s.km + '</div>' +
-        '<div class="split-pace">' + pm + ':' + String(ps).padStart(2, '0') + '</div>' +
+        '<div class="split-pace">' + Units.pace(s.paceSecPerKm) + '</div>' +
         '<div class="split-hr">' + (s.avgHR > 0 ? '❤ ' + s.avgHR : '') + '</div>' +
         '<div class="split-time">' + Engine.fmtTime(s.elapsed) + '</div>' +
       '</div>';
@@ -472,7 +455,7 @@ const UI = {
     }
 
     el.innerHTML = routes.map(r => {
-      const distStr = r.totalDistKm.toFixed(1);
+      const distStr = Units.distKm(r.totalDistKm, 1);
       const isActive = r.id === activeId;
       const bestStr = r.bestTime ? Engine.fmtTime(r.bestTime) : '—';
       const safeId = _esc(r.id);
@@ -481,8 +464,8 @@ const UI = {
         '<div class="rc-top">' +
           '<div class="rc-name">' + (r.favourite ? '⭐ ' : '') + _esc(r.name) + '</div>' +
           '<div class="rc-stats">' +
-            '<span>' + distStr + ' km</span>' +
-            '<span>+' + (r.totalAscent || 0) + ' m climb</span>' +
+            '<span>' + distStr + ' ' + Units.distLabel() + '</span>' +
+            '<span>+' + Units.elev(r.totalAscent || 0) + ' ' + Units.elevLabel() + ' climb</span>' +
             '<span>' + (r.runCount || 0) + ' runs</span>' +
             '<span>Best ' + bestStr + '</span>' +
           '</div>' +
@@ -504,7 +487,7 @@ const UI = {
     $('fRoute', r.routeName);
     $('fTime', Engine.fmtTime(r.elapsed));
     $('fDist', this.convDist(r.distanceM / 1000) + ' ' + this.distLabel());
-    $('fPace', Engine.getAvgPace() + ' /km');
+    $('fPace', Engine.getAvgPace() + ' ' + Units.paceSlash());
     $('fHR', Engine.getAvgHR() > 0 ? Engine.getAvgHR() : '—');
     $('fCal', Math.round(r.calories));
     $('fElev', '+' + this.convElev(r.elevGained) + ' ' + this.elevLabel());
@@ -807,10 +790,10 @@ const UI = {
       hud.style.display = 'block';
       var $$ = function (i, v) { var e = document.getElementById(i); if (e && e.textContent !== v) e.textContent = v; };
       var nx = Engine.nextChange ? Engine.nextChange() : null;
-      var nxTxt = nx && nx.kind !== 'ramp' ? ('NEXT: ' + (nx.kind === 'end' ? 'finish' : (nx.label || '') + (nx.speed != null ? ' · ' + nx.speed.toFixed(1) + ' km/h' : '') + (nx.incline != null ? ' · ' + nx.incline + '%' : ''))) : '';
+      var nxTxt = nx && nx.kind !== 'ramp' ? ('NEXT: ' + (nx.kind === 'end' ? 'finish' : (nx.label || '') + (nx.speed != null ? ' · ' + Units.speedU(nx.speed) : '') + (nx.incline != null ? ' · ' + nx.incline + '%' : ''))) : '';
       $$('whProgName', ((Engine.run && Engine.run.routeName) || 'WORKOUT').toUpperCase() + (seg.total > 0 && seg.index >= 0 ? ' · ' + (seg.index + 1) + '/' + seg.total : ''));
       $$('whStageName', seg.label || ('Segment ' + (seg.index + 1)));
-      $$('whStageTimer', seg.remainingType === 'distance' ? (seg.remaining >= 1000 ? (seg.remaining / 1000).toFixed(2) + ' km' : Math.round(seg.remaining) + ' m') + ' left' : Engine.fmtTime(Math.max(0, seg.remaining)) + ' left');
+      $$('whStageTimer', seg.remainingType === 'distance' ? (seg.remaining >= 1000 ? Units.distU(seg.remaining) : Math.round(Units.elevNum(seg.remaining)) + ' ' + Units.elevLabel()) + ' left' : Engine.fmtTime(Math.max(0, seg.remaining)) + ' left');
       var nxEl = document.getElementById('whNext'); if (nxEl && nxEl.textContent !== nxTxt) nxEl.textContent = nxTxt;
       var fill = document.getElementById('whProgFill');
       if (fill) { var tp = WorkoutSegments.getTotalProgress(); fill.style.width = tp ? Math.round((tp.fraction || 0) * 100) + '%' : '0'; }
@@ -891,7 +874,7 @@ const UI = {
         '<div class="hr-date">' + date + '</div>' +
         '<div class="hr-name">' + _esc(r.routeName || 'Free Run') + '</div>' +
         '<div class="hr-time">' + Engine.fmtTime(r.elapsed) + '</div>' +
-        '<div class="hr-dist">' + (r.distanceKm || 0).toFixed(1) + ' km</div>' +
+        '<div class="hr-dist">' + Units.distKmU(r.distanceKm || 0, 1) + '</div>' +
         '<div class="hr-btn hr-again" onclick="event.stopPropagation();App.runAgainSaved(\'' + safeId + '\')">↻ AGAIN</div>' +
         '<div class="hr-btn">👻 RACE</div>' +
       '</div>';

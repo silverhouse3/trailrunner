@@ -39,7 +39,7 @@ var SpeedUnits = {
 
   /** Format a speed value for display. */
   format: function (value, unit) {
-    if (value <= 0) return '0';
+    if (value <= 0) return (unit === 'min/mi' || unit === 'min/km') ? '--:--' : '0.0';
     if (unit === 'min/mi' || unit === 'min/km') {
       var mins = Math.floor(value);
       var secs = Math.round((value - mins) * 60);
