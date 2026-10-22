@@ -51,7 +51,7 @@
     // Scopes: read_all = private saved routes; activity:read_all = her own
     // activities + streams (incl. "Only Me" ones); activity:write = uploads.
     SCOPES: 'read,read_all,activity:read_all,activity:write',
-    REDIRECT_URI: 'https://silverhouse3.github.io/trailrunner/strava-callback.html',
+    REDIRECT_URI: 'https://silverhouse3.github.io/trailrunner/ui-v4/strava-callback.html',
     CALLBACK_FALLBACK_NOTE: 'Must match the Authorization Callback Domain in the Strava API settings.',
 
     // Resolved lazily so tests can change location before first call.
@@ -80,7 +80,7 @@
         comfortMaxIncline: p.comfortMaxIncline != null ? p.comfortMaxIncline : 12,
         ghostDefault: p.ghostDefault !== false,
         autoRetryQueued: p.autoRetryQueued !== false,
-        perPage: p.perPage || 30
+        perPage: p.perPage || 100   // one list call covers ~100 activities (Strava allows up to 200 per page)
       };
     },
     setPrefs: function (patch) {
@@ -92,7 +92,13 @@
     // ── Tokens ──────────────────────────────────────────────────────────────
     tokens: function () { return jget('tr_strava', null); },
     _saveTokens: function (t) { lsSet('tr_strava', JSON.stringify(t)); },
-    app: function () { return jget('tr_strava_app', null); },
+    app: function () {
+      // Stored app (typed in Settings) wins; the public Client ID default from js/strava-config.js fills a missing ID.
+      var a = jget('tr_strava_app', null) || {};
+      var cfg = root.TR_STRAVA_CONFIG;
+      if (!a.clientId && cfg && cfg.clientId) a = { clientId: String(cfg.clientId), clientSecret: a.clientSecret || '' };
+      return a.clientId ? a : null;
+    },
     isConnected: function () { var t = this.tokens(); return !!(t && t.access_token); },
     athleteId: function () { var t = this.tokens(); return t && t.athlete ? t.athlete.id : null; },
     disconnect: function () { lsDel('tr_strava'); },
@@ -330,7 +336,7 @@
         });
       }
       return this.kv.get(key).then(function (cached) {
-        var fresh = cached && !opts.force && (Date.now() - cached.fetchedAt) < (opts.maxAgeMs != null ? opts.maxAgeMs : 120000);
+        var fresh = cached && !opts.force && (Date.now() - cached.fetchedAt) < (opts.maxAgeMs != null ? opts.maxAgeMs : 900000)   // 15 min: list is cached to save the call budget;
         if (fresh) return { items: cached.items, stale: false, fetchedAt: cached.fetchedAt, fromCache: true };
         return page(1).then(function () {
           var rec = { items: out.slice(0, want), fetchedAt: Date.now() };
@@ -370,7 +376,8 @@
       return this.kv.get(key).then(function (c) {
         if (c && !(opts && opts.force)) return c;
         return self.request('/activities/' + id + '/streams', {
-          query: { keys: 'latlng,altitude,distance,time,velocity_smooth', key_by_type: 'true' }
+          // ONE call per run gets everything Strava has (HR, cadence, grade too): runs are fetched once and cached forever.
+          query: { keys: 'latlng,altitude,distance,time,velocity_smooth,heartrate,cadence,grade_smooth,moving', key_by_type: 'true' }
         }).then(function (s) {
           var norm = normaliseStreams(s);
           self.kv.set(key, norm);

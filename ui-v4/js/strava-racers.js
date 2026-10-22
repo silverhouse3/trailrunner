@@ -186,8 +186,23 @@
       return {
         id: 'sv_' + item.id, source: 'strava', sourceId: item.id,
         date: item.start_date || item.start_date_local || null,
-        totalS: r1(conv.ghost.movingTimeS), d: d, t: conv.ghost.t.slice()
+        totalS: r1(conv.ghost.movingTimeS), d: d, t: conv.ghost.t.slice(),
+        hrKm: this.hrPerKm(streams, k)   // average HR per km from the same stream call (no extra request)
       };
+    },
+
+    /** Average heart rate per km (index 0 = km 1) from raw streams, distances scaled by k; [] if the run has no HR. */
+    hrPerKm: function (streams, k) {
+      var hr = streams && streams.heartrate, dist = streams && streams.distance, out = [];
+      if (!hr || !dist || hr.length !== dist.length || !hr.length) return out;
+      var sums = [], cnts = [], i, j;
+      for (i = 0; i < hr.length; i++) {
+        if (!(hr[i] > 30 && hr[i] < 250)) continue;
+        j = Math.floor(dist[i] * k / 1000 - 1e-9); if (j < 0) j = 0;
+        sums[j] = (sums[j] || 0) + hr[i]; cnts[j] = (cnts[j] || 0) + 1;
+      }
+      for (i = 0; i < sums.length; i++) out.push(cnts[i] ? Math.round(sums[i] / cnts[i]) : 0);
+      return out;
     },
 
     profileFromMeta: function (routeId, meta, route) {
@@ -356,7 +371,7 @@
      * Same route only (pool.routeId must equal routeId); treadmill copies win on duplicates (a Strava run that is also
      * stored locally, or that this app uploaded, is dropped again here, in case it was saved after the pool was built).
      * Splits are cut from the run's time-at-distance profile (moving time) on the route's distance scale.
-     * Strava streams are fetched without heart rate, so avgHR is 0 (the HR comparison needs >= 2 values and ignores 0).
+     * avgHR per km comes from the run's heartrate stream (same call as the route data); 0 when the run had no HR (ignored by the comparison).
      */
     splitsSource: function (routeId, distanceKm) {
       var a = StravaRacers.active, out = [];
@@ -369,7 +384,7 @@
         var n = Math.floor(D / 1000 + 1e-9), splits = [], prev = 0, k;
         for (k = 1; k <= n; k++) {
           var t = I(p.d, p.t, k * 1000);
-          splits.push({ km: k, timeSec: Math.max(1, Math.round(t - prev)), avgHR: 0 });
+          splits.push({ km: k, timeSec: Math.max(1, Math.round(t - prev)), avgHR: (p.hrKm && p.hrKm[k - 1]) || 0 });
           prev = t;
         }
         if (!splits.length) return;

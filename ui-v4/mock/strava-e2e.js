@@ -42,12 +42,12 @@ async function ensureServers() {
   function R(sel) { return page.evaluate(function (s) { var e = document.querySelector(s); if (!e) return null; var r = e.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height, r: r.right, b: r.bottom, vis: !!(e.offsetWidth || e.offsetHeight) && getComputedStyle(e).display !== 'none' }; }, sel); }
   function hit(a, b) { return a && b && a.vis && b.vis && a.x < b.r && a.r > b.x && a.y < b.b && a.b > b.y; }
 
-  // The mock's /oauth/authorize answers 302 -> the public callback URL (silverhouse3.github.io/trailrunner/strava-callback.html).
+  // The mock's /oauth/authorize answers 302 -> the public callback URL (silverhouse3.github.io/trailrunner/ui-v4/strava-callback.html).
   // Rewrite only the host so the callback page is the local copy, same origin as the app (like production, where both live on github.io).
   await ctx.route('**/oauth/authorize*', function (route) {
     route.fetch({ maxRedirects: 0 }).then(function (resp) {
       var loc = resp.headers()['location'] || '';
-      route.fulfill({ status: 302, headers: { Location: loc.replace('https://silverhouse3.github.io/trailrunner/', 'http://localhost:8099/') } });
+      route.fulfill({ status: 302, headers: { Location: loc.replace('https://silverhouse3.github.io/trailrunner/ui-v4/', 'http://localhost:8099/') } });
     });
   });
   // Block the real internet (map tiles etc.) quickly

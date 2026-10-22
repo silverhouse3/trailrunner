@@ -122,6 +122,9 @@ var TM = {
   },
 
   disconnect: function(keepWatchdog) {
+    this._cancelRamp();
+    this._sentSpeed = -1;
+    this._beltKph = -1;
     if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
     if (this._pollTimer) { clearInterval(this._pollTimer); this._pollTimer = null; }
     if (!keepWatchdog && this._watchdogTimer) { clearInterval(this._watchdogTimer); this._watchdogTimer = null; }
@@ -439,6 +442,7 @@ var TM = {
     } else if (v['km/h'] !== undefined) {
       data.speed = parseFloat(v['km/h']);
     }
+    if (data.speed !== undefined && !isNaN(data.speed)) this._beltKph = data.speed;
 
     // Incline
     if (v.Incline !== undefined) data.incline = parseFloat(v.Incline);
@@ -492,11 +496,53 @@ var TM = {
     if (isNaN(kph)) return;
     // SAFETY: hard clamp to machine maximum (X32i: 0–19.31 kph)
     kph = Math.max(0, Math.min(19.3, kph));
-    // DEDUP: skip if value unchanged (reduces network chatter)
-    if (kph === this._lastSpeed && !force) return;
+    // DEDUP: skip if value unchanged (reduces network chatter), unless a stepped ramp is still running
+    if (kph === this._lastSpeed && !force && !this._rampTimer) return;
     this._lastSpeed = kph;
     this._lastSpeedT = Date.now();
+    this._cancelRamp();
+    // SAFETY: a stop (0) always goes out at once. Small moves go out at once. Big moves are STEPPED because
+    // the bridge caps any single command to 4 kph from the current speed (it never finishes a ramp itself).
+    if (kph === 0 || Math.abs(kph - this._rampBase()) <= this._stepKph) {
+      this._sendSpeedNow(kph);
+      return;
+    }
+    this._rampStep(kph);
+  },
+
+  // ── Stepped speed ramp (see setSpeed) ──
+  _stepKph: 3.0,      // per step; bridge limit is 4 kph per second, so this leaves margin
+  _stepMs: 1000,      // time between steps
+  _rampTimer: null,
+  _sentSpeed: -1,     // last speed this app sent (-1 = unknown)
+  _lastSendT: 0,
+  _beltKph: -1,       // last real belt speed reported by the bridge (-1 = unknown)
+
+  _sendSpeedNow: function(kph) {
+    this._sentSpeed = kph;
+    this._lastSendT = Date.now();
     this._send({ values: { KPH: kph }, type: 'set' });
+  },
+  /** Where a new move starts from: what we just sent if recent (a ramp is in flight), else the measured belt. */
+  _rampBase: function() {
+    if (this._sentSpeed >= 0 && Date.now() - this._lastSendT < 3000) return this._sentSpeed;
+    if (this._beltKph >= 0) return this._beltKph;
+    return this._sentSpeed >= 0 ? this._sentSpeed : 0;
+  },
+  _rampStep: function(target) {
+    if (this._estopActive || !this.connected) { this._cancelRamp(); return; }
+    var from = this._rampBase();
+    var d = target - from;
+    var step = Math.min(this._stepKph, Math.abs(d));
+    var next = +(from + (d > 0 ? step : -step)).toFixed(1);
+    this._sendSpeedNow(next);
+    if (next !== target) {
+      var self = this;
+      this._rampTimer = setTimeout(function() { self._rampTimer = null; self._rampStep(target); }, this._stepMs);
+    }
+  },
+  _cancelRamp: function() {
+    if (this._rampTimer) { clearTimeout(this._rampTimer); this._rampTimer = null; }
   },
 
   /** Set ramp incline (%).
@@ -530,6 +576,9 @@ var TM = {
   _estopActive: false,
   emergencyStop: function() {
     this._estopActive = true;
+    this._cancelRamp();
+    this._sentSpeed = 0;
+    this._lastSendT = Date.now();
     this._expectRunning = false;
     // PRIORITY 1: Stop the belt immediately
     this._lastSpeed = 0;

@@ -130,7 +130,8 @@ function simulate(spec) {
   var step = Math.max(1, Math.floor(latlng.length / 160)), simp = [];
   for (i = 0; i < latlng.length; i += step) simp.push(latlng[i]);
   return {
-    streams: { latlng: latlng, altitude: altitude, distance: distance, time: time, velocity_smooth: vel },
+    streams: { latlng: latlng, altitude: altitude, distance: distance, time: time, velocity_smooth: vel,
+      heartrate: vel.map(function (v) { return Math.round((spec.hr || 150) - 12 + v * 4); }) },
     summary: {
       id: spec.id, name: spec.name, type: spec.type || 'Run', sport_type: spec.sport_type || spec.type || 'Run',
       start_date: spec.date, start_date_local: spec.date.replace('Z', ''), distance: +distance[distance.length - 1].toFixed(1),

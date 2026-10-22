@@ -38,6 +38,7 @@
   </div>
 </div>
 
+<script src="js/strava-config.js"></script>
 <script>
 (async function() {
   const params = new URLSearchParams(window.location.search);
@@ -64,6 +65,9 @@
   // Get stored app credentials + optional secret-less token proxy
   let app = null, prefs = {};
   try { app = JSON.parse(lsGet('tr_strava_app')); } catch (e) {}
+  if ((!app || !app.clientId) && window.TR_STRAVA_CONFIG && window.TR_STRAVA_CONFIG.clientId) {
+    app = { clientId: String(window.TR_STRAVA_CONFIG.clientId), clientSecret: (app && app.clientSecret) || '' };
+  }
   try { prefs = JSON.parse(lsGet('tr_strava_prefs')) || {}; } catch (e) {}
   const proxy = (prefs.tokenProxyUrl || '').trim();
 
