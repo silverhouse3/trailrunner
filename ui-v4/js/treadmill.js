@@ -304,7 +304,7 @@ var TM = {
           // Workout state recovery: if app thinks workout should be running
           // but bridge says IDLE, WARN but do NOT auto-restart.
           // SAFETY: auto-restart could spin the belt if user fell off.
-          if (self._expectRunning && data.workoutState === 'IDLE') {
+          if (self._expectRunning && data.workoutState === 'IDLE' && self._pauseConfirmed()) {
             console.warn('[TM] Watchdog: workout dropped to IDLE — flagging for user');
             self._expectRunning = false;
             if (self.onWorkoutDropped) self.onWorkoutDropped();
@@ -444,7 +444,7 @@ var TM = {
       if (this.onWorkout) this.onWorkout(msg.workout);
     }
 
-    if (!msg.values) return;
+    if (!msg.values) { this._evalPause(); return; }
     var v = msg.values;
     var data = {};
 
@@ -457,6 +457,7 @@ var TM = {
       data.speed = parseFloat(v['km/h']);
     }
     if (data.speed !== undefined && !isNaN(data.speed)) this._beltKph = data.speed;
+    this._evalPause();
 
     // Incline
     if (v.Incline !== undefined) data.incline = parseFloat(v.Incline);
@@ -723,6 +724,7 @@ var TM = {
       return;
     }
     console.log('[TM] Starting workout...');
+    this._graceUntil = Date.now() + this._graceMs;
     this._sessionStarted = true;
     this._expectRunning = true;
     this._send({ type: 'workout', action: 'start' });
@@ -752,9 +754,34 @@ var TM = {
       return;
     }
     console.log('[TM] Resuming workout...');
+    this._graceUntil = Date.now() + this._graceMs;
     this._sessionStarted = true;
     this._expectRunning = true;
     this._send({ type: 'workout', action: 'resume' });
+  },
+
+  // ── Transient PAUSED/IDLE after StartNewWorkout (console WARM_UP) must not look like a real pause ──
+  // A real pause = workout PAUSED (or IDLE while we expect a run) AND measured belt < 0.5 kph for >= 2 s, outside the
+  // 4 s grace after our own START/RESUME. Safety key is handled separately and is immediate. Never sends a command.
+  _graceMs: 4000, _graceUntil: 0, _slowSince: 0, _dropFired: false, syncing: false,
+  _pauseConfirmed: function() {
+    return Date.now() >= this._graceUntil && !(this._beltKph > 0.5) && this._slowSince > 0 && (Date.now() - this._slowSince) >= 2000;
+  },
+  _evalPause: function() {
+    var was = this.syncing, now = Date.now();
+    if (this.workoutState === 'RUNNING') { this._slowSince = 0; this._dropFired = false; this.syncing = false; }
+    else if (this._safetyKeyWarning || !(this.workoutState === 'PAUSED' || (this.workoutState === 'IDLE' && this._expectRunning))) { this._slowSince = 0; this.syncing = false; }
+    else if (this._beltKph > 0.5) { this._slowSince = 0; this.syncing = true; }
+    else if (now < this._graceUntil) { this._slowSince = 0; this.syncing = true; }
+    else {
+      if (!this._slowSince) this._slowSince = now;
+      this.syncing = false;
+      if (!this._dropFired && this._pauseConfirmed()) {
+        this._dropFired = true; this._expectRunning = false;
+        if (this.onWorkoutDropped) this.onWorkoutDropped();
+      }
+    }
+    if (was !== this.syncing && this.onWorkout) { try { this.onWorkout({}); } catch (e) {} }
   },
 
   // ── Safety key warning ───────────────────────────────────────────────

@@ -53,6 +53,7 @@ var sim = {
   fan: 0,
   lastTickMs: Date.now(),
   log: [],
+  force: null,   // {state, consoleState, kph} reported-state override (mock/force), null = off
 };
 
 var MAX_KPH = 19.3;
@@ -123,7 +124,7 @@ function stateMsg() {
   return {
     type: 'stats',
     values: {
-      'KPH': sim.kph.toFixed(1),
+      'KPH': (sim.force && sim.force.kph != null ? sim.force.kph : sim.kph).toFixed(1),
       'Incline': sim.incline.toFixed(1),
       'Heart Rate': String(hr),
       'Distance': sim.distanceKm.toFixed(3),
@@ -133,11 +134,11 @@ function stateMsg() {
       'Watts': String(sim.watts),
     },
     workout: {
-      state: sim.workoutState,
+      state: sim.force && sim.force.state ? sim.force.state : sim.workoutState,
       id: sim.workoutId,
       grpc: true,
       safetyKeyOut: sim.safetyKeyOut,
-      consoleState: sim.safetyKeyOut ? 'SAFETY_KEY_REMOVED' : sim.consoleState,
+      consoleState: sim.safetyKeyOut ? 'SAFETY_KEY_REMOVED' : (sim.force && sim.force.consoleState ? sim.force.consoleState : sim.consoleState),
     },
     mock: true,
   };
@@ -147,7 +148,7 @@ function health() {
   return {
     status: 'ok', version: 'mock-1.0',
     speed: +sim.kph.toFixed(1), incline: +sim.incline.toFixed(1), hr: Math.round(sim.hr),
-    workoutState: sim.workoutState, workoutId: sim.workoutId,
+    workoutState: sim.force && sim.force.state ? sim.force.state : sim.workoutState, workoutId: sim.workoutId,
     grpc: true, mqtt: false, clients: wsClients.length, mock: true,
   };
 }
@@ -285,7 +286,13 @@ var server = http.createServer(function (req, res) {
       log('HR override ' + sim.hrOverride);
       return sendJSON(res, { ok: true, hrOverride: sim.hrOverride });
     }
+    if (path === '/mock/force') {   // body {state,consoleState,kph} to override what the bridge REPORTS; {} / {off:true} clears
+      sim.force = (body.off || !(body.state || body.consoleState || body.kph != null)) ? null : { state: body.state || null, consoleState: body.consoleState || null, kph: body.kph != null ? +body.kph : null };
+      log('FORCE ' + JSON.stringify(sim.force)); broadcast(stateMsg());
+      return sendJSON(res, { ok: true, force: sim.force });
+    }
     if (path === '/mock/reset') {
+      sim.force = null;
       sim.workoutState = 'IDLE'; sim.workoutId = null; sim.safetyKeyOut = false; sim.targetKph = 0; sim.kph = 0;
       sim.targetIncline = 0; sim.incline = 0; sim.hr = 68; sim.hrOverride = null; sim.distanceKm = 0; sim.elapsedSec = 0;
       sim.elevGainM = 0; sim.calories = 0; log('RESET');

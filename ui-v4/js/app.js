@@ -466,7 +466,7 @@ const App = {
     TM.onWorkoutDropped = () => {
       // Bridge says IDLE while we expected RUNNING (safety key, console stop…)
       if (Engine.run && Engine.run.status === 'running') {
-        Engine.pauseRun();
+        Engine.pauseRun(true); // belt already stopped by the console: send nothing
         var pm = document.getElementById('pauseMsg');
         if (pm) pm.textContent = 'The treadmill stopped the belt (safety key or console). Resume when ready.';
         document.getElementById('pauseOverlay').classList.add('show');
@@ -751,6 +751,7 @@ const App = {
         subText = belt != null && belt > 0.3 ? ('moving ' + Units.speedU(belt) + ' — START takes over') : 'treadmill workout open — START takes over';
       }
     }
+    if (TM.connected && TM.syncing && !TM._safetyKeyWarning) { cls = 'warn'; text = 'syncing...'; subText = ''; } // transient PAUSED after START: non-blocking chip
     if (b.className !== 'state-banner ' + cls) b.className = 'state-banner ' + cls;
     if (t.textContent !== text) t.textContent = text;
     if (sub && sub.textContent !== subText) sub.textContent = subText;
