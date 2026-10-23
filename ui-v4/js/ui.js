@@ -870,11 +870,18 @@ const UI = {
     el.innerHTML = runs.slice(0, 20).map(r => {
       const date = r.startedAt ? new Date(r.startedAt).toLocaleDateString() : '—';
       const safeId = _esc(r.id);
+      var sv = '';
+      if (window.StravaUpload && window.StravaApi && StravaApi.isConnected()) {
+        var sUrl = StravaUpload.activityUrlFor(r.id);
+        sv = sUrl ? '<a class="hr-btn hr-strava on" href="' + _esc(sUrl) + '" target="_blank" onclick="event.stopPropagation()">On Strava - View on Strava</a>'
+                  : '<div class="hr-btn hr-strava" onclick="event.stopPropagation();App.sendRunToStrava(\'' + safeId + '\')">SEND TO STRAVA</div>';
+      }
       return '<div class="history-row" onclick="App.loadGhost(\'' + safeId + '\')">' +
         '<div class="hr-date">' + date + '</div>' +
         '<div class="hr-name">' + _esc(r.routeName || 'Free Run') + '</div>' +
         '<div class="hr-time">' + Engine.fmtTime(r.elapsed) + '</div>' +
         '<div class="hr-dist">' + Units.distKmU(r.distanceKm || 0, 1) + '</div>' +
+        sv +
         '<div class="hr-btn hr-again" onclick="event.stopPropagation();App.runAgainSaved(\'' + safeId + '\')">↻ AGAIN</div>' +
         '<div class="hr-btn">👻 RACE</div>' +
       '</div>';

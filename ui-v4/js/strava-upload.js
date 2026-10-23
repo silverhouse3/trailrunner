@@ -206,12 +206,46 @@
     // ════════════════════════════════════════════════════════════════════════
 
     skippedMap: function () { try { return JSON.parse(lsGet('tr_strava_skipped') || '{}') || {}; } catch (e) { return {}; } },
-    eligible: function (run) {
-      if (!run || !api() || !api().isConnected()) return false;
-      if ((run.elapsed || 0) < this.MIN_ELAPSED_S || (run.distanceM || 0) < this.MIN_DISTANCE_M) return false;
+    /** 'ok' | 'off' (not connected / no run) | 'short' (below Strava minimum) | 'skipped' | 'uploaded' */
+    reason: function (run) {
+      if (!run || !api() || !api().isConnected()) return 'off';
       var id = run.id;
-      if (id && (this.skippedMap()[id] || (root.StravaRacers && root.StravaRacers.uploadedMap()[id]))) return false;
-      return true;
+      if (id && root.StravaRacers && root.StravaRacers.uploadedMap()[id]) return 'uploaded';
+      if ((run.elapsed || 0) < this.MIN_ELAPSED_S || (run.distanceM || 0) < this.MIN_DISTANCE_M) return 'short';
+      if (id && this.skippedMap()[id]) return 'skipped';
+      return 'ok';
+    },
+    eligible: function (run) { return this.reason(run) === 'ok'; },
+    /** Normalise a stored run (stats/history shape) to the shape buildFields expects. */
+    normaliseStored: function (r) {
+      var o = {}; for (var k in r) o[k] = r[k];
+      o.elapsed = r.elapsed || r.elapsedSec || 0;
+      o.distanceM = r.distanceM || Math.round((r.distanceKm || 0) * 1000);
+      o.startedAt = r.startedAt || r.savedAt || r.date || new Date(Date.now() - o.elapsed * 1000).toISOString();
+      return o;
+    },
+    isUploaded: function (runId) { return !!(runId && root.StravaRacers && root.StravaRacers.uploadedMap()[runId]); },
+    activityUrlFor: function (runId) { var m = root.StravaRacers ? root.StravaRacers.uploadedMap() : {}; return m[runId] && api() ? api().activityUrl(m[runId]) : null; },
+    /** Stored-run entry (SEND TO STRAVA button): same confirm card, even if earlier SKIPPED / too short (with notice). */
+    promptStored: function (stored) {
+      this.autoFlushOnOnline();
+      var run = this.normaliseStored(stored);
+      if (this.isUploaded(run.id)) return Promise.resolve({ action: 'none', state: 'uploaded' });
+      return this.promptAfterSave(run, { force: true });
+    },
+    _shortCard: function (run, host) {
+      var self = this;
+      return new Promise(function (resolve) {
+        var ov = el('div', 'sv-overlay sv-up sv-short'), card = el('div', 'sv-card');
+        ov.appendChild(card);
+        card.appendChild(el('div', 'sv-up-title', 'TOO SHORT TO UPLOAD'));
+        card.appendChild(el('div', 'sv-up-note', 'Too short to upload: Strava needs at least ' + self.MIN_ELAPSED_S + ' s and ' + Units.distU(self.MIN_DISTANCE_M, 2) + '. This run: ' + fmtDur(run.elapsed) + ' and ' + Units.distU(run.distanceM || 0, 2) + '.'));
+        var row = el('div', 'sv-up-btns'); card.appendChild(row);
+        function close(r) { if (ov.parentNode) ov.parentNode.removeChild(ov); resolve(r); }
+        row.appendChild(btn('sv-btn sv-btn-main', 'UPLOAD ANYWAY', function () { close('anyway'); }));
+        row.appendChild(btn('sv-btn sv-btn-alt', 'CLOSE', function () { close('close'); }));
+        host.appendChild(ov);
+      });
     },
 
     /**
@@ -221,7 +255,16 @@
     promptAfterSave: function (run, opts) {
       var self = this;
       opts = opts || {};
-      if (!this.eligible(run)) return Promise.resolve({ action: 'none' });
+      var why = this.reason(run);
+      if (why === 'off' || why === 'uploaded' || (why === 'skipped' && !opts.force)) return Promise.resolve({ action: 'none' });
+      if (why === 'short' && !opts.forceShort) {
+        var h0 = root.document && (root.document.getElementById('rootApp') || root.document.body);
+        if (!h0) return Promise.resolve({ action: 'none' });
+        return this._shortCard(run, h0).then(function (c) {
+          if (c === 'anyway') return self.promptAfterSave(run, { force: true, forceShort: true });
+          return { action: 'none', state: 'short' };
+        });
+      }
       var route = null, meta = null;
       try {
         if (run.routeId && env('Store')) route = env('Store').getRoute(run.routeId);
@@ -287,8 +330,9 @@
               status.appendChild(el('br')); status.appendChild(link);
               show([btn('sv-btn sv-btn-main', 'DONE', function () { close({ action: 'save', state: r.state, activityId: r.activityId }); })]);
             } else if (r.state === 'queued') {
-              setStatus('No connection right now - saved to upload later.', 'warn');
-              show([btn('sv-btn sv-btn-main', 'OK', function () { close({ action: 'save', state: 'queued' }); })]);
+              setStatus('Queued - will send when online.', 'warn');
+              show([btn('sv-btn sv-btn-main', 'OK', function () { close({ action: 'save', state: 'queued' }); }),
+                    btn('sv-btn sv-btn-alt', 'RETRY NOW', function () { self.dequeue(run.id).then(doSave); })]);
             } else {
               setStatus('Could not save to Strava: ' + (r.error || 'unknown error'), 'err');
               show([btn('sv-btn sv-btn-main', 'TRY AGAIN', doSave),

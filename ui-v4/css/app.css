@@ -903,3 +903,6 @@ button:focus, input:focus { outline: none; }
 
 /* strip buttons: no clipping on the 56px strip */
 #rootApp.strip .rb-btn, .live-strip .rb-btn { line-height: 1; white-space: nowrap; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; }
+
+.hr-btn.hr-strava { margin-right: 12px; border-color: #FC5200; color: #FC5200; text-decoration: none; }
+.hr-btn.hr-strava.on { background: rgba(252,82,0,.12); }

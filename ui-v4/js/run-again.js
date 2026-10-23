@@ -275,7 +275,8 @@
       if (pv.clipped) notes.push(pv.clipped + ' stage' + (pv.clipped > 1 ? 's' : '') + ' clipped by the speed / incline caps');
       d.innerHTML = '<div class="ui-dlg ra-card">' +
         '<div class="ra-title">↻ RUN AGAIN <small>' + esc(src.name) + ' · ' + fmtT(src.elapsed || 0) + ' · ' + Units.distU(src.distM || 0) + '</small></div>' +
-        '<div class="ra-row"><span class="ra-lab">HARDER</span>' + chips + '</div>' + basis +
+        '<div class="ra-row" id="raPctLine" data-pct="' + this._pct + '"><span class="ra-lab">HARDER</span>' + chips + '</div>' + basis +
+        '<div class="ra-notes" id="raPctText">' + (this._pct > 0 ? this._pct + '% harder than the original run' : 'Same effort as the original run') + '</div>' +
         '<div class="ra-preview" id="raPreview">' +
           '<div class="ra-pv"><b>' + (w ? pv.stages : 0) + '</b><span>STAGES</span></div>' +
           '<div class="ra-pv"><b>' + fmtT(pv.totalSec) + '</b><span>TIME</span></div>' +

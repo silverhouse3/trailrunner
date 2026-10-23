@@ -1416,6 +1416,13 @@ const App = {
     var self = this;
     RunAgain.open(RunAgain.fromRun(run), { onArm: function (w) { self.armWorkout(w); } });
   },
+  sendRunToStrava(runId) {
+    if (!window.StravaUpload) return;
+    var run = Store.getRuns().find(function (r) { return r.id === runId; });
+    if (!run) { this._toast('Run not found', 'var(--red)'); return; }
+    var self = this;
+    StravaUpload.promptStored(run).then(function () { if (UI.renderHistory) UI.renderHistory(); self._updateSyncPill(); }).catch(function () {});
+  },
   _checkRunAgainPending() {
     if (typeof RunAgain === 'undefined') return;
     var id = RunAgain.takePending();

@@ -311,6 +311,82 @@ async function ensureServers() {
   await sleep(600);
   await routelessChecks('route deleted');
 
+  // ───────────────────────── 8b. Round-5 variants (owner: "make sure the push to Strava works if the user chooses to save")
+  async function mkRun(id, elapsed, distM) {
+    await page.evaluate(function (a) {
+      var t0 = Date.now() - a.e * 1000, tp = [];
+      for (var e = 0; e <= a.e; e += 5) tp.push({ time: new Date(t0 + e * 1000).toISOString(), dist: Math.round(a.d * e / a.e), hr: 140, elapsed: e });
+      window.__v = { id: a.id, routeName: 'Free Run', routeId: null, startedAt: new Date(t0).toISOString(), finishedAt: new Date().toISOString(), elapsed: a.e, distanceM: a.d, distanceKm: a.d / 1000, trackPoints: tp, avgHR: 140 };
+    }, { id: id, e: elapsed, d: distM });
+  }
+  var upBefore = (await uploads()).length;
+  ok(await page.evaluate(function () { return Units.system() === 'imperial'; }), 'V3: Units default is imperial');
+  // V1: short free run (40 s, 0.01 mi = 16 m) -> NOT silently dropped
+  await mkRun('v1_short', 40, 16);
+  await page.evaluate(function () { window.__p = StravaUpload.onRunSaved(window.__v); });
+  await page.waitForSelector('.sv-short', { timeout: 5000 });
+  var shortTxt = await page.evaluate(function () { return document.querySelector('.sv-short').innerText.replace(/\s+/g, ' '); });
+  ok(/Too short to upload: Strava needs at least 30 s and/.test(shortTxt) && /UPLOAD ANYWAY/.test(shortTxt) && /\bmi\b/.test(shortTxt) && !/\bkm\b/.test(shortTxt), 'V1: short run shows "Too short to upload" notice with UPLOAD ANYWAY, in miles (imperial)', shortTxt);
+  ok((await uploads()).length === upBefore, 'V1: nothing uploaded by the notice');
+  await page.click('.sv-short .sv-btn-main');
+  await page.waitForSelector('.sv-up:not(.sv-short) .sv-btn-main', { timeout: 5000 });
+  var c1 = await page.evaluate(function () { return document.querySelector('.sv-up').innerText.replace(/\s+/g, ' '); });
+  ok(/SAVE TO STRAVA/.test(c1) && /\bmi\b/.test(c1), 'V1: UPLOAD ANYWAY leads to the SAVE TO STRAVA card (miles)', c1.slice(0, 120));
+  await page.click('.sv-up .sv-btn-main');
+  await page.waitForSelector('.sv-up-status.ok', { timeout: 30000 });
+  var u1 = await uploads(), f1 = u1[u1.length - 1] && u1[u1.length - 1].fields || {};
+  ok(u1.length === upBefore + 1 && f1.trainer === '1' && f1.sport_type === 'Run' && !/<LatitudeDegrees>/.test(u1[u1.length - 1].file), 'V1: short run uploaded after override (treadmill, trainer=1, no GPS)');
+  await page.click('.sv-up .sv-btn');
+  await page.waitForFunction(function () { return !document.querySelector('.sv-up'); }, null, { timeout: 5000 });
+  // V4: token expired -> refresh then upload
+  await mkRun('v4_expired', 120, 400);
+  var tk0 = await page.evaluate(function () { return StravaApi.tokens().access_token; });
+  await page.evaluate(function () { var t = StravaApi.tokens(); t.expires_at = Math.floor(Date.now() / 1000) - 100; localStorage.setItem('tr_strava', JSON.stringify(t)); });
+  await jpost(SV_MOCK + '/mock/expire');
+  await page.evaluate(function () { window.__p = StravaUpload.onRunSaved(window.__v); });
+  await page.waitForSelector('.sv-up .sv-btn-main', { timeout: 5000 });
+  await page.click('.sv-up .sv-btn-main');
+  await page.waitForSelector('.sv-up-status.ok', { timeout: 30000 });
+  var tk1 = await page.evaluate(function () { return StravaApi.tokens().access_token; });
+  ok(tk1 && tk1 !== tk0 && (await uploads()).length === upBefore + 2, 'V4: expired token refreshed, then upload succeeded', tk0 + ' -> ' + tk1);
+  await page.click('.sv-up .sv-btn');
+  await page.waitForFunction(function () { return !document.querySelector('.sv-up'); }, null, { timeout: 5000 });
+  // V5: offline -> Queued - will send when online + RETRY NOW
+  await mkRun('v5_offline', 120, 400);
+  await ctx.setOffline(true);
+  await page.evaluate(function () { Object.defineProperty(navigator, 'onLine', { configurable: true, get: function () { return false; } }); window.__p = StravaUpload.onRunSaved(window.__v); });
+  await page.waitForSelector('.sv-up .sv-btn-main', { timeout: 5000 });
+  await page.click('.sv-up .sv-btn-main');
+  await page.waitForSelector('.sv-up-status.warn', { timeout: 10000 });
+  var offTxt = await page.evaluate(function () { return document.querySelector('.sv-up').innerText.replace(/\s+/g, ' '); });
+  ok(/Queued - will send when online/.test(offTxt) && /RETRY NOW/.test(offTxt), 'V5: offline shows "Queued - will send when online" with RETRY NOW', offTxt.slice(0, 160));
+  ok(await page.evaluate(function () { return StravaUpload.queueLength().then(function (n) { return n === 1; }); }), 'V5: run is in the upload queue');
+  await ctx.setOffline(false);
+  await page.evaluate(function () { delete navigator.onLine; });
+  await page.click('.sv-up .sv-btn-alt');
+  await page.waitForSelector('.sv-up-status.ok', { timeout: 30000 });
+  ok((await uploads()).length === upBefore + 3 && (await page.evaluate(function () { return StravaUpload.queueLength(); })) === 0, 'V5: RETRY NOW uploaded the queued run once and emptied the queue');
+  await page.click('.sv-up .sv-btn');
+  await page.waitForFunction(function () { return !document.querySelector('.sv-up'); }, null, { timeout: 5000 });
+  // V6: a SKIPPED run can be sent later (promptStored), then shows On Strava
+  await mkRun('v6_skipped', 300, 1000);
+  await page.evaluate(function () { window.__p = StravaUpload.onRunSaved(window.__v); });
+  await page.waitForSelector('.sv-up .sv-btn-alt', { timeout: 5000 });
+  await page.click('.sv-up .sv-btn-alt');
+  await page.waitForFunction(function () { return !document.querySelector('.sv-up'); }, null, { timeout: 5000 });
+  ok((await uploads()).length === upBefore + 3, 'V6: SKIP uploaded nothing');
+  await page.evaluate(function () { StravaUpload.promptStored({ id: 'v6_skipped', routeName: 'Free Run', startedAt: window.__v.startedAt, elapsedSec: 300, distanceKm: 1, trackPoints: window.__v.trackPoints }); });
+  await page.waitForSelector('.sv-up .sv-btn-main', { timeout: 5000 });
+  await page.click('.sv-up .sv-btn-main');
+  await page.waitForSelector('.sv-up-status.ok', { timeout: 30000 });
+  ok((await uploads()).length === upBefore + 4 && await page.evaluate(function () { return /strava\.com\/activities\//.test(StravaUpload.activityUrlFor('v6_skipped') || '') && StravaUpload.isUploaded('v6_skipped'); }), 'V6: skipped run sent later via SEND TO STRAVA path; marked uploaded with activity link');
+  await page.click('.sv-up .sv-btn');
+  await page.waitForFunction(function () { return !document.querySelector('.sv-up'); }, null, { timeout: 5000 });
+  // history panel row shows On Strava / SEND TO STRAVA
+  await page.evaluate(function () { var r = Store.getRuns(); r.unshift({ id: 'v6_skipped', routeName: 'Free Run', startedAt: new Date().toISOString(), elapsed: 300, distanceKm: 1 }, { id: 'v7_unsent', routeName: 'Free Run', startedAt: new Date().toISOString(), elapsed: 300, distanceKm: 1 }); localStorage.setItem('tr_runs', JSON.stringify(r)); UI.openHistoryPanel(); });
+  var hist = await page.evaluate(function () { return { on: !!document.querySelector('#historyList .hr-strava.on'), send: !!document.querySelector('#historyList .hr-strava:not(.on)') }; });
+  ok(hist.on && hist.send, 'history rows: "On Strava" link for uploaded run, SEND TO STRAVA for the other', JSON.stringify(hist));
+
   // ───────────────────────── 9. Disconnect deletes the Strava-derived data
   await page.evaluate(function () { window.confirm = function () { return true; }; });
   await page.evaluate(function () { App.connectStrava(); });

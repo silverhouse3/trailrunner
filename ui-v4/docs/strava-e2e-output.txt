@@ -1,9 +1,9 @@
-Strava e2e 2026-10-23T13:38:37.562Z (viewport 1920x1080, app http://localhost:8099/?strava=localhost:8098)
+Strava e2e 2026-10-23T13:58:07.538Z (viewport 1920x1080, app http://localhost:8099/?strava=localhost:8098)
 PASS  start (no route): #rootApp.routeless and every [data-needs-route] element hidden  [15 elements]
 PASS  start (no route): no race bar, no racer dots, no Strava line when no route  [{"bar":false,"dots":0,"racers":0,"line":0}]
 PASS  mock override active (?strava=localhost:8098) and not yet connected
 PASS  old "Auto-Upload" toggle is gone from Settings
-PASS  authorize request carried state + scopes incl. activity:read_all, activity:write, read_all  [code=mockcode&scope=read,read_all,activity:read_all,activity:write&state=trwpahssr0]
+PASS  authorize request carried state + scopes incl. activity:read_all, activity:write, read_all  [code=mockcode&scope=read,read_all,activity:read_all,activity:write&state=tri9bzc52k]
 PASS  callback stored tokens with the granted scope  [read,read_all,activity:read_all,activity:write / Soph]
 PASS  callback checked the state and cleared it
 PASS  Strava pill shows on Home when connected
@@ -24,11 +24,11 @@ PASS  video window clamped inside the view zone at corner 0/max (clear of race b
 PASS  video window clamped inside the view zone at corner max/max (clear of race bar, STOP/PAUSE row, metric strip)  [video y 412-844, zone 320-844, bar 256-320]
 PASS  legacy Sync.autoSync is a no-op (returns false, uploads nothing)
 PASS  mock Strava has received 0 uploads so far
-INFO  samples [{"t":10,"d":9,"spd":7.9,"gaps":"-0:06/-0:02/-0:00","inc":11.862071384477265,"tgt":19.2,"cooldown":false,"status":"running","hr":83},{"t":33,"d":116,"spd":19.2,"gaps":"+0:16/+1:12/+1:34","inc":11.990957685616474,"tgt":19.2,"cooldown":false,"status":"running","hr":146}] bridge {"workoutState":"RUNNING","workoutId":"mock-mvl0n1k4","safetyKeyOut":false,"kph":19.2,"targetKph":19.2,"incline":12,"targetIncline":12,"hr":148,"hrOverride":nul
-PASS  the mock belt ran: distance advances  [9 m -> 116 m]
-PASS  blue live dot moved along the route  [1.72e-3 / 1.61e-3]
+INFO  samples [{"t":8,"d":7,"spd":7.1,"gaps":"-0:05/-0:02/-0:01","inc":11.862071384477265,"tgt":19.2,"cooldown":false,"status":"running","hr":78},{"t":33,"d":115,"spd":19.2,"gaps":"+0:16/+1:11/+1:33","inc":11.990957685616474,"tgt":19.2,"cooldown":false,"status":"running","hr":149}] bridge {"workoutState":"RUNNING","workoutId":"mock-mvl1c44s","safetyKeyOut":false,"kph":19.2,"targetKph":19.2,"incline":12,"targetIncline":12,"hr":151,"hrOverride":nul
+PASS  the mock belt ran: distance advances  [7 m -> 115 m]
+PASS  blue live dot moved along the route  [1.72e-3 / 1.63e-3]
 PASS  racer dots move by clock time too
-PASS  gaps update live (F/A/S)  [-0:06 -0:02 -0:00 -> +0:16 +1:12 +1:34]
+PASS  gaps update live (F/A/S)  [-0:05 -0:02 -0:01 -> +0:16 +1:11 +1:33]
 PASS  route incline stays inside the -3..+12 clamp (profile max 12.00%, target 11.990957685616474%)
 PASS  while running: race bar clear of STOP/PAUSE row, metric strip and edge controls
 PASS  oval-track wrapper installed (race shown on the oval as well as the map)
@@ -41,15 +41,15 @@ PASS  summary says how many past runs on this route  [Compared with 5 past runs 
 PASS  STOP / summary did not upload anything
 PASS  confirm screen is up and NOTHING was uploaded before the confirm tap (waited 2.5 s)
 PASS  confirm screen has SAVE TO STRAVA and SKIP  [SAVE TO STRAVA:104 SKIP:104]
-PASS  default mode treadmill (no GPS) with the virtual-run-on-route option  [SAVE TO STRAVA? 0:36 TIME 0.08 mi DISTANCE +16 m CLIMB 111 AVG HR Cleeve Hill Loop TREADMILL RUN (no map) VIRTUAL RUN ON ROUTE (map) Recommended. Appears as an ]
+PASS  default mode treadmill (no GPS) with the virtual-run-on-route option  [SAVE TO STRAVA? 0:36 TIME 0.08 mi DISTANCE +15 m CLIMB 111 AVG HR Cleeve Hill Loop TREADMILL RUN (no map) VIRTUAL RUN ON ROUTE (map) Recommended. Appears as an ]
 PASS  mock received exactly ONE upload after SAVE  [1]
-PASS  upload fields: trainer=1, tcx, sport_type=Run, external_id trailrunner-<run id>  [{"trainer":"1","type":"tcx","sport":"Run","ext":"trailrunner-run_1792762765105","name":"Cleeve Hill Loop (treadmill)"}]
+PASS  upload fields: trainer=1, tcx, sport_type=Run, external_id trailrunner-<run id>  [{"trainer":"1","type":"tcx","sport":"Run","ext":"trailrunner-run_1792763934450","name":"Cleeve Hill Loop (treadmill)"}]
 PASS  TCX has trackpoints and NO GPS positions (treadmill run)
 PASS  success shows "View on Strava"  [View on Strava https://www.strava.com/activities/9100000001]
 PASS  status: Saved to Strava View on Strava
-PASS  upload remembered locally (never offered again, never raced twice)  [{"run_1792762765105":9100000001}]
+PASS  upload remembered locally (never offered again, never raced twice)  [{"run_1792763934450":9100000001}]
 PASS  back on Home after save
-PASS  second run: race still built (5 pooled runs; the just-uploaded run is not raced twice)  [{"d":116.30555555555542,"t":32.25,"racers":3,"pool":5}]
+PASS  second run: race still built (5 pooled runs; the just-uploaded run is not raced twice)  [{"d":116.06743055555543,"t":32.25,"racers":3,"pool":5}]
 PASS  SKIP path: confirm screen shown, still only the first upload on the mock
 PASS  SKIP uploaded nothing and was remembered for that run  [uploads=1, skipped=1]
 PASS  SKIP did not queue anything for later
@@ -58,7 +58,19 @@ PASS  free run: no race bar, no racer dots, no Strava line when no route  [{"bar
 PASS  re-selecting the route brings the racers + bar back
 PASS  route deleted: #rootApp.routeless and every [data-needs-route] element hidden  [15 elements]
 PASS  route deleted: no race bar, no racer dots, no Strava line when no route  [{"bar":false,"dots":0,"racers":0,"line":0}]
+PASS  V3: Units default is imperial
+PASS  V1: short run shows "Too short to upload" notice with UPLOAD ANYWAY, in miles (imperial)  [TOO SHORT TO UPLOAD Too short to upload: Strava needs at least 30 s and 0.06 mi. This run: 0:40 and 0.01 mi. UPLOAD ANYWAY CLOSE]
+PASS  V1: nothing uploaded by the notice
+PASS  V1: UPLOAD ANYWAY leads to the SAVE TO STRAVA card (miles)  [SAVE TO STRAVA? 0:40 TIME 0.01 mi DISTANCE +0 m CLIMB 140 AVG HR Free run Recommended. Appears as an indoor run with tim]
+PASS  V1: short run uploaded after override (treadmill, trainer=1, no GPS)
+PASS  V4: expired token refreshed, then upload succeeded  [mock_access_1 -> mock_access_2]
+PASS  V5: offline shows "Queued - will send when online" with RETRY NOW  [SAVE TO STRAVA? 2:00 TIME 0.25 mi DISTANCE +0 m CLIMB 140 AVG HR Free run Recommended. Appears as an indoor run with time, distance, heart rate and climb. No fa]
+PASS  V5: run is in the upload queue
+PASS  V5: RETRY NOW uploaded the queued run once and emptied the queue
+PASS  V6: SKIP uploaded nothing
+PASS  V6: skipped run sent later via SEND TO STRAVA path; marked uploaded with activity link
+PASS  history rows: "On Strava" link for uploaded run, SEND TO STRAVA for the other  [{"on":true,"send":true}]
 PASS  Disconnect: tokens, Strava route registry, Strava-derived routes and cached streams all deleted  [{"connected":false,"meta":0,"routes":0,"sk":0}]
 PASS  no page errors / console errors in the whole run  []
 
-58 checks, 58 passed, 0 failed
+70 checks, 70 passed, 0 failed
