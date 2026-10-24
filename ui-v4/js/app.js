@@ -2269,6 +2269,15 @@ const App = {
       nxt = 'NEXT ' + when + '  ' + what.trim();
     }
     set('[data-rb=next]', nxt);
+    // display-only push so a phone on the home wifi can show time left (bridge /runinfo)
+    if (TM._bridgeBase && Date.now() - (this._lastRunInfo || 0) > 5000) {
+      this._lastRunInfo = Date.now();
+      var eta = Engine.etaPlan ? Engine.etaPlan() : null;
+      var tp = (typeof WorkoutSegments !== 'undefined' && WorkoutSegments.getTotalProgress) ? WorkoutSegments.getTotalProgress() : null;
+      var wsn = (typeof WorkoutSegments !== 'undefined' && WorkoutSegments.active) ? WorkoutSegments.active.workout.name : '';
+      var ri = { etaSec: eta ? eta.timeSec : null, basis: eta ? eta.basis : null, name: wsn || '', pct: tp ? Math.round(tp.fraction * 100) : null, remainingSec: rem.timeSec != null ? rem.timeSec : (eta ? eta.timeSec : null), remainingKm: rem.distM != null ? rem.distM / 1000 : null, nextChangeSec: nx && nx.inSec != null ? nx.inSec : null, stage: nx ? (nx.kind === 'end' ? 'finish' : '') : '' };
+      try { fetch(TM._bridgeBase + '/runinfo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ri) }).catch(function () {}); } catch (e) {}
+    }
     var wn = (typeof WorkoutSegments !== 'undefined' && WorkoutSegments.getWarning) ? WorkoutSegments.getWarning() : null;
     set('[data-rb=warn]', wn ? '\u23F1 ' + wn.text : '');
     cls('[data-rb=next]', 'up', up === true); cls('[data-rb=next]', 'down', up === false);

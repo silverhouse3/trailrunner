@@ -119,9 +119,12 @@ function tick() {
 
 setInterval(tick, 250);
 
+var dispMsg = null, dispId = 0;
 function stateMsg() {
   var hr = sim.hrOverride != null ? sim.hrOverride : Math.round(sim.hr);
+  var display = dispMsg && Date.now() < dispMsg.until ? { message: { id: dispMsg.id, text: dispMsg.text, seconds: dispMsg.seconds, leftSeconds: (dispMsg.until - Date.now()) / 1000 } } : {};
   return {
+    display: display,
     type: 'stats',
     values: {
       'KPH': (sim.force && sim.force.kph != null ? sim.force.kph : sim.kph).toFixed(1),
@@ -279,6 +282,8 @@ var server = http.createServer(function (req, res) {
 
   readBody(req, function (body) {
     if (/^\/(bluetooth\/|mock\/bt$)/.test(path)) { if (btHandle(req, res, path, body) !== null) return; }
+    if (path === '/runinfo') { return sendJSON(res, { ok: true }); }
+    if (path === '/message') { dispMsg = { id: ++dispId, text: String(body.text || '').slice(0, 140), seconds: body.seconds || 20, until: Date.now() + (body.seconds || 20) * 1000 }; broadcast({ type: 'message', id: dispMsg.id, text: dispMsg.text, seconds: dispMsg.seconds }); return sendJSON(res, { ok: true }); }
     var m = /^\/workout\/(start|stop|pause|resume)$/.exec(path);
     if (m) {
       var r = workoutAction(m[1]);

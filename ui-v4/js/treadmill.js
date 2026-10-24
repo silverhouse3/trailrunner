@@ -424,6 +424,13 @@ var TM = {
   _handleMessage: function(msg) {
     if (!msg) return;
 
+    var dm = msg.type === 'message' ? msg : (msg.display && msg.display.message);
+    if (dm && dm.id !== this._lastMsgId && typeof ScreenMessage !== 'undefined') {
+      this._lastMsgId = dm.id;
+      ScreenMessage.show(dm.text, dm.leftSeconds != null ? dm.leftSeconds : dm.seconds);
+    }
+    if (msg.type === 'message') return;
+
     // Workout result (response to start/stop/pause/resume)
     if (msg.type === 'workout_result') {
       console.log('[TM] Workout result:', JSON.stringify(msg));

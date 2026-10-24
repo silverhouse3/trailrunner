@@ -934,3 +934,10 @@ button:focus, input:focus { outline: none; }
 .btp-sig { display: inline-flex; align-items: flex-end; gap: 3px; height: 20px; }
 .btp-bar { display: inline-block; width: 6px; background: var(--border); border-radius: 2px; } .btp-bar:nth-child(1){height:6px}.btp-bar:nth-child(2){height:11px}.btp-bar:nth-child(3){height:16px}.btp-bar:nth-child(4){height:20px}
 .btp-bar.on { background: var(--green); }
+
+/* screen message banner (bridge POST /message) */
+#screenMsg { position: fixed; left: 50%; top: 28%; transform: translate(-50%, 0); max-width: 70vw; z-index: 9000;
+  padding: 28px 44px; border-radius: 22px; background: rgba(20, 24, 30, .94); color: #fff; border: 2px solid #4caf50;
+  font-size: 56px; font-weight: 700; line-height: 1.2; text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,.6);
+  pointer-events: none; opacity: 0; visibility: hidden; transition: opacity .3s; }
+#screenMsg.show { opacity: 1; visibility: visible; }

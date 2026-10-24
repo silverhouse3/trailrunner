@@ -1128,6 +1128,28 @@ const Engine = {
     return out;
   },
 
+  /** Time to finish, from the PLAN where there is one (programmed segment speeds, interval/programme
+   *  durations) and from current pace only for routes/free distance. → { timeSec, basis } | null */
+  etaPlan() {
+    var r = this.run; if (!r) return null;
+    var ws = (typeof WorkoutSegments !== 'undefined') ? WorkoutSegments.active : null;
+    if (ws && ws.workout.type === 'programmed' && typeof SpeedUnits !== 'undefined') {
+      var w = ws.workout, segs = w.segments || [], t = 0;
+      for (var i = ws.segmentIndex || 0; i < segs.length; i++) {
+        var lenM = SpeedUnits.distToMetres(segs[i].distance, w.distanceUnit);
+        var remM = i === (ws.segmentIndex || 0) ? Math.max(0, lenM - (ws.segmentCoveredM || 0)) : lenM;
+        var kph = SpeedUnits.toKph(segs[i].speed, w.speedUnit);
+        if (!(kph > 0.3)) return null;
+        t += remM / (kph / 3.6);
+      }
+      return { timeSec: t, basis: 'planned' };
+    }
+    var rem = this.remaining();
+    if (rem.timeSec != null) return { timeSec: rem.timeSec, basis: 'planned' };
+    if (rem.distM != null && (r.speed || 0) > 0.3) return { timeSec: rem.distM / (r.speed / 3.6), basis: 'pace' };
+    return null;
+  },
+
   // ════════════════════════════════════════════════════════════════════════════
   // GETTERS
   // ════════════════════════════════════════════════════════════════════════════
