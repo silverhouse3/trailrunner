@@ -1294,6 +1294,7 @@ const App = {
   },
 
   connectHR() {
+    if (typeof BTPair !== 'undefined' && BTPair.openFromPill()) return; // bridge v5+: real pairing screen
     if (!navigator.bluetooth) {
       // audit P1-d: this console has no Web Bluetooth; HR comes from the treadmill's own sensor link
       UI.info('Pair your heart-rate strap in iFIT (Workout settings > Devices); TrailRunner reads it from the treadmill.', 'var(--card2)');

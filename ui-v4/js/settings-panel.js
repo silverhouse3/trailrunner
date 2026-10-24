@@ -503,15 +503,16 @@ ${_ttsOK?`      <div class="sp-row">
 
   _accBluetooth(s) {
     const hrStatus = (typeof BLEHR !== 'undefined' && BLEHR.connected) ? 'Connected' : 'Not Connected';
+    // Bridge v5+ pairing screen (feature-detected inside BTPair; older bridge shows the hint text).
+    if (typeof BTPair !== 'undefined' && BTPair.supported !== false) {
+      setTimeout(() => { if (typeof BTPair !== 'undefined' && document.getElementById('btPairBox')) BTPair.mount(); }, 0);
+      return BTPair.html();
+    }
     return `
       <div class="sp-row">
         <span class="sp-label">HR Monitor</span>
         <span class="sp-status ${(typeof BLEHR!=='undefined'&&BLEHR.connected)?'connected':''}">${hrStatus}</span>
         <button class="sp-btn-sm" onclick="if(typeof App!=='undefined')App.connectHR()">Scan</button>
-      </div>
-      <div class="sp-row">
-        <span class="sp-label">Garmin Watch</span>
-        <span class="sp-status">Not Available</span>
       </div>
       <div class="sp-row">
         <span class="sp-label">External Speaker</span>

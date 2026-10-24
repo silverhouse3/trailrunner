@@ -222,12 +222,50 @@ var CONTROL_PAGE = '<!doctype html><html><head><meta charset="utf-8"><meta name=
   '<pre id="s">…</pre><script>function post(p,b){fetch(p,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b||{})}).then(r=>r.json()).then(j=>console.log(p,j))}' +
   'setInterval(function(){fetch("/mock/state").then(r=>r.json()).then(j=>{document.getElementById("s").textContent=JSON.stringify(j,null,2)})},500)</script></body></html>';
 
+// ── Bluetooth pairing mock (bridge v5 /bluetooth/*) ─────────────────────────
+var bt = { available: true, scanning: false, scanEndsAt: 0,
+  connected: [], pending: {}, hrReading: 0,
+  nearby: [
+    { name: 'Polar H10 4A2B', address: 'A0:9E:1A:4A:2B:01', type: 'heart_rate', typeCode: 1, rssi: -52, battery: 88 },
+    { name: 'Garmin HRM-Dual', address: 'C4:11:22:33:44:55', type: 'heart_rate', typeCode: 1, rssi: -71, battery: 60 },
+    { name: 'Galaxy Watch', address: '10:20:30:40:50:60', type: 'watch', typeCode: 5, rssi: -84, battery: 0 }
+  ] };
+function btBars(r) { return r === 0 ? 0 : r >= -60 ? 4 : r >= -70 ? 3 : r >= -80 ? 2 : 1; }
+function btView(d, st) { return Object.assign({ signal: btBars(d.rssi), state: st, connected: st === 'connected' }, d); }
+function btSnapshot() {
+  var now = Date.now();
+  Object.keys(bt.pending).forEach(function (a) { if (now >= bt.pending[a]) { delete bt.pending[a]; if (bt.connected.indexOf(a) < 0) bt.connected.push(a); } });
+  if (bt.scanning && now > bt.scanEndsAt) bt.scanning = false;
+  var conn = [], disc = [];
+  bt.nearby.forEach(function (d) {
+    if (bt.connected.indexOf(d.address) > -1) conn.push(Object.assign(btView(d, 'connected'), bt.hrReading && d.type === 'heart_rate' ? { reading: bt.hrReading } : {}));
+    else if (bt.scanning || bt.pending[d.address]) disc.push(btView(d, bt.pending[d.address] ? 'connecting' : 'disconnected'));
+  });
+  return { available: bt.available, scanning: bt.scanning, streams: true, connected: conn, discovered: disc, hr: bt.hrReading };
+}
+function btHandle(req, res, path, body) {
+  if (path === '/bluetooth/devices' && req.method === 'GET') return sendJSON(res, btSnapshot(), bt.available ? 200 : 503);
+  if (path === '/mock/bt') { Object.keys(body || {}).forEach(function (k) { bt[k] = body[k]; }); return sendJSON(res, { ok: true }); }
+  if (!bt.available) return sendJSON(res, { ok: false, error: 'bluetooth unavailable' }, 503);
+  if (path === '/bluetooth/scan') {
+    if (body.action === 'start') { bt.scanning = true; bt.scanEndsAt = Date.now() + 30000; return sendJSON(res, { ok: true, scanning: true }); }
+    if (body.action === 'stop') { bt.scanning = false; return sendJSON(res, { ok: true, scanning: false }); }
+    return sendJSON(res, { ok: false, error: 'bad action' }, 400);
+  }
+  var a = String(body.address || '').toUpperCase();
+  if (!/^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(a)) return sendJSON(res, { ok: false, error: 'bad address' }, 400);
+  if (path === '/bluetooth/connect') { bt.pending[a] = Date.now() + 1500; return sendJSON(res, { ok: true, address: a, state: 'connecting' }); }
+  if (path === '/bluetooth/disconnect') { delete bt.pending[a]; bt.connected = bt.connected.filter(function (x) { return x !== a; }); return sendJSON(res, { ok: true, address: a, state: 'disconnected' }); }
+  return null;
+}
+
 var server = http.createServer(function (req, res) {
   var u = url.parse(req.url, true);
   var path = u.pathname;
   if (req.method === 'OPTIONS') { cors(res); res.writeHead(204); return res.end(); }
 
   if (path === '/health') return sendJSON(res, health());
+  if (path === '/bluetooth/devices' && req.method === 'GET') return btHandle(req, res, path, {});
   if (path === '/state' || path === '/api/state') return sendJSON(res, stateMsg());
   if (path === '/mock' || path === '/mock/') { cors(res); res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end(CONTROL_PAGE); }
   if (path === '/mock/state') return sendJSON(res, { sim: {
@@ -240,6 +278,7 @@ var server = http.createServer(function (req, res) {
   if (req.method !== 'POST') return sendJSON(res, { ok: false, error: 'POST only' }, 405);
 
   readBody(req, function (body) {
+    if (/^\/(bluetooth\/|mock\/bt$)/.test(path)) { if (btHandle(req, res, path, body) !== null) return; }
     var m = /^\/workout\/(start|stop|pause|resume)$/.exec(path);
     if (m) {
       var r = workoutAction(m[1]);

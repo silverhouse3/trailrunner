@@ -915,3 +915,22 @@ button:focus, input:focus { outline: none; }
 #countdownOverlay .cd-num { font-size: min(40vh, 360px); font-weight: 900; line-height: 1; color: var(--green, #22c55e); font-variant-numeric: tabular-nums; }
 #countdownOverlay .cd-sub { font-size: 28px; font-weight: 800; color: var(--dim, #8a94a3); margin: 12px 0 28px; }
 #countdownOverlay .cd-cancel { min-width: 260px; min-height: 84px; font-size: 32px; font-weight: 900; border-radius: 18px; border: 3px solid var(--red, #ef4444); background: transparent; color: var(--red, #ef4444); }
+/* Bluetooth pairing screen (Settings > Bluetooth). Targets >= 72px; sits inside the settings panel (110px rail / 80px bottom bar respected there). */
+.btp-box { padding: 4px 0 80px; width: 100%; }
+.btp-head { display: flex; align-items: center; justify-content: space-between; min-height: 84px; }
+.btp-title { font-size: 26px; font-weight: 900; }
+.btp-sec { font-size: 16px; font-weight: 800; color: var(--dim); letter-spacing: 1px; margin: 14px 0 6px; }
+.btp-row { display: flex; align-items: center; gap: 16px; min-height: 96px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.btp-ic { width: 56px; text-align: center; font-size: 34px; }
+.btp-main { flex: 1; min-width: 0; }
+.btp-name { font-size: 24px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.btp-sub { font-size: 18px; color: var(--dim); font-weight: 700; display: flex; align-items: center; gap: 10px; }
+.btp-st.ok { color: var(--green); } .btp-st.wait { color: var(--cyan); }
+.btp-hr { font-size: 28px; color: var(--red); font-weight: 800; } .btp-hr b { font-size: 40px; }
+.btp-hint { font-size: 20px; color: var(--dim); font-weight: 700; padding: 12px 0; } .btp-hint.warn { color: var(--red); }
+.btp-btn { min-width: 150px; min-height: 76px; padding: 0 24px; font-size: 24px; font-weight: 900; border-radius: 16px; border: 3px solid var(--border); background: var(--card); color: var(--text); }
+.btp-btn.on, .btp-btn.scan { border-color: var(--cyan); } .btp-btn.off { border-color: var(--red); color: var(--red); }
+.btp-btn:disabled { opacity: .5; }
+.btp-sig { display: inline-flex; align-items: flex-end; gap: 3px; height: 20px; }
+.btp-bar { display: inline-block; width: 6px; background: var(--border); border-radius: 2px; } .btp-bar:nth-child(1){height:6px}.btp-bar:nth-child(2){height:11px}.btp-bar:nth-child(3){height:16px}.btp-bar:nth-child(4){height:20px}
+.btp-bar.on { background: var(--green); }
