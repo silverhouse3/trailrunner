@@ -23,7 +23,19 @@ const App = {
       UI.updateConnectionPill('tm', 'idle');
       if (Engine.run) Engine.run.speedSource = 'none';
     };
-    TM.onData = (data) => Engine.onTreadmillData(data);
+    TM.onData = (data) => {
+      Engine.onTreadmillData(data);
+      // Before START the ticker is not running, so refresh the display here for the live heart rate
+      // from the treadmill's own Bluetooth (throttled to 1 s), and light the HR pill.
+      if (data.hr != null && Engine.run && Engine.run.status === 'ready') {
+        const now = Date.now();
+        if (now - (this._preStartHrAt || 0) > 1000) {
+          this._preStartHrAt = now;
+          UI.update();
+          if (!BLEHR.connected) UI.updateConnectionPill('hr', data.hr > 30 ? 'connected' : 'idle', data.hr > 30 ? 'Treadmill strap ' + data.hr : undefined);
+        }
+      }
+    };
     TM.onStatus = (state, name) => UI.updateConnectionPill('tm', state, name);
     // When workout starts on treadmill, re-send target speed/incline
     // (user may have adjusted before workout was ready)

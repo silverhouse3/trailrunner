@@ -215,17 +215,23 @@ var OvalTrack = {
     var H = this.canvas.height;
 
     // Track fills most of the canvas, leaving room for score/gauge at bottom
-    var padX = W * 0.06;
-    var padY = H * 0.05;
-    var trackH = H * 0.78;
+    // Keep the track clear of the open pace panel (right, 216 px) and of the view-switcher
+    // icon row along the top (about 96 px) so neither can hide part of the lap.
+    var qs = document.getElementById('qsSpeed');
+    var inset = qs && qs.classList.contains('open') ? 216 : 0;
+    this._inset = inset;
+    var Wu = Math.max(400, W - inset);
+    var padX = Wu * 0.06;
+    var padY = Math.min(96, H * 0.18);
+    var trackH = Math.max(160, H - padY - 56);
 
-    var cx = W / 2;
+    var cx = Wu / 2;
     var cy = padY + trackH / 2;
 
     // Semi-axis lengths: rx is half the straight + semicircle radius,
     // ry is the semicircle radius
     var ry = trackH / 2 - 12;  // slight inset for stroke
-    var rx = (W - padX * 2) / 2 - 12;
+    var rx = (Wu - padX * 2) / 2 - 12;
 
     // Perimeter of the oval (stadium shape):
     // two straights of length 2*(rx - ry) plus two semicircles of radius ry
@@ -320,6 +326,8 @@ var OvalTrack = {
     if (!W || !H || !this._geo) return;
 
     var now = Date.now();
+    var qs0 = document.getElementById('qsSpeed');
+    if ((qs0 && qs0.classList.contains('open') ? 216 : 0) !== this._inset) this._computeGeometry();
 
     // ── Clear ────────────────────────────────────────────────────────
     c.fillStyle = this.COLORS.bg;
@@ -516,13 +524,13 @@ var OvalTrack = {
 
   _drawPacMan: function(c, now) {
     var pt = this._fracToPoint(this._progress);
-    var radius = 16; // 32px diameter
+    var radius = 11; // 22px diameter
 
     // ui-v4: pulsing "you are here" ring around the lap-position marker
     var pulse = (now % 1400) / 1400;
     c.save();
     c.beginPath();
-    c.arc(pt.x, pt.y, radius + 6 + pulse * 16, 0, Math.PI * 2);
+    c.arc(pt.x, pt.y, radius + 4 + pulse * 11, 0, Math.PI * 2);
     c.strokeStyle = 'rgba(55,208,255,' + (0.9 * (1 - pulse)).toFixed(2) + ')';
     c.lineWidth = 4;
     c.stroke();
@@ -946,7 +954,7 @@ var OvalTrack = {
       g.frac = (g.frac + g.speed) % 1;
 
       var pt = this._fracToPoint(g.frac);
-      var size = 14;
+      var size = 10;
       var scared = this._powerMode && now < this._powerModeEnd;
       g.scared = scared;
 
