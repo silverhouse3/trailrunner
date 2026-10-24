@@ -203,9 +203,20 @@
       if (basis === 'distance') w.segments = h.stages.map(function (s) { return { distance: s.distance, speed: s.speed, incline: s.incline, label: s.label }; });
       else w.intervals = h.stages.map(function (s) { return { duration: s.duration, speed: s.speed, incline: s.incline, label: s.label }; });
       w._base = base; // original (0 %) stages, for the preview; stripped on save
+      // Optional warm-up + cool-down wrapper (card toggle; default = Settings). Same ramp limiter as every other stage.
+      var WS = G('WorkoutSegments');
+      if (WS && WS.wrapPlan) {
+        var wrapOn = opts.wrap != null ? !!opts.wrap : this.wrapDefault();
+        if (wrapOn) { var wo = WS.wrapOptions(G('Store') ? G('Store').getSettings() : {}); wo.warmUp = true; wo.coolDown = true; var ww = WS.wrapPlan(w, wo); if (ww) w = ww; }
+        else w.noWrap = true;
+      }
       return w;
     },
 
+    /** Warm-up/cool-down on by default only when Settings has either switched on. */
+    wrapDefault: function () { var S = G('Store'), s = {}; try { s = S && S.getSettings ? S.getSettings() : {}; } catch (e) {} return s.warmUpEnabled === true || s.coolDownEnabled === true; },
+    _wrap: null,
+    toggleWrap: function () { this._wrap = !(this._wrap != null ? this._wrap : this.wrapDefault()); this._render(); },
     preview: function (w, src) {
       if (!w) return null;
       var st = w.segments || w.intervals || [], n = st.length;
@@ -218,7 +229,8 @@
       }
       var baseAvg = 0, bw = 0;
       (w._base || []).forEach(function (b) { var t = b.duration != null ? b.duration : (b.distance * 1000) / Math.max(0.5, b.speed / 3.6); baseAvg += b.speed * t; bw += t; });
-      return { stages: n, totalSec: Math.round(totalSec), totalKm: r1(totalM / 1000) , avgKph: wSum ? r1(spdSum / wSum) : 0, maxKph: maxK, maxInc: maxI,
+      var WS2 = G('WorkoutSegments'), added = WS2 && WS2.addedMinutes ? WS2.addedMinutes(w) : { totalSec: 0 };
+      return { addedSec: added.totalSec, addedText: WS2 && WS2.addedText ? WS2.addedText(w) : '', stages: n, totalSec: Math.round(totalSec), totalKm: r1(totalM / 1000) , avgKph: wSum ? r1(spdSum / wSum) : 0, maxKph: maxK, maxInc: maxI,
         origAvgKph: bw ? r1(baseAvg / bw) : 0, origElapsed: src ? Math.round(src.elapsed || 0) : 0, origDistM: src ? Math.round(src.distM || 0) : 0,
         clipped: w.runAgain ? w.runAgain.clipped : 0, inclineRecorded: w.runAgain ? w.runAgain.inclineRecorded : false, derived: w.runAgain ? w.runAgain.derived : false, basis: w.runAgain ? w.runAgain.basis : 'time' };
     },
@@ -253,7 +265,7 @@
       this._render();
       return d;
     },
-    close: function () { if (this._card && this._card.parentNode) this._card.parentNode.removeChild(this._card); this._card = null; },
+    close: function () { this._wrap = null; if (this._card && this._card.parentNode) this._card.parentNode.removeChild(this._card); this._card = null; },
     setPct: function (p) { p = Math.max(0, Math.min(this.MAX_PCT, +p || 0)); this._pct = p; this._custom = this.PCTS.indexOf(p) < 0 && p !== 0; this.rememberPct(p); this._render(); },
     setBasis: function (b) { this._basis = b === 'distance' ? 'distance' : 'time'; this._render(); },
     _render: function () {
@@ -262,7 +274,8 @@
         d.innerHTML = '<div class="ui-dlg ra-card"><div class="ra-title">↻ RUN AGAIN</div><div class="ui-dlg-msg">' + esc(src ? src.error : 'Nothing to replay.') + '</div><div class="ui-dlg-btns"><button class="btn-ghost ra-cancel" onclick="RunAgain.close()">CLOSE</button></div></div>';
         return;
       }
-      var w = this.build(src, { pct: this._pct, basis: this._basis }), pv = this.preview(w, src);
+      var w = this.build(src, { pct: this._pct, basis: this._basis, wrap: this._wrap }), pv = this.preview(w, src);
+      var wrapOn = this._wrap != null ? this._wrap : this.wrapDefault();
       var chips = [0].concat(this.PCTS).map(function (p) {
         return '<button class="ra-chip' + (self._pct === p && !self._custom ? ' on' : '') + '" onclick="RunAgain.setPct(' + p + ')">' + (p === 0 ? 'SAME' : '+' + p + '%') + '</button>';
       }).join('') + '<button class="ra-chip' + (this._custom ? ' on' : '') + '" onclick="RunAgain.askCustom()">' + (this._custom ? '+' + this._pct + '% ✎' : 'CUSTOM…') + '</button>';
@@ -276,10 +289,11 @@
       d.innerHTML = '<div class="ui-dlg ra-card">' +
         '<div class="ra-title">↻ RUN AGAIN <small>' + esc(src.name) + ' · ' + fmtT(src.elapsed || 0) + ' · ' + Units.distU(src.distM || 0) + '</small></div>' +
         '<div class="ra-row" id="raPctLine" data-pct="' + this._pct + '"><span class="ra-lab">HARDER</span>' + chips + '</div>' + basis +
+        '<div class="ra-row" id="raWrapRow"><span class="ra-lab">EASY IN / OUT</span><button class="ra-chip' + (wrapOn ? ' on' : '') + '" id="raWrapBtn" style="min-height:72px" onclick="RunAgain.toggleWrap()">' + (wrapOn ? 'WARM-UP + COOL-DOWN: ON' : 'WARM-UP + COOL-DOWN: OFF') + '</button>' + (pv.addedSec ? '<span class="ra-val" id="raWrapText">' + esc(pv.addedText) + ' added</span>' : '') + '</div>' +
         '<div class="ra-notes" id="raPctText">' + (this._pct > 0 ? this._pct + '% harder than the original run' : 'Same effort as the original run') + '</div>' +
         '<div class="ra-preview" id="raPreview">' +
           '<div class="ra-pv"><b>' + (w ? pv.stages : 0) + '</b><span>STAGES</span></div>' +
-          '<div class="ra-pv"><b>' + fmtT(pv.totalSec) + '</b><span>TIME</span></div>' +
+          '<div class="ra-pv"><b>' + fmtT(pv.totalSec + (pv.addedSec || 0)) + '</b><span>TIME' + (pv.addedSec ? ' (incl. ' + fmtT(pv.addedSec) + ' easy)' : '') + '</span></div>' +
           '<div class="ra-pv"><b>' + Units.distKm(pv.totalKm, 1) + '</b><span>' + Units.distLabel().toUpperCase() + '</span></div>' +
           '<div class="ra-pv"><b>' + Units.speed(pv.avgKph) + '</b><span>AVG ' + Units.speedLabel().toUpperCase() + (pv.origAvgKph ? ' (was ' + Units.speed(pv.origAvgKph) + ')' : '') + '</span></div>' +
           '<div class="ra-pv"><b>' + Units.speed(pv.maxKph) + '</b><span>MAX ' + Units.speedLabel().toUpperCase() + '</span></div>' +
@@ -307,7 +321,7 @@
       ask.then(function (v) { if (v == null || v === '') return; var p = parseFloat(v); if (isNaN(p)) return; self.setPct(p); });
     },
     saveFromCard: function () {
-      var w = this.build(this._src, { pct: this._pct, basis: this._basis }); if (!w) return;
+      var w = this.build(this._src, { pct: this._pct, basis: this._basis, wrap: this._wrap }); if (!w) return;
       var saved = this.save(w);
       var App = G('App'); if (App && App._toast) App._toast('Saved "' + saved.name + '" to your workouts', 'var(--green)');
       if (this._opts.onSave) this._opts.onSave(saved);
@@ -315,7 +329,7 @@
       return saved;
     },
     armFromCard: function () {
-      var w = this.build(this._src, { pct: this._pct, basis: this._basis }); if (!w) return;
+      var w = this.build(this._src, { pct: this._pct, basis: this._basis, wrap: this._wrap }); if (!w) return;
       var saved = this.save(w);
       this.close();
       if (this._opts.onArm) this._opts.onArm(saved);

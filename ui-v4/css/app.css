@@ -906,3 +906,12 @@ button:focus, input:focus { outline: none; }
 
 .hr-btn.hr-strava { margin-right: 12px; border-color: #FC5200; color: #FC5200; text-decoration: none; }
 .hr-btn.hr-strava.on { background: rgba(252,82,0,.12); }
+
+/* Stage warning chip + 3-2-1 start countdown */
+#whWarn { display: none; margin-top: 8px; padding: 10px 14px; min-height: 48px; font-size: 24px; font-weight: 900; color: #000; background: var(--orange, #ffab00); border-radius: 12px; letter-spacing: .02em; }
+.rb-warn { color: #000; background: var(--orange, #ffab00); border-radius: 8px; padding: 2px 10px; font-weight: 900; }
+.rb-warn:empty, .rb-warnbox:has(.rb-warn:empty) { display: none; }
+#countdownOverlay { position: fixed; top: 0; left: 110px; right: 0; bottom: 80px; z-index: 9000; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(8,12,18,.94); }
+#countdownOverlay .cd-num { font-size: min(40vh, 360px); font-weight: 900; line-height: 1; color: var(--green, #22c55e); font-variant-numeric: tabular-nums; }
+#countdownOverlay .cd-sub { font-size: 28px; font-weight: 800; color: var(--dim, #8a94a3); margin: 12px 0 28px; }
+#countdownOverlay .cd-cancel { min-width: 260px; min-height: 84px; font-size: 32px; font-weight: 900; border-radius: 18px; border: 3px solid var(--red, #ef4444); background: transparent; color: var(--red, #ef4444); }

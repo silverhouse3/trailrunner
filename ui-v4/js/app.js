@@ -596,6 +596,8 @@ const App = {
 
   /** Workout picked in the builder: arm it; START runs it. */
   armWorkout(w) {
+    // Optional warm-up / cool-down wrapper from Settings (off by default; a workout's own warm-up is never doubled)
+    try { if (typeof WorkoutSegments !== 'undefined' && WorkoutSegments.wrapPlan) w = WorkoutSegments.wrapPlan(w, WorkoutSegments.wrapOptions(Store.getSettings())); } catch (e) { console.warn('[App] wrapPlan failed', e); }
     this._armedWorkout = w;
     Engine.clearRoute();
     MapView.clearRoute();
@@ -607,7 +609,7 @@ const App = {
     var rname = document.getElementById('routeName');
     if (rname) rname.textContent = (w.name || 'WORKOUT').toUpperCase();
     var wc = document.getElementById('workoutChip');
-    if (wc) wc.textContent = (w.type || 'workout').toUpperCase().replace('-', ' ') + ' · ' + ((w.segments || w.intervals || []).length) + ' SEGMENTS';
+    if (wc) wc.textContent = (w.type || 'workout').toUpperCase().replace('-', ' ') + ' · ' + ((w.segments || w.intervals || []).length) + ' SEGMENTS' + (WorkoutSegments.addedText && WorkoutSegments.addedText(w) ? ' · ' + WorkoutSegments.addedText(w).toUpperCase() : '');
     this._autoConnectBridge(false);
     UI.update();
     this._showLive();
@@ -826,6 +828,28 @@ const App = {
       return;
     }
     if (!Engine.run || Engine.run.status !== 'ready') Engine.newRun();
+    // Optional 3-2-1 (default ON for programmes, OFF for free runs). The START tap above already counted; NOTHING is sent
+    // to the bridge until GO. STOP / pause / e-stop / safety key / CANCEL cancel it instantly.
+    if (typeof StartCountdown !== 'undefined' && StartCountdown.wanted(!!this._armedWorkout, Store.getSettings())) {
+      var selfA = this;
+      if (StartCountdown.begin(function () { selfA._beginRun(); })) { this._updateRunButton(); this._updateFloatingControls(); }
+      return;
+    }
+    this._beginRun();
+  },
+
+  cancelCountdown(why) {
+    if (typeof StartCountdown !== 'undefined' && StartCountdown.cancel(why || 'cancelled')) {
+      this._toast('Start cancelled', 'var(--card2)');
+      this._updateRunButton(); this._updateFloatingControls();
+      return true;
+    }
+    return false;
+  },
+
+  /** Everything after the START tap (+ optional countdown): the only continuation that talks to the bridge. */
+  _beginRun() {
+    this.userStart();   // the START tap is what counts; refresh its 5 s window after the countdown
     // Clear e-stop flag — user is explicitly starting a new run
     TM.clearEstop();
     // Connect + start workout (user-initiated, safe to start belt)
@@ -993,6 +1017,7 @@ const App = {
   },
 
   togglePause() {
+    if (typeof StartCountdown !== 'undefined' && StartCountdown.cancel('pause')) { this._updateRunButton(); this._updateFloatingControls(); return; }
     if (!Engine.run) return;
     if (Engine.run.status === 'running') {
       Engine.pauseRun();
@@ -1028,6 +1053,7 @@ const App = {
   /** Safety key out while running: the belt is already stopped by the console → pause the run (no commands),
    *  show the pause overlay; the user puts the key back and taps RESUME (→ new treadmill workout, target re-sent). */
   pauseForSafetyKey() {
+    if (typeof StartCountdown !== 'undefined') StartCountdown.cancel('safety key');
     if (!Engine.run || Engine.run.status !== 'running') return;
     Engine.pauseRun(true);
     var jokeEl = document.getElementById('pauseJoke'); if (jokeEl) jokeEl.textContent = 'Safety key out';
@@ -1038,6 +1064,7 @@ const App = {
 
   /** STOP button rule: zero the belt at once (never rate-limited), cancel any ramp, then show the summary. */
   stopNow() {
+    if (typeof StartCountdown !== 'undefined') StartCountdown.cancel('stop');
     // SAFETY: STOP always zeroes the belt first, whatever the app believes about the run (it may already show
     // 'finished' or 'ready' while the belt is still moving, e.g. started elsewhere or still decelerating).
     TM.setSpeed(0, true);
@@ -1046,6 +1073,7 @@ const App = {
   },
 
   finishRun(immediate) {
+    if (typeof StartCountdown !== 'undefined') StartCountdown.cancel('stop');
     if (!Engine.run || Engine.run.status === 'finished' || Engine.run.status === 'ready') return;
     document.getElementById('pauseOverlay').classList.remove('show');
     Engine.finishRun(!!immediate);
@@ -1279,6 +1307,7 @@ const App = {
   // ════════════════════════════════════════════════════════════════════════════
 
   emergencyStop() {
+    if (typeof StartCountdown !== 'undefined') StartCountdown.cancel('e-stop');
     // SAFETY: Cancel ANY in-progress ramp FIRST — prevents it from fighting the stop
     if (Engine._decelTimer) { clearInterval(Engine._decelTimer); Engine._decelTimer = null; }
     // Fire the emergency stop (sets _estopActive flag, blocks further motor commands)
@@ -2239,6 +2268,8 @@ const App = {
       nxt = 'NEXT ' + when + '  ' + what.trim();
     }
     set('[data-rb=next]', nxt);
+    var wn = (typeof WorkoutSegments !== 'undefined' && WorkoutSegments.getWarning) ? WorkoutSegments.getWarning() : null;
+    set('[data-rb=warn]', wn ? '\u23F1 ' + wn.text : '');
     cls('[data-rb=next]', 'up', up === true); cls('[data-rb=next]', 'down', up === false);
     var z = Engine.getCurrentZone();
     var hrEls = document.querySelectorAll('[data-rb=hr]');

@@ -177,6 +177,7 @@ const Engine = {
 
   pauseRun(hardwareStopped) {
     if (!this.run || this.run.status !== 'running') return;
+    if (typeof WorkoutSegments !== 'undefined' && WorkoutSegments.cancelWarning) WorkoutSegments.cancelWarning(); // stage warning dies with the pause
     var speed = this.run.speed;
 
     // Set status immediately (UI shows pause overlay)
@@ -226,6 +227,7 @@ const Engine = {
   finishRun(immediate) {
     if (!this.run) return;
     if (this.run.status === 'finished') return; // prevent double-call
+    if (typeof WorkoutSegments !== 'undefined' && WorkoutSegments.cancelWarning) WorkoutSegments.cancelWarning();
     var speed = this.run.speed;
     var incline = Math.max(this.run.incline, 0);
     if (immediate) {
@@ -335,6 +337,8 @@ const Engine = {
       avgStride: r._strideSamples > 0 ? +(r._strideSum / r._strideSamples).toFixed(3) : null,
     };
 
+    // Post-run recap is stored WITH the run so stats.html shows the identical card
+    try { if (typeof RunRecap !== 'undefined') { summary.recap = RunRecap.build(Object.assign({ id: null, hrZoneMinutes: summary.hrZoneMinutes }, summary, { _speedSum: r._speedSum, _speedSamples: r._speedSamples }), Store.getRuns ? Store.getRuns() : []); } } catch (e) { console.warn('[Engine] recap failed', e); }
     const saved = Store.saveRun(summary);
 
     // Also save to IndexedDB (unlimited storage, async)

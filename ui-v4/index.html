@@ -223,6 +223,7 @@ if ('serviceWorker' in navigator) {
             <div class="rb-item"><span class="rb-l">DIST</span><b data-rb="dist">0.00 km</b></div>
             <div class="rb-item"><span class="rb-l">TIME</span><b data-rb="time">00:00</b></div>
             <div class="rb-item"><b data-rb="next">NEXT --</b></div>
+            <div class="rb-item rb-warnbox"><b data-rb="warn" class="rb-warn"></b></div>
             <div class="rb-item"><b data-rb="hr">♥ --</b></div>
             <div class="rb-grow"></div>
             <span class="rb-state offline" data-rb="state">STOPPED</span>
@@ -313,6 +314,7 @@ if ('serviceWorker' in navigator) {
           <div id="whStageTimer"></div>
         </div>
         <div id="whNext"></div>
+        <div id="whWarn" role="status" aria-live="polite"></div>
         <div class="wh-bar"><div id="whProgFill"></div></div>
       </div>
     </div>
@@ -475,6 +477,7 @@ if ('serviceWorker' in navigator) {
       <div class="finish-stat"><div class="finish-stat-v" id="fEffort">—</div><div class="finish-stat-l" id="fEffortLabel">EFFORT</div></div>
     </div>
     <div class="finish-splits" id="fSplits"></div>
+    <div class="finish-recap" id="fRecap"></div>
     <div class="finish-extras">
       <div id="fPB" style="display:none"></div>
       <div id="fPower" style="display:none"></div>
@@ -529,6 +532,7 @@ if ('serviceWorker' in navigator) {
   <div class="rb-pad"></div>
   <div class="rb-item rb-speed"><span class="rb-l">SPEED</span><b data-rb="speed">0.0 km/h</b></div>
   <div class="rb-item rb-inc strip-only"><span class="rb-l">INCLINE</span><b data-rb="inc">+0.0%</b></div>
+  <div class="rb-item rb-warnbox strip-only"><b data-rb="warn" class="rb-warn"></b></div>
   <div class="rb-item rb-dist"><span class="rb-l">DIST</span><b data-rb="dist">0.00 km</b></div>
   <div class="rb-item rb-time"><span class="rb-l">TIME</span><b data-rb="time">00:00</b></div>
   <div class="rb-item rb-next strip-only"><b data-rb="next">NEXT --</b></div>
@@ -574,6 +578,7 @@ if ('serviceWorker' in navigator) {
 <script src="js/video-view.js"></script>
 <script src="js/past-run-splits.js"></script>
 <script src="js/split-compare.js"></script>
+<script src="js/run-recap.js"></script>
 <script src="js/app.js"></script>
 <!-- ui-v4: service worker intentionally NOT registered (sw.js here is a kill-switch only) -->
 </body>

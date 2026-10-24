@@ -545,7 +545,7 @@ ${_ttsOK?`      <div class="sp-row">
       <div class="sp-section-label" style="margin-top:8px">WARM-UP</div>
       <div class="sp-row">
         <span class="sp-label">Enable</span>
-        <label class="sp-toggle"><input type="checkbox" id="spWarmUp" ${s.warmUpEnabled!==false?'checked':''}><span class="sp-slider"></span></label>
+        <label class="sp-toggle"><input type="checkbox" id="spWarmUp" ${s.warmUpEnabled===true?'checked':''}><span class="sp-slider"></span></label>
       </div>
       <div class="sp-row">
         <span class="sp-label">Duration</span>
@@ -557,10 +557,19 @@ ${_ttsOK?`      <div class="sp-row">
         <input class="sp-input" type="number" id="spWarmUpSpeed" step="0.5" min="2" max="8" value="${s.warmUpSpeed||4.8}" style="width:60px">
       </div>
 
+      <div class="sp-hint">Adds an easy ramp before and after programmed workouts and Run Again plans. Free runs are never changed.</div>
+      <div class="sp-row">
+        <span class="sp-label">Warning before each change</span>
+        <select class="sp-input" id="spStageWarn" style="min-height:72px;font-size:22px">${[0,5,10,15].map(function(n){var cur=(s.stageWarnLead===undefined||s.stageWarnLead===null||s.stageWarnLead==='')?10:+s.stageWarnLead;return '<option value="'+n+'"'+(cur===n?' selected':'')+'>'+(n?n+' seconds':'Off')+'</option>';}).join('')}</select>
+      </div>
+      <div class="sp-row">
+        <span class="sp-label">3-2-1 countdown after START</span>
+        <select class="sp-input" id="spStartCd" style="min-height:72px;font-size:22px">${[['auto','Programmes only'],['on','Always'],['off','Never']].map(function(o){return '<option value="'+o[0]+'"'+((s.startCountdown||'auto')===o[0]?' selected':'')+'>'+o[1]+'</option>';}).join('')}</select>
+      </div>
       <div class="sp-section-label" style="margin-top:8px">COOL-DOWN</div>
       <div class="sp-row">
         <span class="sp-label">Enable</span>
-        <label class="sp-toggle"><input type="checkbox" id="spCoolDown" ${s.coolDownEnabled!==false?'checked':''}><span class="sp-slider"></span></label>
+        <label class="sp-toggle"><input type="checkbox" id="spCoolDown" ${s.coolDownEnabled===true?'checked':''}><span class="sp-slider"></span></label>
       </div>
       <div class="sp-row">
         <span class="sp-label">Duration</span>
@@ -916,6 +925,8 @@ ${_ttsOK?`      <div class="sp-row">
     s.ghostSource = v('spGhostSource');
     s.ghostOpacity = parseInt(v('spGhostOpacity')) || 30;
     s.warmUpEnabled = c('spWarmUp');
+    s.stageWarnLead = parseInt(v('spStageWarn')); if (isNaN(s.stageWarnLead)) s.stageWarnLead = 10;
+    s.startCountdown = v('spStartCd') || 'auto';
     s.warmUpDuration = parseInt(v('spWarmUpDur')) || 180;
     s.warmUpSpeed = parseFloat(v('spWarmUpSpeed')) || 4.8;
     s.coolDownEnabled = c('spCoolDown');

@@ -532,6 +532,16 @@ const UI = {
       try { SplitCompare.render(scEl, r); } catch (e) { scEl.innerHTML = ''; console.warn('[UI] split compare failed', e); }
     }
 
+    // Post-run recap card (best split, climb, speed/HR, same-route + recent comparison, highlights)
+    var rcEl = document.getElementById('fRecap');
+    if (rcEl && typeof RunRecap !== 'undefined') {
+      try {
+        var rcRun = Object.assign({}, r, { hrZoneMinutes: r._hrZoneMinutes, avgHR: Engine.getAvgHR(), maxSpeed: r._speedMax, avgSpeed: r._speedSamples > 0 ? r._speedSum / r._speedSamples : 0, elevGained: r.elevGained, elapsed: r.elapsed, distanceKm: r.distanceM / 1000 });
+        r._recap = RunRecap.build(rcRun, Store.getRuns());
+        RunRecap.render(rcEl, r._recap);
+      } catch (e) { rcEl.innerHTML = ''; console.warn('[UI] recap failed', e); }
+    }
+
     // Power summary
     var powerEl = document.getElementById('fPower');
     if (powerEl) {
@@ -796,6 +806,8 @@ const UI = {
       $$('whProgName', ((Engine.run && Engine.run.routeName) || 'WORKOUT').toUpperCase() + (seg.total > 0 && seg.index >= 0 ? ' · ' + (seg.index + 1) + '/' + seg.total : ''));
       $$('whStageName', seg.label || ('Segment ' + (seg.index + 1)));
       $$('whStageTimer', seg.remainingType === 'distance' ? (seg.remaining >= 1000 ? Units.distU(seg.remaining) : Math.round(Units.elevNum(seg.remaining)) + ' ' + Units.elevLabel()) + ' left' : Engine.fmtTime(Math.max(0, seg.remaining)) + ' left');
+      var wn = WorkoutSegments.getWarning ? WorkoutSegments.getWarning() : null, wnEl = document.getElementById('whWarn');
+      if (wnEl) { var wt = wn ? '\u23F1 ' + wn.text : ''; if (wnEl.textContent !== wt) wnEl.textContent = wt; wnEl.style.display = wn ? 'block' : 'none'; }
       var nxEl = document.getElementById('whNext'); if (nxEl && nxEl.textContent !== nxTxt) nxEl.textContent = nxTxt;
       var fill = document.getElementById('whProgFill');
       if (fill) { var tp = WorkoutSegments.getTotalProgress(); fill.style.width = tp ? Math.round((tp.fraction || 0) * 100) + '%' : '0'; }

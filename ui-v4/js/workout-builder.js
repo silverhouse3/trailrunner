@@ -439,6 +439,7 @@ const WorkoutBuilder = {
           <span class="wb-seg-at">@</span>
           <input class="wb-seg-input" type="${sUnit.includes('min') ? 'text' : 'number'}" step="0.5" value="${seg.speed}" onchange="WorkoutBuilder._updateSeg(${i},'speed',this.value)" style="width:60px" title="Speed">
           <span class="wb-seg-unit">${sUnit}</span>
+          ${this._paceCell(seg, i)}
           <input class="wb-seg-input" type="number" step="1" min="-6" max="40" value="${seg.incline||0}" onchange="WorkoutBuilder._updateSeg(${i},'incline',this.value)" style="width:50px" title="Incline %">
           <span class="wb-seg-unit">%</span>
           <input class="wb-seg-input wb-seg-label" type="text" value="${seg.label||''}" placeholder="Label" onchange="WorkoutBuilder._updateSeg(${i},'label',this.value)" style="width:80px">
@@ -452,6 +453,7 @@ const WorkoutBuilder = {
           <span class="wb-seg-unit">sec</span>
           <input class="wb-seg-input" type="number" step="0.5" value="${seg.speed}" onchange="WorkoutBuilder._updateSeg(${i},'speed',this.value)" style="width:60px" title="Speed">
           <span class="wb-seg-unit">${sUnit}</span>
+          ${this._paceCell(seg, i)}
           <input class="wb-seg-input" type="number" step="1" min="-6" max="40" value="${seg.incline||0}" onchange="WorkoutBuilder._updateSeg(${i},'incline',this.value)" style="width:50px">
           <span class="wb-seg-unit">%</span>
           <button class="wb-seg-del" onclick="WorkoutBuilder._removeSeg(${i})">✕</button>
@@ -466,6 +468,7 @@ const WorkoutBuilder = {
           </select>
           <input class="wb-seg-input" type="number" step="0.5" value="${seg.speed}" onchange="WorkoutBuilder._updateSeg(${i},'speed',this.value)" style="width:60px" title="Speed">
           <span class="wb-seg-unit">${sUnit}</span>
+          ${this._paceCell(seg, i)}
           <input class="wb-seg-input" type="number" step="1" min="-6" max="40" value="${seg.incline||0}" onchange="WorkoutBuilder._updateSeg(${i},'incline',this.value)" style="width:50px">
           <span class="wb-seg-unit">%</span>
           <button class="wb-seg-del" onclick="WorkoutBuilder._removeSeg(${i})">✕</button>
@@ -648,9 +651,30 @@ const WorkoutBuilder = {
     this._render();
   },
 
+  /** PACE block cell: type a pace (per km or per mile, as Units) -> speed is derived, clamped, and shown; a chip says if it was clipped. */
+  _paceCell(seg, i) {
+    const imp = (typeof Units !== 'undefined' && Units.imp && Units.imp());
+    const val = seg.paceSecPerKm ? Units.pace(seg.paceSecPerKm) : '';
+    let note = '';
+    if (seg.paceSecPerKm && seg.paceKph) {
+      note = `<span class="wb-pace-note" style="font-size:18px;font-weight:800;color:var(--dim)">= ${Units.speedU(seg.paceKph)}</span>`;
+      if (seg.paceClip) note += `<span class="wb-pace-clip" style="font-size:18px;font-weight:900;color:#000;background:var(--orange,#ffab00);border-radius:10px;padding:6px 10px">${seg.paceClip === 'max' ? 'Too fast: limited to ' : 'Too slow: raised to '}${Units.speedU(seg.paceKph)}</span>`;
+    }
+    return `<input class="wb-seg-input wb-seg-pace" type="text" inputmode="numeric" placeholder="m:ss" value="${val}" onchange="WorkoutBuilder._updateSeg(${i},'pace',this.value)" style="width:90px" title="Or set a pace instead of a speed">
+          <span class="wb-seg-unit">${imp ? '/mi' : '/km'}</span>${note}`;
+  },
+
   _updateSeg(idx, field, value) {
     const seg = this._segments[idx];
     if (!seg) return;
+    if (field === 'pace') {
+      const sec = WorkoutSegments.parsePace(value);
+      if (!sec) { delete seg.paceSecPerKm; delete seg.paceKph; delete seg.paceClip; }
+      else WorkoutSegments.applyPaceToBlock(seg, sec, (Units.imp && Units.imp()) ? 'imperial' : 'metric', this._editing.speedUnit || 'kph');
+      this._render();
+      return;
+    }
+    if (field === 'speed') { delete seg.paceSecPerKm; delete seg.paceKph; delete seg.paceClip; } // typing a speed replaces the pace
     if (field === 'distance' || field === 'speed' || field === 'incline' || field === 'duration' || field === 'targetZone') {
       seg[field] = field === 'speed' && (this._editing.speedUnit === 'min/mi' || this._editing.speedUnit === 'min/km')
         ? value : parseFloat(value) || 0;

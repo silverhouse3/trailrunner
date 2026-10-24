@@ -42,3 +42,14 @@
   .sc-table small { font-size: 11px; } .sc-verdict { font-size: 22px; } .sc-col { flex-basis: 48px; margin: 0 2px; } .sc-bar { width: 18px; }
   .sc-bar.this span { font-size: 11px; }
 }
+
+/* Post-run recap card (js/run-recap.js) */
+.rc-card { margin-top: 14px; padding: 14px 16px; border: 2px solid var(--border, #2a3340); border-radius: 12px; background: rgba(255,255,255,.03); text-align: left; }
+.rc-title { font-size: 14px; font-weight: 900; letter-spacing: .14em; color: var(--dim, #8a94a3); margin-bottom: 8px; }
+.rc-hl { margin: 0 0 10px; padding: 0; list-style: none; }
+.rc-hl li { font-size: 20px; font-weight: 800; color: var(--green, #22c55e); padding: 3px 0; }
+.rc-hl li::before { content: '\2605  '; }
+.rc-row { font-size: 16px; font-weight: 700; padding: 5px 0; border-bottom: 1px solid var(--border, #2a3340); }
+.rc-row:last-child { border-bottom: 0; }
+.rc-zones { display: flex; gap: 2px; margin: 6px 0; min-height: 28px; }
+.rc-z { font-size: 12px; font-weight: 800; color: #000; padding: 6px 4px; border-radius: 4px; overflow: hidden; white-space: nowrap; text-align: center; }

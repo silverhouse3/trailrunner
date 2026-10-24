@@ -138,6 +138,7 @@ var WorkoutSegments = {
       case 'segment':  this._tickSegment(s, distanceDeltaM, dt, currentHR, maxHR); break;
       case 'cooldown': this._tickCooldown(s, dt); break;
     }
+    if (this.active === s) this._warnCheck(s);
   },
 
   // ════════════════════════════════════════════════════════════════════════
@@ -150,6 +151,11 @@ var WorkoutSegments = {
     var wu = s.workout.warmUp;
     var remaining = wu.duration - s.phaseElapsed;
 
+    // Wrapper warm-up (ramp:'full'): walk -> first-stage speed over the WHOLE warm-up in 0.2 km/h steps, never above the first stage
+    if (wu.ramp === 'full') {
+      var k = this.rampKph(SpeedUnits.toKph(wu.speed, s.workout.speedUnit), this._getFirstSegmentSpeedKph(s), wu.duration, s.phaseElapsed);
+      if (k !== s._lastRampKph) { s._lastRampKph = k; this._sendSpeed(k); }
+    } else
     // Ramp-up: over the last 30 seconds, linearly increase speed to first segment speed
     if (wu.rampUp && remaining <= 30 && remaining > 0) {
       var firstKph = this._getFirstSegmentSpeedKph(s);
@@ -167,6 +173,7 @@ var WorkoutSegments = {
       s.phase = 'segment';
       s.phaseElapsed = 0;
       s.countdown = 0;
+      s._lastRampKph = null;
       this._applyCurrentSegment(s);
       this._firePhaseChange('segment');
     }
@@ -308,7 +315,10 @@ var WorkoutSegments = {
 
     // Ramp-down: over the first 30 seconds, linearly decrease speed from last segment
     var cdKph = SpeedUnits.toKph(cd.speed, s.workout.speedUnit);
-    if (cd.rampDown !== false && s.phaseElapsed <= 30) {
+    if (cd.ramp === 'full') {
+      var ck = this.rampKph(s.cooldownStartSpeedKph, cdKph, cd.duration, s.phaseElapsed);
+      if (ck !== s._lastRampKph) { s._lastRampKph = ck; this._sendSpeed(ck); }
+    } else if (cd.rampDown !== false && s.phaseElapsed <= 30) {
       var rampFraction = s.phaseElapsed / 30;
       var rampedKph = s.cooldownStartSpeedKph + (cdKph - s.cooldownStartSpeedKph) * rampFraction;
       this._sendSpeed(rampedKph);
@@ -712,6 +722,7 @@ var WorkoutSegments = {
       // Capture the speed/incline we're transitioning from
       s.cooldownStartSpeedKph = this._getLastSegmentSpeedKph(s);
       s.cooldownStartIncline = this._getLastSegmentIncline(s);
+      s._lastRampKph = null;
       s.phase = 'cooldown';
       s.phaseElapsed = 0;
       s.countdown = 0;
@@ -957,4 +968,213 @@ var WorkoutSegments = {
       }
     }
   }
+};
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STAGE WARNINGS, WARM-UP / COOL-DOWN WRAPPER, PACE BLOCKS (all speed/incline still go through
+// WorkoutSegments._sendSpeed/_sendIncline -> TM.setSpeed/TM.setIncline: ramp limiter, max-speed, safety key)
+// ═══════════════════════════════════════════════════════════════════════════
+(function () {
+  function settings() { try { return (typeof Store !== 'undefined' && Store.getSettings) ? (Store.getSettings() || {}) : {}; } catch (e) { return {}; } }
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+  function r1(x) { return Math.round(x * 10) / 10; }
+  function unitsOk() { return typeof Units !== 'undefined' && Units.speedU; }
+
+  var W = WorkoutSegments;
+  W.WARN_LEADS = [0, 5, 10, 15];
+  W.MIN_KPH = 1.0;                 // never command a crawl below this inside a plan (a stop is the STOP path, not a stage)
+
+  /** Effective speed limits in km/h: bridge cap, machine max, the user's max-speed setting. */
+  W.limits = function () {
+    var mx = SpeedUnits.SAFETY_CAP_KPH, st = settings();
+    try { if (typeof TM !== 'undefined' && TM.maxKph) mx = Math.min(mx, TM.maxKph()); } catch (e) {}
+    if (st.safetyMaxSpeed > 0) mx = Math.min(mx, st.safetyMaxSpeed);
+    return { minKph: W.MIN_KPH, maxKph: mx };
+  };
+
+  // ── Pace blocks (D) ────────────────────────────────────────────────────
+  /** '5:00', '5:00 /km', '8.5' (decimal minutes) -> seconds per unit, or null. */
+  W.parsePace = function (str) {
+    if (typeof str === 'number') return str > 0 ? str : null;
+    var m = /^\s*(\d{1,2})\s*:\s*([0-5]?\d)\s*(?:\/?\s*(?:km|mi|mile))?\s*$/i.exec(String(str || ''));
+    if (m) { var s = +m[1] * 60 + +m[2]; return s >= 60 && s <= 3600 ? s : null; }
+    var d = parseFloat(str); if (d > 1 && d < 60 && /^\s*\d+(\.\d+)?\s*$/.test(String(str))) return Math.round(d * 60);
+    return null;
+  };
+  /** Pace (seconds per km or per mile) -> speed, clamped to limits. { kph, requestedKph, clipped: null|'max'|'min' } */
+  W.paceToKph = function (secPerUnit, system, lim) {
+    lim = lim || W.limits();
+    if (!(secPerUnit > 0)) return null;
+    var unitKm = system === 'imperial' ? 1.609344 : 1;
+    var req = unitKm / secPerUnit * 3600, kph = req, clipped = null;
+    if (kph > lim.maxKph + 1e-9) { kph = lim.maxKph; clipped = 'max'; }
+    else if (kph < lim.minKph - 1e-9) { kph = lim.minKph; clipped = 'min'; }
+    return { kph: r1(kph), requestedKph: r1(req), clipped: clipped };
+  };
+  /** Set a builder block from a pace: stores the canonical sec/km, the speed in the workout's unit, and the clip flag. */
+  W.applyPaceToBlock = function (seg, paceSecPerUnit, system, speedUnit, lim) {
+    var c = W.paceToKph(paceSecPerUnit, system, lim); if (!c) return null;
+    seg.paceSecPerKm = Math.round(paceSecPerUnit / (system === 'imperial' ? 1.609344 : 1));
+    seg.paceKph = c.kph; seg.paceClip = c.clipped; seg.paceRequestedKph = c.requestedKph;
+    seg.speed = (speedUnit === 'min/mi' || speedUnit === 'min/km') ? r1(SpeedUnits.fromKph(c.kph, speedUnit)) : r1(SpeedUnits.fromKph(c.kph, speedUnit || 'kph'));
+    return c;
+  };
+
+  // ── Warm-up / cool-down wrapper (C) ────────────────────────────────────
+  /** Linear ramp quantised to 0.2 km/h steps; never beyond the end value (so never above the first-stage speed). */
+  W.rampKph = function (startKph, endKph, durSec, elapsedSec) {
+    var f = durSec > 0 ? clamp(elapsedSec / durSec, 0, 1) : 1, k = startKph + (endKph - startKph) * f;
+    k = Math.round(k * 5) / 5;
+    var lo = Math.min(startKph, endKph), hi = Math.max(startKph, endKph);
+    return clamp(k, lo, hi);
+  };
+  W._firstStage = function (w) { return w.type === 'programmed' ? (w.segments || [])[0] : (w.intervals || [])[0]; };
+  W._lastStage = function (w) { var a = w.type === 'programmed' ? (w.segments || []) : (w.intervals || []); return a[a.length - 1]; };
+  /** Settings -> wrapper options. Free runs are never wrapped (this only applies to armed programmes). */
+  W.wrapOptions = function (st) {
+    st = st || settings();
+    return { warmUp: st.warmUpEnabled === true, coolDown: st.coolDownEnabled === true,
+      warmUpSec: clamp(+st.warmUpDuration || 180, 60, 600), coolDownSec: clamp(+st.coolDownDuration || 120, 60, 600),
+      walkKph: clamp(+st.warmUpSpeed || 4.8, 2, 8) };
+  };
+  /** Returns a COPY of the workout with an optional warm-up ramp (walk -> first stage) and cool-down ramp (last stage -> walk).
+   *  Existing warm-up/cool-down on the workout are left alone; nothing enabled -> the same object is returned unchanged. */
+  W.wrapPlan = function (workout, opts) {
+    if (!workout || !workout.type || workout.noWrap || !opts || (!opts.warmUp && !opts.coolDown)) return workout;
+    var first = W._firstStage(workout), last = W._lastStage(workout);
+    if (!first || !last) return workout;
+    var w = JSON.parse(JSON.stringify(workout)), unit = w.speedUnit || 'kph', lim = W.limits();
+    var firstKph = clamp(SpeedUnits.toKph(first.speed, unit), lim.minKph, lim.maxKph);
+    var lastKph = clamp(SpeedUnits.toKph(last.speed, unit), lim.minKph, lim.maxKph);
+    var walk = clamp(opts.walkKph || 4.8, lim.minKph, lim.maxKph), added = { warmSec: 0, coolSec: 0 };
+    if (opts.warmUp && !(w.warmUp && w.warmUp.enabled)) {
+      var startKph = Math.min(walk, firstKph);
+      w.warmUp = { enabled: true, duration: Math.round(opts.warmUpSec || 180), speed: r1(SpeedUnits.fromKph(startKph, unit)), incline: 0, rampUp: true, ramp: 'full', auto: true };
+      added.warmSec = w.warmUp.duration;
+    }
+    if (opts.coolDown && !(w.coolDown && w.coolDown.enabled)) {
+      var endKph = Math.min(walk, lastKph);
+      w.coolDown = { enabled: true, duration: Math.round(opts.coolDownSec || 120), speed: r1(SpeedUnits.fromKph(endKph, unit)), incline: 0, rampDown: true, ramp: 'full', auto: true };
+      added.coolSec = w.coolDown.duration;
+    }
+    if (added.warmSec || added.coolSec) w.wrapAdded = added; else return workout;
+    return w;
+  };
+  /** Minutes the wrapper added (for the preview card / chip). */
+  W.addedMinutes = function (w) { var a = (w && w.wrapAdded) || { warmSec: 0, coolSec: 0 }; return { warmSec: a.warmSec, coolSec: a.coolSec, totalSec: a.warmSec + a.coolSec }; };
+  W.addedText = function (w) {
+    var a = W.addedMinutes(w), f = function (s) { var m = Math.floor(s / 60), ss = s % 60; return m + ':' + (ss < 10 ? '0' : '') + ss; };
+    if (!a.totalSec) return '';
+    var p = []; if (a.warmSec) p.push(f(a.warmSec) + ' warm-up'); if (a.coolSec) p.push(f(a.coolSec) + ' cool-down');
+    return '+' + p.join(' + ');
+  };
+  /** Flat stage list incl. warm-up ramp prefix and cool-down ramp suffix: [{phase,label,speedKph,incline,durationSec|distanceM}] (for preview + tests). */
+  W.expandPlan = function (w) {
+    var out = [], unit = w.speedUnit || 'kph', i, st;
+    if (w.warmUp && w.warmUp.enabled) {
+      var wk = SpeedUnits.toKph(w.warmUp.speed, unit), fk = W._firstStage(w) ? SpeedUnits.toKph(W._firstStage(w).speed, unit) : wk;
+      var n = Math.max(1, Math.round(w.warmUp.duration / 30));
+      for (i = 0; i < n; i++) out.push({ phase: 'warmup', label: 'Warm up', durationSec: w.warmUp.duration / n, speedKph: w.warmUp.ramp === 'full' ? W.rampKph(wk, fk, w.warmUp.duration, (i + 0.5) / n * w.warmUp.duration) : wk, incline: 0 });
+    }
+    var arr = w.type === 'programmed' ? (w.segments || []) : (w.intervals || []), rounds = w.type === 'programmed' ? 1 : (w.rounds || 1);
+    for (var r = 0; r < rounds; r++) for (i = 0; i < arr.length; i++) { st = arr[i]; var e = { phase: 'segment', label: st.label || ('Stage ' + (i + 1)), speedKph: SpeedUnits.toKph(st.speed, unit), incline: st.incline || 0 }; if (st.duration != null) e.durationSec = st.duration; else e.distanceM = SpeedUnits.distToMetres(st.distance, w.distanceUnit); out.push(e); }
+    if (w.coolDown && w.coolDown.enabled) {
+      var lk = W._lastStage(w) ? SpeedUnits.toKph(W._lastStage(w).speed, unit) : 0, ck = SpeedUnits.toKph(w.coolDown.speed, unit), m = Math.max(1, Math.round(w.coolDown.duration / 30));
+      for (i = 0; i < m; i++) out.push({ phase: 'cooldown', label: 'Cool down', durationSec: w.coolDown.duration / m, speedKph: w.coolDown.ramp === 'full' ? W.rampKph(lk, ck, w.coolDown.duration, (i + 0.5) / m * w.coolDown.duration) : ck, incline: 0 });
+    }
+    return out;
+  };
+
+  // ── Stage warnings (B) ─────────────────────────────────────────────────
+  W.warnLead = function () {
+    var v = settings().stageWarnLead; if (v === undefined || v === null || v === '') return 10;
+    v = +v; return W.WARN_LEADS.indexOf(v) >= 0 ? v : 10;
+  };
+  W._beep = function (f, ms) { try { if (typeof VoiceCmd !== 'undefined' && VoiceCmd._playTone) VoiceCmd._playTone(f, ms); } catch (e) {} };
+  W.onWarn = null;   // (warning) => ; UI/tests
+  W._warnKey = function (s) { return [s.phase, s.segmentIndex, s.round, s.intervalIndex].join(':'); };
+  /** Called from tick(): fires ONE warning per upcoming speed/incline change, `warnLead()` seconds before it. */
+  W._warnCheck = function (s) {
+    var lead = W.warnLead(); if (!lead || typeof Engine === 'undefined' || !Engine.nextChange || !Engine.run || Engine.run.status !== 'running') return;
+    var nx = Engine.nextChange(), seg = W.getCurrentSegment();
+    if (!nx || nx.kind !== 'workout' || nx.inSec == null || nx.inSec > lead || nx.inSec <= 0 || !seg) return;
+    var key = W._warnKey(s); s._warned = s._warned || {};
+    if (s._warned[key]) return;
+    var curKph = SpeedUnits.toKph(seg.speed, s.workout.speedUnit), dSp = nx.speed != null && Math.abs(nx.speed - curKph) >= 0.05, dIn = nx.incline != null && Math.abs(nx.incline - (seg.incline || 0)) >= 0.05;
+    if (!dSp && !dIn) return;                // same speed and incline next: nothing changes, nothing to announce
+    s._warned[key] = true; s.warn = { key: key };
+    W._beep(880, 150);
+    if (W.onWarn) { try { W.onWarn(W.getWarning()); } catch (e) {} }
+  };
+  /** The live warning chip data or null: { inSec, text, speedKph, incline, label }. Null when paused/stopped/none. */
+  W.getWarning = function () {
+    var s = W.active; if (!s || !s.warn) return null;
+    if (typeof Engine !== 'undefined' && Engine.run && Engine.run.status !== 'running') return null;
+    if (s.warn.key !== W._warnKey(s)) { s.warn = null; return null; }
+    var nx = Engine.nextChange(); if (!nx || nx.kind !== 'workout' || nx.inSec == null) return null;
+    var seg = W.getCurrentSegment(), curKph = seg ? SpeedUnits.toKph(seg.speed, s.workout.speedUnit) : 0, parts = [];
+    if (nx.speed != null && Math.abs(nx.speed - curKph) >= 0.05) parts.push(unitsOk() ? Units.speedU(nx.speed) : r1(nx.speed) + ' km/h');
+    if (nx.incline != null && seg && Math.abs(nx.incline - (seg.incline || 0)) >= 0.05) parts.push(nx.incline + '% incline');
+    var n = Math.max(1, Math.ceil(nx.inSec - 1e-9));
+    return { inSec: n, text: 'In ' + n + ' s: ' + parts.join(', '), speedKph: nx.speed, incline: nx.incline, label: nx.label };
+  };
+  /** Pause / stop / e-stop / safety key: drop the chip at once (a change is never announced for a paused belt). */
+  W.cancelWarning = function () { if (W.active) W.active.warn = null; };
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 3-2-1 START COUNTDOWN. Begins only AFTER the user's START tap; nothing is sent to the bridge until it
+// reaches GO, and cancel() (STOP / pause / e-stop / safety key / CANCEL button) is instant.
+// ═══════════════════════════════════════════════════════════════════════════
+var StartCountdown = {
+  seconds: 3, active: false, left: 0, _t: null, _hideT: null, _onGo: null,
+  timers: { set: function (f, ms) { return setTimeout(f, ms); }, clear: function (t) { clearTimeout(t); } },
+  /** 'auto' (default): on for programmes, off for free runs. 'on' / 'off' force. */
+  wanted: function (hasProgramme, st) {
+    var m = st ? st.startCountdown : undefined;
+    if (m === 'off' || m === false) return false;
+    if (m === 'on' || m === true) return true;
+    return !!hasProgramme;
+  },
+  beep: function (f, ms) { try { if (typeof VoiceCmd !== 'undefined' && VoiceCmd._playTone) VoiceCmd._playTone(f, ms); } catch (e) {} },
+  _text: function (t) {
+    if (typeof document === 'undefined' || !document.body) return;
+    var el = document.getElementById('countdownOverlay');
+    if (!t) { if (el && el.parentNode) el.parentNode.removeChild(el); return; }
+    if (!el) {
+      el = document.createElement('div'); el.id = 'countdownOverlay';
+      el.innerHTML = '<div class="cd-num" id="cdNum"></div><div class="cd-sub">Get ready. The belt starts at GO.</div><button class="cd-cancel" onclick="App.cancelCountdown()">CANCEL</button>';
+      document.body.appendChild(el);
+    }
+    var n = document.getElementById('cdNum'); if (n) n.textContent = t;
+  },
+  /** Start the countdown; onGo() is the ONLY place the belt start continues. Returns false if already running. */
+  begin: function (onGo) {
+    if (this.active) return false;
+    this.active = true; this.left = this.seconds; this._onGo = onGo;
+    if (this._hideT) { this.timers.clear(this._hideT); this._hideT = null; }
+    this._text(String(this.left)); this.beep(660, 140); this._arm();
+    return true;
+  },
+  _arm: function () { var self = this; this._t = this.timers.set(function () { self._step(); }, 1000); },
+  _step: function () {
+    if (!this.active) return;
+    if (typeof TM !== 'undefined' && TM._safetyKeyWarning) { this.cancel('safety key'); return; }
+    this.left--;
+    if (this.left > 0) { this._text(String(this.left)); this.beep(660, 140); this._arm(); return; }
+    var go = this._onGo; this.active = false; this._t = null; this._onGo = null;
+    this._text('GO'); this.beep(990, 400);
+    var self = this; this._hideT = this.timers.set(function () { self._hideT = null; self._text(''); }, 700);
+    if (go) go();
+  },
+  /** Instant cancel. Returns true if a countdown was running. Nothing was sent, so there is nothing to undo. */
+  cancel: function (why) {
+    if (!this.active) return false;
+    if (this._t) this.timers.clear(this._t);
+    this._t = null; this.active = false; this._onGo = null; this.left = 0; this.lastCancel = why || 'cancelled';
+    if (this._hideT) { this.timers.clear(this._hideT); this._hideT = null; }
+    this._text('');
+    return true;
+  },
 };

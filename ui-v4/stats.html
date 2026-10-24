@@ -330,6 +330,7 @@ if(v>0){document.body.className+=' rom-bottom';document.documentElement.style.se
 <script src="js/units.js"></script>
 <script src="js/past-run-splits.js"></script>
 <script src="js/split-compare.js"></script>
+<script src="js/run-recap.js"></script>
 <script src="js/demo-seed.js"></script>
 <script src="js/strava-config.js"></script>
 <script src="js/strava-api.js"></script>
@@ -1510,7 +1511,8 @@ function openRunDetail(idx) {
     [r.effortScore > 0 ? r.effortScore : '—', 'EFFORT'], [r.avgSpeed ? Units.speed(r.avgSpeed, 1) : '—', 'AVG ' + Units.speedLabel().toUpperCase()],
   ];
   document.getElementById('rdStats').innerHTML = stats.map(function(s) { return '<div class="rd-stat"><b>' + s[0] + '</b><span>' + s[1] + '</span></div>'; }).join('');
-  document.getElementById('rdDetail').innerHTML = saDetailBox(r) + window.__buildDetail(r);
+  document.getElementById('rdDetail').innerHTML = saDetailBox(r) + '<div id="rdRecap"></div>' + window.__buildDetail(r);
+  try { var rcv = r.recap || RunRecap.build(r, window.__statsRuns || []); RunRecap.render(document.getElementById('rdRecap'), rcv); } catch (e) { console.warn('[stats] recap failed', e); }
   var sc = document.getElementById('rdSplits');
   try { SplitCompare.render(sc, r); } catch (e) { sc.innerHTML = '<div style="color:var(--dim)">No split data for this run.</div>'; }
   document.getElementById('runDetail').classList.add('show');
