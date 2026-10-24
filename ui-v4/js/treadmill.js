@@ -326,6 +326,8 @@ var TM = {
   // ── Command dispatch ──────────────────────────────────────────────────
 
   _send: function(obj) {
+    // The real bridge ignores 'Fan Speed': never send it unless a bridge declares support
+    if (obj && obj.values && obj.values['Fan Speed'] !== undefined && !this.fanSupported) return;
     if (this._useHTTP || this._pollTimer) {
       this._httpDispatch(obj);
     } else if (this.ws && this.ws.readyState === 1) {

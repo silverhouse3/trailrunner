@@ -51,7 +51,76 @@ var PastRunSplits = {
       distanceKm: r.distanceKm || (r.distanceM ? r.distanceM / 1000 : 0),
       splits: splits,
       finalSplit: r.finalSplit || null,
+      trackPoints: r.trackPoints || null,
     };
+  },
+
+  /** True when splits should be shown per mile (Units imperial). */
+  perMile: function () { return typeof Units !== 'undefined' && Units.imp && Units.imp(); },
+  /** Split word for labels: 'Mile' / 'Km'. */
+  unitWord: function () { return this.perMile() ? 'Mile' : 'Km'; },
+
+  /**
+   * Regroup a run's splits for DISPLAY in the current unit system. Stored data stays per-km.
+   * Metric: returned as-is (non-partial km splits + finalSplit). Imperial: cumulative time is
+   * interpolated by distance across the stored km splits (or trackPoints when a run has none)
+   * and cut at 1609.344 m boundaries. Result: { unit:'mi'|'km', splits:[{km:n,timeSec,avgHR}],
+   * finalSplit:{distKm:<dist in display unit>, timeSec, avgHR, paceSecPerKm (per km), partial:true}|null }
+   * (`km` is the split index in the display unit). Idempotent via _u flag.
+   */
+  regroup: function (run) {
+    var imp = this.perMile();
+    if (!run) return run;
+    if (run._u === (imp ? 'mi' : 'km')) return run;
+    var out = { splits: [], finalSplit: run.finalSplit || null };
+    for (var k in run) if (!(k in out) && k !== 'trackPoints') out[k] = run[k];
+    out._u = imp ? 'mi' : 'km';
+    out.unit = out._u;
+    if (!imp) {
+      out.splits = (run.splits || []).filter(function (s) { return s && !s.partial; })
+        .map(function (s, i) { return { km: s.km || (i + 1), timeSec: +s.timeSec || 0, avgHR: +s.avgHR || 0 }; });
+      return out;
+    }
+    // Segments: {d0,d1 (m), t0,t1 (s), hr}
+    var segs = [], d = 0, t = 0, i;
+    var ss = (run.splits || []).filter(function (s) { return s && !s.partial && +s.timeSec > 0; });
+    if (ss.length) {
+      for (i = 0; i < ss.length; i++) { segs.push({ d0: d, d1: d + 1000, t0: t, t1: t + +ss[i].timeSec, hr: +ss[i].avgHR || 0 }); d += 1000; t += +ss[i].timeSec; }
+      var fs = run.finalSplit;
+      if (fs && +fs.timeSec > 0 && +fs.distKm > 0) { segs.push({ d0: d, d1: d + fs.distKm * 1000, t0: t, t1: t + +fs.timeSec, hr: +fs.avgHR || 0 }); }
+    } else if (run.trackPoints && run.trackPoints.length > 1) {
+      var tp = run.trackPoints, pd = 0, pt = 0;
+      for (i = 0; i < tp.length; i++) {
+        var dd = +tp[i].dist, tt = +tp[i].elapsed;
+        if (!(dd > pd) || !(tt > pt)) continue;
+        segs.push({ d0: pd, d1: dd, t0: pt, t1: tt, hr: +tp[i].hr || 0 }); pd = dd; pt = tt;
+      }
+    } else if (run.finalSplit && +run.finalSplit.timeSec > 0) {
+      segs.push({ d0: 0, d1: run.finalSplit.distKm * 1000, t0: 0, t1: +run.finalSplit.timeSec, hr: +run.finalSplit.avgHR || 0 });
+    }
+    if (!segs.length) return out;
+    var total = segs[segs.length - 1].d1, M = 1609.344;
+    function tAt(x) {
+      for (var j = 0; j < segs.length; j++) if (x <= segs[j].d1 + 1e-6) { var g = segs[j]; return g.t0 + (g.t1 - g.t0) * ((x - g.d0) / (g.d1 - g.d0)); }
+      return segs[segs.length - 1].t1;
+    }
+    function hrIn(a, b) {
+      var sum = 0, w = 0;
+      for (var j = 0; j < segs.length; j++) {
+        var g = segs[j], lo = Math.max(a, g.d0), hi = Math.min(b, g.d1);
+        if (hi > lo && g.hr > 0) { var tw = (g.t1 - g.t0) * (hi - lo) / (g.d1 - g.d0); sum += g.hr * tw; w += tw; }
+      }
+      return w > 0 ? Math.round(sum / w) : 0;
+    }
+    var n = Math.floor(total / M + 1e-6);
+    for (i = 0; i < n; i++) out.splits.push({ km: i + 1, timeSec: tAt((i + 1) * M) - tAt(i * M), avgHR: hrIn(i * M, (i + 1) * M) });
+    var rem = total - n * M;
+    out.finalSplit = null;
+    if (rem > 16) { // ignore slivers under ~0.01 mi
+      var ft = tAt(total) - tAt(n * M);
+      out.finalSplit = { distKm: +(rem / M).toFixed(2), timeSec: ft, avgHR: hrIn(n * M, total), paceSecPerKm: Math.round(ft / (rem / 1000)), partial: true };
+    }
+    return out;
   },
 
   /**
@@ -72,6 +141,7 @@ var PastRunSplits = {
         for (var j = 0; j < extra.length; j++) if (extra[j] && extra[j].splits) all.push(extra[j]);
       } catch (e) { /* a broken source must never break the summary */ }
     }
+    all = all.map(function (r) { return PastRunSplits.regroup(r); });
     if (excludeId) all = all.filter(function (r) { return r.id !== excludeId; });
 
     var runs, basis, label;

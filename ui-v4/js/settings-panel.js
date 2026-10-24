@@ -185,10 +185,9 @@ const SettingsPanel = {
       <div class="sp-divider"></div>
       <div class="sp-section-label">VOICE COMMANDS</div>
 
-      <div class="sp-row">
+      ${(window.SpeechRecognition||window.webkitSpeechRecognition)?`<div class="sp-row">
         <span class="sp-label">Enable</span>
         <label class="sp-toggle"><input type="checkbox" id="spVoiceEnabled" ${s.voiceEnabled?'checked':''}><span class="sp-slider"></span></label>
-        ${(window.SpeechRecognition||window.webkitSpeechRecognition)?'':'<div class="sp-hint" style="color:var(--orange)">Voice commands are not available on this treadmill (no speech recognition in its browser).</div>'}
       </div>
       <div class="sp-row">
         <span class="sp-label">Sensitivity</span>
@@ -197,7 +196,7 @@ const SettingsPanel = {
           <option value="medium" ${(s.voiceSensitivity||'medium')==='medium'?'selected':''}>Medium</option>
           <option value="high" ${s.voiceSensitivity==='high'?'selected':''}>High</option>
         </select>
-      </div>
+      </div>`:`<div class="sp-row"><div class="sp-hint" id="spVoiceNA" style="color:var(--orange)">Voice commands aren't available on this screen.</div></div>`}
     `;
   },
 
@@ -365,8 +364,9 @@ const SettingsPanel = {
       }
     }
 
+    var _ttsOK = !!window.speechSynthesis || !!(window.AndroidBridge && typeof AndroidBridge.speak === 'function');
     return `
-      <div class="sp-row">
+${_ttsOK?`      <div class="sp-row">
         <span class="sp-label">Voice Coaching</span>
         <label class="sp-toggle"><input type="checkbox" id="spTTSEnabled" ${s.ttsEnabled?'checked':''}><span class="sp-slider"></span></label>
         ${(typeof VoiceCoach!=='undefined'&&VoiceCoach.beepOnly)?'<div class="sp-hint" style="color:var(--orange)">No speech engine on this treadmill: coaching cues are beeps only.</div>':''}
@@ -387,13 +387,14 @@ const SettingsPanel = {
         <span class="sp-label">TTS Volume</span>
         <input type="range" class="sp-range" id="spTTSVol" min="0" max="100" value="${Math.round((s.ttsVolume||0.8)*100)}">
       </div>
+`:`<div class="sp-row"><div class="sp-hint" id="spTTSNA" style="color:var(--orange)">Speech isn't available on this screen: coaching cues are beeps only.</div></div>`}
       <div class="sp-row">
         <span class="sp-label">Sound Effects</span>
         <label class="sp-toggle"><input type="checkbox" id="spSFX" ${s.sfxEnabled!==false?'checked':''}><span class="sp-slider"></span></label>
       </div>
-      <div class="sp-row">
+${_ttsOK?`      <div class="sp-row">
         <button class="sp-btn-sm" onclick="if(typeof VoiceCoach!=='undefined')VoiceCoach.say('Voice coaching test. Speed 6 miles per hour.','high')">Test Voice</button>
-      </div>
+      </div>`:''}
 
       <div class="sp-section-label" style="margin-top:10px">MILESTONE ANNOUNCEMENTS</div>
       <div class="sp-hint" style="padding:0 0 6px 0;color:var(--dim);font-size:9px">Voice + large on-screen popup for each event</div>
@@ -858,12 +859,15 @@ const SettingsPanel = {
     }
 
     // Audio
-    s.ttsEnabled = c('spTTSEnabled');
-    s.ttsVerbosity = v('spTTSVerbosity');
-    s.ttsVolume = n('spTTSVol') / 100;
+    if (document.getElementById('spTTSEnabled')) { // controls are absent when the screen has no speech engine
+      s.ttsEnabled = c('spTTSEnabled');
+      s.ttsVerbosity = v('spTTSVerbosity');
+      s.ttsVolume = n('spTTSVol') / 100;
+    }
     s.sfxEnabled = c('spSFX');
     var voiceName = v('spTTSVoice');
-    if (voiceName) {
+    if (!document.getElementById('spTTSVoice')) { /* keep stored voice */ }
+    else if (voiceName) {
       s.ttsVoiceName = voiceName;
       if (typeof VoiceCoach !== 'undefined') VoiceCoach.setVoiceByName(voiceName);
     } else {

@@ -442,3 +442,14 @@ var FUN_FACTS = [
   { km: 8.85, text: "8.85km! Your vertical oscillation — the bouncing — should be under 10cm for good form. If it's over 12cm, you're basically doing hurdles. On a treadmill. With no hurdles." },
   { km: 6.45, text: "6.45km! Fun fact: your body has produced enough heat to boil about half a litre of water. You're a running kettle. Please don't whistle." },
 ];
+
+/** Fun-fact text in the current unit system (texts are authored in km; imperial rewrites km, km/h, kilometres). */
+function funFactText(f) {
+  var t = (f && f.text) || '';
+  if (typeof Units === 'undefined' || !Units.imp()) return t;
+  var K = Units.KM_PER_MI;
+  t = t.replace(/(\d+(?:\.\d+)?)\s?km\/h/g, function (_, n) { return (parseFloat(n) / K).toFixed(1) + ' mph'; });
+  t = t.replace(/(\d+(?:\.\d+)?)\s?km\b/g, function (_, n) { var v = parseFloat(n) / K; return (v < 10 ? v.toFixed(2) : v.toFixed(1)) + ' mi'; });
+  t = t.replace(/\bkilometres\b/g, 'miles').replace(/\bkilometers\b/g, 'miles');
+  return t;
+}

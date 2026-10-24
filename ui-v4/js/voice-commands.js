@@ -543,10 +543,10 @@ window.VoiceCommands = (function() {
       }
     }
     // Fallback: just speak distance and time
-    var distKm = (r.distanceM / 1000).toFixed(1);
+    var distTxt = Units.dist(r.distanceM || 0, 1) + (Units.imp() ? ' miles' : ' K M');
     var elapsed = Math.round(r.elapsed);
     var mins = Math.floor(elapsed / 60);
-    speak('You have covered ' + distKm + ' K M in ' + mins + ' minutes');
+    speak('You have covered ' + distTxt + ' in ' + mins + ' minutes');
   }
 
   function speakHRRecovery() {

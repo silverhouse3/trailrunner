@@ -20,6 +20,8 @@ var SplitCompare = {
 
   /** Build the comparison model (also usable without rendering, e.g. for tests). */
   model: function (run) {
+    run = PastRunSplits.regroup(run);
+    var W = PastRunSplits.unitWord(), mi = PastRunSplits.perMile();
     var splits = [];
     (run.splits || []).forEach(function (s, i) {
       if (s && !s.partial && s.timeSec > 0) splits.push({ km: s.km || (i + 1), timeSec: +s.timeSec, avgHR: +s.avgHR || 0 });
@@ -48,22 +50,23 @@ var SplitCompare = {
     var slows = rows.filter(function (r) { return r.flag === 'slowest'; }).length;
     var verdict = '';
     if (fastestRow) {
-      verdict = 'Fastest km: ' + fastestRow.km + ' (' + this.fmtTime(fastestRow.timeSec) + ')';
-      if (enough && bests) verdict += ' · ▲ beat your best on ' + bests + ' km' + (bests > 1 ? 's' : '');
-      if (enough && slows) verdict += ' · ▼ slower than all past runs on ' + slows + ' km' + (slows > 1 ? 's' : '');
+      verdict = 'Fastest ' + W.toLowerCase() + ': ' + fastestRow.km + ' (' + this.fmtTime(fastestRow.timeSec) + ')';
+      if (enough && bests) verdict += ' · ▲ beat your best on ' + bests + ' ' + W.toLowerCase() + (bests > 1 ? 's' : '');
+      if (enough && slows) verdict += ' · ▼ slower than all past runs on ' + slows + ' ' + W.toLowerCase() + (slows > 1 ? 's' : '');
       if (enough && !bests && !slows) verdict += ' · all splits within your past range';
     } else if (finalSplit) {
-      verdict = 'Under 1 km — ' + finalSplit.distKm + ' km in ' + this.fmtTime(finalSplit.timeSec);
+      verdict = 'Under 1 ' + W.toLowerCase() + ' — ' + finalSplit.distKm + ' ' + Units.distLabel() + ' in ' + this.fmtTime(finalSplit.timeSec);
     } else {
-      verdict = 'No kilometre completed yet';
+      verdict = (mi ? 'No mile completed yet' : 'No kilometre completed yet');
     }
-    return { rows: rows, finalSplit: finalSplit, pool: pool, enough: enough, verdict: verdict, fastestRow: fastestRow };
+    return { unit: mi ? 'mi' : 'km', rows: rows, finalSplit: finalSplit, pool: pool, enough: enough, verdict: verdict, fastestRow: fastestRow };
   },
 
   render: function (el, run) {
     if (!el) return null;
     if (typeof PastRunSplits === 'undefined') { el.innerHTML = ''; return null; }
     var m = this.model(run), f = this.fmtTime, esc = this.esc;
+    var W = PastRunSplits.unitWord(), mi = PastRunSplits.perMile(), PS = Units.paceSlash();
     var h = '';
     h += '<div class="sc-head"><div class="sc-verdict">' + esc(m.verdict) + '</div>';
     var basisText = m.pool.basis === 'none' ? m.pool.label
@@ -86,14 +89,14 @@ var SplitCompare = {
         h += '<div class="sc-col"><div class="sc-bars">' +
           (med ? '<div class="sc-bar median" style="height:' + med.toFixed(1) + '%" title="median"></div>' : '') +
           '<div class="sc-bar this' + cls + '" style="height:' + pct.toFixed(1) + '%"><span>' + f(r.timeSec) + '</span></div>' +
-          '</div><div class="sc-col-label">km ' + r.km + '</div></div>';
+          '</div><div class="sc-col-label">' + W.toLowerCase() + ' ' + r.km + '</div></div>';
       });
       h += '</div><div class="sc-legend"><span class="sc-sw this"></span> this run' + (compare ? ' <span class="sc-sw median"></span> median of past runs on this route' : '') + '</div>';
     }
 
     // ── Table ──
     // Comparison columns only exist when there are ≥2 past runs on the same route; otherwise THIS RUN only.
-    h += '<table class="sc-table' + (compare ? '' : ' sc-solo') + '"><thead><tr><th>KM</th><th>THIS RUN</th>' +
+    h += '<table class="sc-table' + (compare ? '' : ' sc-solo') + '"><thead><tr><th>' + W.toUpperCase() + '</th><th>THIS RUN</th>' +
       (compare ? '<th>FASTEST</th><th>SLOWEST</th><th>MEDIAN</th>' : '<th>PACE</th>') +
       '<th class="sc-hr">HR THIS RUN</th>' +
       (compare ? '<th class="sc-hr">LOWEST</th><th class="sc-hr">HIGHEST</th><th class="sc-hr">MEDIAN</th>' : '') + '</tr></thead><tbody>';
@@ -102,14 +105,14 @@ var SplitCompare = {
     m.rows.forEach(function (r) {
       var st = r.stats;
       h += '<tr class="' + r.flag + '">' +
-        '<td class="sc-km">' + r.km + '</td>' +
+        '<td class="sc-km">' + (mi ? 'Mile ' : '') + r.km + '</td>' +
         '<td class="sc-this"><b>' + f(r.timeSec) + '</b><small>' + esc(flagText[r.flag] || '') + '</small></td>';
       if (compare) {
         h += '<td>' + (st && st.fastest != null ? f(st.fastest) : '—') + '</td>' +
           '<td>' + (st && st.slowest != null ? f(st.slowest) : '—') + '</td>' +
           '<td>' + (st && st.medianTime != null ? f(st.medianTime) : '—') + '</td>';
       } else {
-        h += '<td>' + f(r.timeSec) + ' /km</td>';
+        h += '<td>' + f(r.timeSec) + ' ' + PS + '</td>';
       }
       h += '<td class="sc-hr sc-this hr-' + r.hrFlag + '"><b>' + (r.avgHR > 0 ? r.avgHR : '—') + '</b><small>' + esc(hrText[r.hrFlag] || '') + '</small></td>';
       if (compare) {
@@ -121,16 +124,16 @@ var SplitCompare = {
     });
     if (m.finalSplit) {
       var fs = m.finalSplit;
-      h += '<tr class="partial"><td class="sc-km">' + fs.distKm + ' km<small>partial</small></td>' +
-        '<td class="sc-this"><b>' + f(fs.timeSec) + '</b><small>' + (fs.paceSecPerKm ? f(fs.paceSecPerKm) + ' /km pace' : '') + '</small></td>' +
-        (compare ? '<td colspan="3" class="sc-na">not compared (partial km)</td>' : '<td>' + (fs.paceSecPerKm ? f(fs.paceSecPerKm) + ' /km' : '—') + '</td>') +
+      h += '<tr class="partial"><td class="sc-km">' + fs.distKm + ' ' + Units.distLabel() + '<small>partial</small></td>' +
+        '<td class="sc-this"><b>' + f(fs.timeSec) + '</b><small>' + (fs.paceSecPerKm ? Units.pace(fs.paceSecPerKm) + ' ' + PS + ' pace' : '') + '</small></td>' +
+        (compare ? '<td colspan="3" class="sc-na">not compared (partial ' + W.toLowerCase() + ')</td>' : '<td>' + (fs.paceSecPerKm ? Units.pace(fs.paceSecPerKm) + ' ' + PS : '—') + '</td>') +
         '<td class="sc-hr sc-this"><b>' + (fs.avgHR > 0 ? fs.avgHR : '—') + '</b></td>' + (compare ? '<td colspan="3" class="sc-hr sc-na"></td>' : '') + '</tr>';
     }
     h += '</tbody></table>';
     h += '<div class="sc-foot">' + (compare
-      ? 'Times are per 1 km split (mm:ss). FASTEST / SLOWEST / MEDIAN = best, worst and middle time for that km index across past runs on this route. ' +
-        'HR columns = this run\'s average HR for that km vs the LOWEST, HIGHEST and MEDIAN average HR recorded for that km index on this route.'
-      : 'Times are per 1 km split (mm:ss) with the average heart rate for that km. Comparison columns (fastest / slowest / median) appear once this route has at least ' + PastRunSplits.MIN_RUNS + ' past runs.') + '</div>';
+      ? 'Times are per 1 ' + W.toLowerCase() + ' split (mm:ss). FASTEST / SLOWEST / MEDIAN = best, worst and middle time for that ' + W.toLowerCase() + ' index across past runs on this route. ' +
+        'HR columns = this run\'s average HR for that ' + W.toLowerCase() + ' vs the LOWEST, HIGHEST and MEDIAN average HR recorded for that ' + W.toLowerCase() + ' index on this route.'
+      : 'Times are per 1 ' + W.toLowerCase() + ' split (mm:ss) with the average heart rate for that ' + W.toLowerCase() + '. Comparison columns (fastest / slowest / median) appear once this route has at least ' + PastRunSplits.MIN_RUNS + ' past runs.') + '</div>';
     el.innerHTML = h;
     return m;
   },

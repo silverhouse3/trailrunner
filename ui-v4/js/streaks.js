@@ -264,11 +264,11 @@ var Streaks = {
         return { progress: d.totalWorkouts / 100, remaining: Math.max(0, 100 - d.totalWorkouts) + ' more workouts' };
       case 'marathon':
         var rem = Math.max(0, 42.2 - d.totalDistanceKm);
-        return { progress: d.totalDistanceKm / 42.2, remaining: rem.toFixed(1) + ' km to go' };
+        return { progress: d.totalDistanceKm / 42.2, remaining: Units.distKm(rem, 1) + ' ' + Units.distLabel() + ' to go' };
       case 'hill_climber':
         return { progress: 0, remaining: 'Climb 1000 ft in one workout' };
       case 'speed_demon':
-        return { progress: d.maxSpeedKph / 16.1, remaining: 'Reach 16.1 kph (10 mph)' };
+        return { progress: d.maxSpeedKph / 16.1, remaining: (Units.imp() ? 'Reach 10 mph' : 'Reach 16.1 km/h (10 mph)') };
       case 'consistency':
         return { progress: d.weeksWithFourPlus / 4, remaining: Math.max(0, 4 - d.weeksWithFourPlus) + ' more weeks of 4+' };
       case 'early_bird':
@@ -285,7 +285,7 @@ var Streaks = {
         return { progress: 0, remaining: 'Average 300W+ in a workout' };
       case 'total_100k':
         var rem100 = Math.max(0, 100 - d.totalDistanceKm);
-        return { progress: d.totalDistanceKm / 100, remaining: rem100.toFixed(1) + ' km to go' };
+        return { progress: d.totalDistanceKm / 100, remaining: Units.distKm(rem100, 1) + ' ' + Units.distLabel() + ' to go' };
       case 'ultra':
         return { progress: 0, remaining: 'Complete a 50K run' };
       default:

@@ -162,7 +162,7 @@ const UI = {
     } else {
       var rootEl2 = document.getElementById('rootApp');
       if (rootEl2) rootEl2.style.boxShadow = 'none';
-      set('hrZone', r.hr > 0 ? 'BELOW Z1' : 'NO HR — TAP ❤ TO PAIR');
+      set('hrZone', r.hr > 0 ? 'BELOW Z1' : 'WAITING FOR HR — WEAR STRAP SNUG (PAIR IN iFIT IF NOT LISTED)');
       css('hrZone', 'color', 'var(--dim)');
       css('zCur', 'left', '0%');
     }
@@ -385,7 +385,7 @@ const UI = {
     toast.id = 'kmToast';
     toast.className = 'km-toast show';
     toast.innerHTML =
-      '<div class="kmt-km">' + km + ' KM</div>' +
+      '<div class="kmt-km">' + (Units.imp() ? Units.distKm(km, 2) + ' MI' : km + ' KM') + '</div>' +
       '<div class="kmt-pace">' + paceStr + ' ' + Units.paceSlash() + '</div>' +
       (hr > 0 ? '<div class="kmt-hr">❤ ' + hr + '</div>' : '');
 
@@ -410,14 +410,16 @@ const UI = {
   renderSplits() {
     const el = document.getElementById('splitsList');
     if (!el || !Engine.run) return;
-    const splits = Engine.run.splits;
+    const imp = Units.imp();
+    const splits = imp ? PastRunSplits.regroup(Engine.run).splits.map(q => ({ km: q.km, paceSecPerKm: q.timeSec / Units.KM_PER_MI, avgHR: q.avgHR, elapsed: null, _t: q.timeSec })) : Engine.run.splits;
+    if (imp) { let cum = 0; splits.forEach(q => { cum += q._t; q.elapsed = cum; }); }
     if (!splits.length) {
       el.innerHTML = '<div class="wb-empty">No splits yet — keep running!</div>';
       return;
     }
     el.innerHTML = splits.map(s => {
       return '<div class="split-row">' +
-        '<div class="split-km">' + s.km + '</div>' +
+        '<div class="split-km">' + (imp ? 'Mile ' : '') + s.km + '</div>' +
         '<div class="split-pace">' + Units.pace(s.paceSecPerKm) + '</div>' +
         '<div class="split-hr">' + (s.avgHR > 0 ? '❤ ' + s.avgHR : '') + '</div>' +
         '<div class="split-time">' + Engine.fmtTime(s.elapsed) + '</div>' +
@@ -688,8 +690,8 @@ const UI = {
     }
 
     // Split-by-split comparison vs last run
-    var curSplits = currentRun.splits;
-    var lastSplits = lastRun.splits;
+    var curSplits = PastRunSplits.regroup(currentRun).splits;
+    var lastSplits = PastRunSplits.regroup(lastRun).splits;
     if (curSplits && lastSplits && curSplits.length > 0 && lastSplits.length > 0) {
       var maxKm = Math.min(curSplits.length, lastSplits.length);
       if (maxKm > 0) {

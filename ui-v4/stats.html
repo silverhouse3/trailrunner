@@ -1316,9 +1316,11 @@ function clearDemo() { stAsk('Remove all demo runs?', 'REMOVE').then(function (y
 
     // Left: Splits
     html += '<div class="detail-splits"><div class="detail-splits-title">SPLITS</div>';
-    if (r.splits && r.splits.length > 0) {
-      for (var si = 0; si < r.splits.length; si++) {
-        var sp = r.splits[si];
+    var dsr = (typeof PastRunSplits !== 'undefined') ? PastRunSplits.regroup(r) : r;
+    var dsp = dsr.splits || [];
+    if (dsp.length > 0) {
+      for (var si = 0; si < dsp.length; si++) {
+        var sp = dsp[si];
         var paceM = Math.floor(sp.timeSec / 60);
         var paceS = sp.timeSec % 60;
         var paceStr = paceM + ':' + (paceS < 10 ? '0' : '') + paceS;
@@ -1327,8 +1329,13 @@ function clearDemo() { stAsk('Remove all demo runs?', 'REMOVE').then(function (y
         var strideStr = sp.avgStride > 0 ? ' | ' + sp.avgStride + 'm' : '';
         var negIcon = sp.negativeSplit ? ' <span style="color:var(--green)" title="Negative split">&#x2935;</span>' : '';
         html += '<div class="detail-split-row">' +
-          '<span class="detail-split-km">km ' + sp.km + negIcon + '</span>' +
-          '<span class="detail-split-pace">' + Units.pace(sp.timeSec) + Units.paceSlash() + hrStr + powerStr + strideStr + '</span></div>';
+          '<span class="detail-split-km">' + (Units.imp() ? 'Mile ' : 'km ') + sp.km + negIcon + '</span>' +
+          '<span class="detail-split-pace">' + (Units.imp() ? paceStr : Units.pace(sp.timeSec)) + Units.paceSlash() + hrStr + powerStr + strideStr + '</span></div>';
+      }
+      if (dsr.finalSplit && Units.imp()) {
+        var fsp = dsr.finalSplit;
+        html += '<div class="detail-split-row"><span class="detail-split-km">' + fsp.distKm + ' mi (partial)</span>' +
+          '<span class="detail-split-pace">' + Units.pace(fsp.paceSecPerKm) + Units.paceSlash() + (fsp.avgHR > 0 ? ' | ' + fsp.avgHR + ' bpm' : '') + '</span></div>';
       }
     } else {
       html += '<div style="color:var(--dim)">No split data</div>';
@@ -1557,24 +1564,28 @@ function exportCSV() {
   try { runs = JSON.parse(localStorage.getItem('tr_runs') || '[]'); } catch(e) { runs = []; }
   if (!runs.length) { stToast('No runs to export'); return; }
 
-  var headers = ['Date','Route','Distance (km)','Time (sec)','Avg Speed (kph)','Max Speed (kph)','Avg HR','Calories','Effort Score','Elevation (m)','Avg Power (W)','Cardiac Drift (%)','Efficiency Factor'];
+  var imp = Units.imp();
+  var dU = imp ? 'mi' : 'km', sU = imp ? 'mph' : 'kph', eU = imp ? 'ft' : 'm';
+  var cv = function (kmv, f) { return Math.round((+kmv || 0) * f * 100) / 100; };
+  var headers = ['Date','Route','Distance (' + dU + ')','Time (sec)','Avg Speed (' + sU + ')','Max Speed (' + sU + ')','Avg HR','Calories','Effort Score','Elevation (' + eU + ')','Avg Power (W)','Cardiac Drift (%)','Efficiency Factor','Units'];
   var csv = headers.join(',') + '\n';
   runs.forEach(function(r) {
     var date = r.savedAt || r.date || '';
     var row = [
       date,
       '"' + (r.routeName || 'Free Run').replace(/"/g, '""') + '"',
-      r.distanceKm || (r.distanceM ? (r.distanceM / 1000).toFixed(2) : 0),
+      cv(r.distanceKm || (r.distanceM ? r.distanceM / 1000 : 0), imp ? 1 / Units.KM_PER_MI : 1),
       r.elapsedSec || r.elapsed || 0,
-      r.avgSpeed || 0,
-      r.maxSpeed || 0,
+      cv(r.avgSpeed, imp ? 1 / Units.KM_PER_MI : 1),
+      cv(r.maxSpeed, imp ? 1 / Units.KM_PER_MI : 1),
       r.avgHR || 0,
       r.calories || 0,
       r.effortScore || 0,
-      r.elevGained || 0,
+      cv(r.elevGained, imp ? Units.FT_PER_M : 1),
       r.avgPower || 0,
       r.cardiacDrift != null ? r.cardiacDrift : '',
-      r.efficiencyFactor || ''
+      r.efficiencyFactor || '',
+      imp ? 'imperial' : 'metric'
     ];
     csv += row.join(',') + '\n';
   });

@@ -858,8 +858,9 @@ var MilestoneTracker = {
     if (this.config.funFacts && this._funFact && !this._funFactShown) {
       if (distKm >= this._funFact.km) {
         this._funFactShown = true;
-        VoiceCoach.say(this._funFact.text, 'medium');
-        this._showPopup(this._funFact.text, '#a78bfa');
+        var _ff = (typeof funFactText === 'function') ? funFactText(this._funFact) : this._funFact.text;
+        VoiceCoach.say(_ff, 'medium');
+        this._showPopup(_ff, '#a78bfa');
       }
     }
 

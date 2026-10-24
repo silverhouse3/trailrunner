@@ -485,9 +485,10 @@ const App = {
       var mic = document.getElementById('voiceMicBtn');
       if (mic) {
         mic.classList.add('unavailable');
-        mic.title = 'Voice commands are not available on this treadmill';
+        mic.title = "Voice commands aren't available on this screen";
         mic.setAttribute('onclick', '');
-        mic.onclick = function (e) { e.stopPropagation(); App._voiceToast('Voice commands are not available on this treadmill'); };
+        mic.style.display = 'none'; // hidden, never a dead button (Settings says why)
+        mic.hidden = true;
       }
       this.voiceUnavailable = true;
     }

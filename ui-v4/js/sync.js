@@ -218,9 +218,9 @@ const Sync = {
       formData.append('name', (run.routeName || 'Treadmill Run') + ' — TrailRunner');
       // Build rich description with workout stats
       var desc = 'Auto-synced from TrailRunner on NordicTrack X32i\n';
-      if (run.avgSpeed) desc += 'Avg Speed: ' + run.avgSpeed.toFixed(1) + ' kph\n';
-      if (run.maxSpeed) desc += 'Max Speed: ' + run.maxSpeed.toFixed(1) + ' kph\n';
-      if (run.elevGained) desc += 'Elevation: +' + Math.round(run.elevGained) + 'm\n';
+      if (run.avgSpeed) desc += 'Avg Speed: ' + Units.speedU(run.avgSpeed, 1) + '\n';
+      if (run.maxSpeed) desc += 'Max Speed: ' + Units.speedU(run.maxSpeed, 1) + '\n';
+      if (run.elevGained) desc += 'Elevation: +' + Units.elevU(run.elevGained) + '\n';
       if (run.avgPower) desc += 'Avg Power: ' + run.avgPower + 'W\n';
       if (run.maxPower) desc += 'Peak Power: ' + run.maxPower + 'W\n';
       if (run.effortScore) {
@@ -236,13 +236,16 @@ const Sync = {
         var efLabel = run.efficiencyFactor >= 1.8 ? 'Excellent' : run.efficiencyFactor >= 1.5 ? 'Good' : run.efficiencyFactor >= 1.2 ? 'Average' : 'Developing';
         desc += 'Efficiency Factor: ' + run.efficiencyFactor.toFixed(2) + ' (' + efLabel + ')\n';
       }
-      if (run.avgStride) desc += 'Avg Stride: ' + run.avgStride + 'm\n';
+      if (run.avgStride) desc += 'Avg Stride: ' + (Units.imp() ? (run.avgStride * Units.FT_PER_M).toFixed(1) + ' ft' : run.avgStride + 'm') + '\n';
       if (run.splits && run.splits.length) {
         desc += '\nSplits:\n';
-        run.splits.forEach(function(s) {
-          var min = Math.floor(s.timeSec / 60);
-          var sec = s.timeSec % 60;
-          desc += 'Km ' + s.km + ': ' + min + ':' + String(sec).padStart(2, '0') + '\n';
+        var _rg = (typeof PastRunSplits !== 'undefined' && typeof Units !== 'undefined') ? PastRunSplits.regroup(run).splits : run.splits;
+        var _w = (typeof Units !== 'undefined' && Units.imp()) ? 'Mile ' : 'Km ';
+        _rg.forEach(function(s) {
+          var tt = Math.round(s.timeSec);
+          var min = Math.floor(tt / 60);
+          var sec = tt % 60;
+          desc += _w + s.km + ': ' + min + ':' + String(sec).padStart(2, '0') + '\n';
         });
       }
       formData.append('description', desc.trim());

@@ -344,9 +344,12 @@ var VideoView = {
     set('vvElev', '+' + UI.convElev(r.elevGained || 0)); set('vvElevU', UI.elevLabel() + ' gain');
     set('vvCal', Math.round(r.calories || 0));
     // current km split + best for that km on this route (when known)
-    var kmIdx = (r.splits ? r.splits.length : 0) + 1;
+    var kmIdx = Units.imp() ? Math.floor((r.distanceM || 0) / 1609.344) + 1 : (r.splits ? r.splits.length : 0) + 1;
     var inSplit = Math.max(0, (r.elapsed || 0) - (r._lastSplitElapsed || 0));
-    var into = ((r.distanceM || 0) % 1000) / 1000;
+    if (Units.imp()) { // time since the last mile boundary (interpolated from the km splits)
+      try { var rg = PastRunSplits.regroup(r), done = 0; rg.splits.forEach(function (q) { done += q.timeSec; }); inSplit = Math.max(0, (r.elapsed || 0) - done); } catch (e) {}
+    }
+    var UM = Units.splitUnitM(), into = ((r.distanceM || 0) % UM) / UM;
     set('vvSplit', Engine.fmtTime(inSplit));
     var tgt = '';
     try {
@@ -359,7 +362,9 @@ var VideoView = {
         }
       }
     } catch (e) {}
-    set('vvSplitU', 'km ' + kmIdx + ' · ' + Math.round(into * 1000) + ' m in' + tgt);
+    set('vvSplitU', Units.imp()
+      ? 'mile ' + kmIdx + ' · ' + (into * 1609.344 * Units.FT_PER_M < 1000 ? Math.round(into * 1609.344 * Units.FT_PER_M) + ' ft' : (into).toFixed(2) + ' mi') + ' in' + tgt
+      : 'km ' + kmIdx + ' · ' + Math.round(into * 1000) + ' m in' + tgt);
   },
 
   // ── helpers ─────────────────────────────────────────────────────────────

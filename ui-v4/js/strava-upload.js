@@ -20,6 +20,13 @@
 // No TM.* calls: this module never touches the belt.
 // ════════════════════════════════════════════════════════════════════════════
 (function (root) {
+  // Units comes from js/units.js (imperial/metric). If a page or test loads this file without it, fall back to metric text
+  // so an upload description can never throw.
+  var Units = root.Units || {
+    elevU: function (m) { return Math.round(+m || 0) + ' m'; },
+    speedU: function (kmh, d) { return (+kmh || 0).toFixed(d == null ? 1 : d) + ' km/h'; },
+    distU: function (m) { return ((+m || 0) / 1000).toFixed(2) + ' km'; }
+  };
   'use strict';
   // App globals declared with top-level `const` (Store, Engine, MapView...) are NOT properties of window, so look them up lexically.
   function env(n) {
@@ -116,8 +123,8 @@
       else name = rn ? rn + ' (treadmill)' : 'Treadmill run';
       desc.push('Treadmill run recorded with TrailRunner on a NordicTrack X32i.');
       if (rn) desc.push('Route followed (incline auto-matched): ' + rn + (meta && meta.source === 'strava-activity' ? ' - from my own Strava run' : '') + '.');
-      if (route && route.totalAscent) desc.push('Route climb on the belt: +' + Math.round(run.elevGained || 0) + ' m' + (meta && meta.ascentReal ? ' (real route: +' + meta.ascentReal + ' m, incline limited to ' + meta.limits.min + '%..' + meta.limits.max + '%)' : '') + '.');
-      if (run.avgSpeed) desc.push('Avg speed ' + (+run.avgSpeed).toFixed(1) + ' km/h.');
+      if (route && route.totalAscent) desc.push('Route climb on the belt: +' + Units.elevU(run.elevGained || 0) + (meta && meta.ascentReal ? ' (real route: +' + Units.elevU(meta.ascentReal) + ', incline limited to ' + meta.limits.min + '%..' + meta.limits.max + '%)' : '') + '.');
+      if (run.avgSpeed) desc.push('Avg speed ' + Units.speedU(+run.avgSpeed, 1) + '.');
       if (t.mode === 'virtual') desc.push('Map shows the route position by distance; this was done indoors.');
       var f = {
         file: t.tcx, filename: 'trailrunner-' + (run.id || Date.now()) + '.tcx', data_type: 'tcx',
