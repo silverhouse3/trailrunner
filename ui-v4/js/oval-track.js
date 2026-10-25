@@ -108,6 +108,7 @@ var OvalTrack = {
   show: function() {
     if (!this.canvas) return;
     this.active = true;
+    document.body.classList.add('oval-on');
     this.canvas.style.display = 'block';
     this._resize();
     this._computeGeometry();
@@ -118,6 +119,7 @@ var OvalTrack = {
 
   hide: function() {
     this.active = false;
+    document.body.classList.remove('oval-on');
     if (this.canvas) this.canvas.style.display = 'none';
     if (this._anim) {
       cancelAnimationFrame(this._anim);

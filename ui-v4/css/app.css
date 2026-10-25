@@ -241,13 +241,14 @@ button:focus, input:focus { outline: none; }
 .gp-close { font-size: 28px; color: var(--dim); padding: 10px 14px; cursor: pointer; }
 
 /* Workout HUD */
-#workoutHud { position: absolute; top: 16px; left: 16px; z-index: 30; background: rgba(12,16,23,.95); border: 2px solid var(--green);
-  border-radius: 20px; padding: 16px 22px; display: none; min-width: 380px; }
-#whProgName { font-size: 20px; font-weight: 800; color: var(--green); letter-spacing: .1em; }
-.wh-row { display: flex; align-items: baseline; margin-top: 6px; }
-#whStageName { font-size: 30px; font-weight: 800; flex: 1; }
-#whStageTimer { font-size: 36px; font-weight: 900; color: var(--cyan); margin-left: 24px; font-variant-numeric: tabular-nums; }
-.wh-bar { height: 8px; background: var(--border); border-radius: 4px; margin-top: 10px; overflow: hidden; }
+#workoutHud { position: relative; flex: 0 0 auto; z-index: 30; background: rgba(12,16,23,.95); border-bottom: 2px solid var(--green);
+  padding: 4px 18px 8px; display: none; align-items: baseline; gap: 22px; white-space: nowrap; overflow: hidden; }
+#whProgName { font-size: 18px; font-weight: 800; color: var(--green); letter-spacing: .1em; }
+#whStageName { font-size: 26px; font-weight: 800; }
+#whStageTimer { font-size: 28px; font-weight: 900; color: var(--cyan); font-variant-numeric: tabular-nums; }
+#whNext { font-size: 18px; color: var(--cyan); font-weight: 700; flex: 1; overflow: hidden; text-overflow: ellipsis; }
+#whWarn { font-size: 18px; font-weight: 800; color: var(--orange); }
+.wh-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: var(--border); overflow: hidden; }
 #whProgFill { height: 100%; background: var(--green); border-radius: 4px; transition: width .5s; width: 0; }
 
 /* Elevation strip */

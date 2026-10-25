@@ -634,7 +634,7 @@ const UI = {
       var rName = currentRun.routeName;
       pastRuns = [];
       for (var ri = 0; ri < allRuns.length; ri++) {
-        if (allRuns[ri].routeName === rName) pastRuns.push(allRuns[ri]);
+        if (!allRuns[ri].imported && allRuns[ri].routeName === rName) pastRuns.push(allRuns[ri]);
       }
     }
     if (!pastRuns || pastRuns.length === 0) { el.style.display = 'none'; return; }
@@ -795,11 +795,18 @@ const UI = {
   _updateWorkoutHUD() {
     const hud = document.getElementById('workoutHud');
     if (!hud) return;
+    const hudWas = hud.style.display;
+    // The bar takes layout height, so when it appears or goes away the view below must re-fit.
+    if (!this._hudRefit) this._hudRefit = () => {
+      if (typeof OvalTrack !== 'undefined' && OvalTrack.active) OvalTrack._resize();
+      if (typeof MapView !== 'undefined' && MapView.map && MapView.map.invalidateSize) MapView.map.invalidateSize();
+    };
+    setTimeout(() => { if (hud.style.display !== hudWas) this._hudRefit(); }, 0);
 
     // Builder workouts (WorkoutSegments): stage name, time/distance left, next stage (audit P1-g)
     var seg = (typeof WorkoutSegments !== 'undefined' && WorkoutSegments.active) ? WorkoutSegments.getCurrentSegment() : null;
     if (seg) {
-      hud.style.display = 'block';
+      hud.style.display = 'flex';
       var $$ = function (i, v) { var e = document.getElementById(i); if (e && e.textContent !== v) e.textContent = v; };
       var nx = Engine.nextChange ? Engine.nextChange() : null;
       var nxTxt = nx && nx.kind !== 'ramp' ? ('NEXT: ' + (nx.kind === 'end' ? 'finish' : (nx.label || '') + (nx.speed != null ? ' · ' + Units.speedU(nx.speed) : '') + (nx.incline != null ? ' · ' + nx.incline + '%' : ''))) : '';
@@ -818,7 +825,7 @@ const UI = {
       return;
     }
 
-    hud.style.display = 'block';
+    hud.style.display = 'flex';
     const w = Engine.workout;
     const stage = w.programme.stages[w.stageIdx];
     if (!stage) return;
@@ -889,6 +896,14 @@ const UI = {
         var sUrl = StravaUpload.activityUrlFor(r.id);
         sv = sUrl ? '<a class="hr-btn hr-strava on" href="' + _esc(sUrl) + '" target="_blank" onclick="event.stopPropagation()">On Strava - View on Strava</a>'
                   : '<div class="hr-btn hr-strava" onclick="event.stopPropagation();App.sendRunToStrava(\'' + safeId + '\')">SEND TO STRAVA</div>';
+      }
+      if (r.source === 'strava') {   // imported from Strava: no track points, never re-uploaded, not a ghost / Run Again source
+        return '<div class="history-row">' +
+          '<div class="hr-date">' + date + '</div>' +
+          '<div class="hr-name">' + _esc(r.routeName || 'Strava run') + ' <span style="color:#FC5200;font-size:11px;font-weight:900;border:1px solid #FC5200;border-radius:6px;padding:1px 6px">Strava</span></div>' +
+          '<div class="hr-time">' + Engine.fmtTime(r.elapsed) + '</div>' +
+          '<div class="hr-dist">' + Units.distKmU(r.distanceKm || 0, 1) + '</div>' +
+        '</div>';
       }
       return '<div class="history-row" onclick="App.loadGhost(\'' + safeId + '\')">' +
         '<div class="hr-date">' + date + '</div>' +

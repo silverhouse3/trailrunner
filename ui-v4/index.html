@@ -145,6 +145,16 @@ if ('serviceWorker' in navigator) {
          video window, STOP/PAUSE, the edge controls or the metric strip. Hidden unless racers exist. -->
     <div class="race-bar" id="raceBar" data-needs-route></div>
 
+    <!-- Workout HUD: a slim bar in normal flow (like the race bar) so it can never cover the track, map, numbers or video -->
+    <div id="workoutHud">
+      <div id="whProgName"></div>
+      <div id="whStageName"></div>
+      <div id="whStageTimer"></div>
+      <div id="whNext"></div>
+      <div id="whWarn" role="status" aria-live="polite"></div>
+      <div class="wh-bar"><div id="whProgFill"></div></div>
+    </div>
+
     <!-- VIEW ZONE (map / oval / track / trail cam / media) -->
     <div class="map-zone">
       <div id="mapDiv"></div>
@@ -286,8 +296,6 @@ if ('serviceWorker' in navigator) {
         <button class="map-mode-btn" data-style="track" data-needs-route onclick="App.setMapStyle('track')" title="Trail view (3D road)">🎮</button>
         <button class="map-mode-btn" data-style="oval" onclick="App.setMapStyle('oval')" title="Oval track">🟡</button>
         <button class="map-mode-btn" data-style="numbers" onclick="App.setMapStyle('numbers')" title="Big numbers">🔢</button>
-        <button class="map-mode-btn" data-style="video" onclick="App.setMapStyle('video')" title="Video (YouTube + stats)">📺</button>
-        <button class="map-mode-btn" data-style="media" onclick="App.setMapStyle('media')" title="Radio">📻</button>
       </div>
 
       <!-- Zoom + follow (map views only) -->
@@ -306,17 +314,6 @@ if ('serviceWorker' in navigator) {
         <span class="gp-close" onclick="App.clearGhost()">✕</span>
       </div>
 
-      <!-- Workout HUD (segment info) -->
-      <div id="workoutHud">
-        <div id="whProgName"></div>
-        <div class="wh-row">
-          <div id="whStageName"></div>
-          <div id="whStageTimer"></div>
-        </div>
-        <div id="whNext"></div>
-        <div id="whWarn" role="status" aria-live="polite"></div>
-        <div class="wh-bar"><div id="whProgFill"></div></div>
-      </div>
     </div>
 
     <!-- Floating YouTube window (clamped to the view zone; never over STOP/PAUSE or the edge controls) -->
