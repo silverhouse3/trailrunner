@@ -1,0 +1,6 @@
+build/
+*.keystore
+*.jks
+*.idsig
+*.apk
+TOKEN.txt
