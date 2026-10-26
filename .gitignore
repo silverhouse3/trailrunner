@@ -41,3 +41,19 @@ videos/
 
 # Probe session data
 probe/
+
+# Local-build outputs and secrets (added in source hygiene pass; hashes in docs/ARTIFACTS.md)
+*.apk
+*.keystore
+*.jks
+*.p12
+*.pem
+adbkey*
+TOKEN.txt
+chooser*/build/
+trlink*/build/
+bridge/grpc-bridge-v*/trailrunner-bridge-v?
+design/ifit-reference/
+tools/*.bak-*
+trlink2/test/vec/test.pk8
+*.pk8
