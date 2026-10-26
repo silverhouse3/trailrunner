@@ -1,0 +1,2032 @@
+diff -ruN '--exclude=trailrunner-bridge*' '--exclude=proto' '--exclude=CHANGES.diff' '--exclude=test-output.txt' grpc-bridge/deadman.go grpc-bridge-v4/deadman.go
+--- grpc-bridge/deadman.go	1970-01-01 01:00:00.000000000 +0100
++++ grpc-bridge-v4/deadman.go	2026-10-23 14:25:52.477984500 +0100
+@@ -0,0 +1,344 @@
++package main
++
++// v4 additions: link-state handling (stale workoutState fix) and the dead-man.
++//
++// DEAD-MAN, in plain words
++//   If THIS bridge started the workout (StartNewWorkout succeeded through us)
++//   and no client has been heard from for TR_DEADMAN_S seconds (default 20,
++//   0 = disabled), the belt is slowed to 0 -- ONLY ever downwards, at
++//   TR_DEADMAN_RATE kph/s (default 2, never above the 4 kph/s limiter), and
++//   straight to 0 once at/below 2 kph. The workout is NOT stopped or paused:
++//   the UI can resume (set a speed) or stop it. Any client activity
++//   (HTTP request, WS connect/message, MQTT command) cancels a ramp in
++//   progress. Once the ramp reaches 0 the state is "tripped" and latched: the
++//   dead-man does nothing more until a client returns. It never acts on
++//   workouts the bridge did not start (iFit-started) and never when the belt
++//   is already at 0.
++
++import (
++	"fmt"
++	"log"
++	"os"
++	"strconv"
++	"sync/atomic"
++	"time"
++
++	pb "trailrunner-bridge/proto"
++)
++
++const (
++	deadmanDefaultS    = 20.0
++	deadmanDefaultRate = 2.0 // kph/s, must stay <= maxSpeedRateKphS
++	deadmanSnapKph     = 2.0 // at or below this the ramp steps straight to 0
++	deadmanTick        = 500 * time.Millisecond
++
++	// After the belt was commanded to 0 the console may still creep (seen: 0.8 kph,
++	// RUNNING). If it is still above deadmanStillKph this long after, STOP the workout.
++	deadmanStillKph     = 0.3
++	deadmanStillAfter   = 3 * time.Second
++	deadmanStopRetry    = 2 * time.Second
++	deadmanStopMaxTries = 5
++)
++
++var (
++	deadmanTimeout = time.Duration(deadmanDefaultS * float64(time.Second))
++	deadmanRate    = deadmanDefaultRate
++
++	// guarded by mu
++	deadmanState      = "off" // "off" | "ramping" | "tripped"
++	deadmanLastTarget float64
++	deadmanLastStep   time.Time
++	deadmanZeroAt     time.Time // when the dead-man commanded 0
++	deadmanStopTries  int
++	deadmanStopNext   time.Time
++
++	lastClientNano atomic.Int64
++)
++
++func touchClient() { lastClientNano.Store(time.Now().UnixNano()) }
++
++func initDeadmanConfig() {
++	if v := os.Getenv("TR_DEADMAN_S"); v != "" {
++		f, err := strconv.ParseFloat(v, 64)
++		if err != nil || f < 0 || f != f {
++			log.Printf("[DEADMAN] bad TR_DEADMAN_S=%q — using default %.0fs", v, deadmanDefaultS)
++		} else {
++			deadmanTimeout = time.Duration(f * float64(time.Second))
++		}
++	}
++	if v := os.Getenv("TR_DEADMAN_RATE"); v != "" {
++		f, err := strconv.ParseFloat(v, 64)
++		if err != nil || !(f > 0) {
++			log.Printf("[DEADMAN] bad TR_DEADMAN_RATE=%q — using default %.1f", v, deadmanDefaultRate)
++		} else {
++			deadmanRate = f
++		}
++	}
++	if deadmanRate > maxSpeedRateKphS {
++		deadmanRate = maxSpeedRateKphS
++	}
++	if deadmanTimeout <= 0 {
++		log.Println("[DEADMAN] disabled (TR_DEADMAN_S=0)")
++	} else {
++		log.Printf("[DEADMAN] armed: timeout %.0fs, ramp %.1f kph/s", deadmanTimeout.Seconds(), deadmanRate)
++	}
++}
++
++func deadmanLoop() {
++	t := time.NewTicker(deadmanTick)
++	defer t.Stop()
++	for now := range t.C {
++		deadmanStep(now)
++	}
++}
++
++// deadmanStep runs one tick and broadcasts if the visible state changed.
++func deadmanStep(now time.Time) {
++	mu.RLock()
++	before := deadmanState
++	mu.RUnlock()
++	deadmanEvaluate(now)
++	mu.RLock()
++	after := deadmanState
++	mu.RUnlock()
++	if before != after {
++		broadcastState()
++	}
++}
++
++// deadmanEvaluate is the whole policy; `now` is injected for tests.
++func deadmanEvaluate(now time.Time) {
++	if deadmanTimeout <= 0 {
++		return
++	}
++	clientAge := func() time.Duration { return now.Sub(time.Unix(0, lastClientNano.Load())) }
++
++	mu.RLock()
++	st := deadmanState
++	started := bridgeStarted
++	cachedSpeed := currentSpeed
++	mu.RUnlock()
++
++	if clientAge() < deadmanTimeout { // a client is (back) here
++		if st != "off" {
++			mu.Lock()
++			deadmanState = "off"
++			deadmanStopTries = 0
++			mu.Unlock()
++			log.Printf("[DEADMAN] client returned — dead-man cancelled (was %s). Belt NOT restored; user must set speed.", st)
++		}
++		return
++	}
++	if st == "tripped" {
++		deadmanCheckCreep(now, clientAge, started, cachedSpeed)
++		return // latched
++	}
++	if st == "tripped-stopped" || !started || speedClient == nil {
++		return // latched, or not our workout (iFit-started), or no link object
++	}
++
++	// Authoritative speed (the cached value may be stale if the speed stream is down).
++	speed := cachedSpeed
++	if m, err := speedClient.GetSpeed(grpcCtx(), &pb.Empty{}); err == nil {
++		speed = m.LastKph
++	}
++	if clientAge() < deadmanTimeout { // client arrived while we were reading
++		return
++	}
++
++	if speed <= 0.05 {
++		if st == "ramping" {
++			mu.Lock()
++			deadmanState = "tripped"
++			mu.Unlock()
++			log.Println("[DEADMAN] belt at 0 — TRIPPED (latched until a client returns)")
++		}
++		return // st=="off" and belt already stopped: never trip
++	}
++
++	mu.Lock()
++	base := speed
++	dt := deadmanTick.Seconds()
++	if st == "ramping" {
++		if deadmanLastTarget < base {
++			base = deadmanLastTarget // continue from what we last commanded
++		}
++		if d := now.Sub(deadmanLastStep).Seconds(); d > 0.1 {
++			dt = d
++		}
++	}
++	if dt > 1.0 {
++		dt = 1.0
++	}
++	next := base - deadmanRate*dt
++	if base <= deadmanSnapKph || next <= deadmanSnapKph {
++		next = 0
++	}
++	if next >= base { // never raise, never hold
++		mu.Unlock()
++		return
++	}
++	first := st == "off"
++	deadmanState = "ramping"
++	mu.Unlock()
++
++	if first {
++		log.Printf("[DEADMAN] !!! TRIPPED: no client for %.0fs, bridge-started workout, belt %.1f kph — ramping DOWN to 0", clientAge().Seconds(), speed)
++	}
++	log.Printf("[DEADMAN] ramp %.1f -> %.1f kph", speed, next)
++	if clientAge() < deadmanTimeout { // last-instant recheck: do not fight a returning client
++		return
++	}
++	if err := sendReduction(next); err != nil {
++		log.Printf("[DEADMAN] SetSpeed(%.1f) failed: %v (will retry)", next, err)
++		return
++	}
++	mu.Lock()
++	deadmanLastTarget = next
++	deadmanLastStep = now
++	if next == 0 {
++		deadmanState = "tripped"
++		deadmanZeroAt = now
++		deadmanStopTries = 0
++		deadmanStopNext = time.Time{}
++		log.Println("[DEADMAN] belt commanded to 0 — TRIPPED (workout left RUNNING; UI may resume or stop)")
++	}
++	mu.Unlock()
++}
++
++// deadmanCheckCreep: state is "tripped" (belt commanded to 0, workout RUNNING).
++// If the belt is still measurably moving >= deadmanStillAfter after the command,
++// issue the console's own STOP (same call as /workout/stop). Only ever reduces.
++func deadmanCheckCreep(now time.Time, clientAge func() time.Duration, started bool, cachedSpeed float64) {
++	if !started || speedClient == nil || workoutClient == nil {
++		return
++	}
++	mu.RLock()
++	zeroAt, tries, next := deadmanZeroAt, deadmanStopTries, deadmanStopNext
++	mu.RUnlock()
++	if zeroAt.IsZero() || now.Sub(zeroAt) < deadmanStillAfter || tries >= deadmanStopMaxTries || now.Before(next) {
++		return
++	}
++	speed := cachedSpeed
++	if m, err := speedClient.GetSpeed(grpcCtx(), &pb.Empty{}); err == nil {
++		speed = m.LastKph
++	}
++	if speed <= deadmanStillKph {
++		return // belt really is stopped: workout stays RUNNING as designed
++	}
++	if clientAge() < deadmanTimeout { // do not act when a client is present
++		return
++	}
++	if tries == 0 {
++		log.Printf("[DEADMAN] belt still moving after 0 - stopping workout (belt %.1f kph)", speed)
++	}
++	mu.Lock()
++	deadmanStopTries++
++	deadmanStopNext = now.Add(deadmanStopRetry)
++	n := deadmanStopTries
++	mu.Unlock()
++	if _, err := workoutClient.Stop(grpcCtx(), &pb.Empty{}); err != nil {
++		log.Printf("[DEADMAN] console STOP failed (try %d/%d): %v", n, deadmanStopMaxTries, err)
++		if n >= deadmanStopMaxTries {
++			log.Printf("[DEADMAN] giving up on STOP after %d tries - belt still %.1f kph", n, speed)
++		}
++		return
++	}
++	setWorkoutState("IDLE")
++	mu.Lock()
++	deadmanState = "tripped-stopped"
++	mu.Unlock()
++	log.Println("[DEADMAN] console STOP sent - TRIPPED-STOPPED (workout IDLE)")
++}
++
++// ── link state ────────────────────────────────────────────────────────────
++
++// applyWorkoutStateLocked records a state reported by the treadmill. Caller holds mu.
++func applyWorkoutStateLocked(s string) {
++	workoutState = s
++	if s == "IDLE" || s == "RESULTS" {
++		bridgeStarted = false                  // workout is over; a later one may be iFit's
++		if deadmanState != "tripped-stopped" { // keep showing that the dead-man stopped it
++			deadmanState = "off"
++		}
++	}
++}
++
++// setWorkoutState is the optimistic update done after a command succeeded.
++func setWorkoutState(s string) {
++	mu.Lock()
++	applyWorkoutStateLocked(s)
++	mu.Unlock()
++}
++
++func currentWorkoutState() string {
++	mu.RLock()
++	defer mu.RUnlock()
++	return workoutState
++}
++
++// linkStatus: caller holds mu (read or write).
++func linkStatus() string {
++	if grpcConnected && workoutState != "UNKNOWN" {
++		return "ok"
++	}
++	return "lost"
++}
++
++// markLinkLost is called when the workout-state stream ends or cannot start.
++// State is no longer known, so it is published as UNKNOWN (UI: "NO LINK").
++func markLinkLost(reason string) {
++	mu.Lock()
++	changed := workoutState != "UNKNOWN" || grpcConnected
++	workoutState = "UNKNOWN"
++	grpcConnected = false
++	mu.Unlock()
++	if changed {
++		log.Printf("[LINK] LOST (%s) — workout state now UNKNOWN", reason)
++		broadcastState()
++	}
++}
++
++// resyncFromTreadmill reads the authoritative state (workout, speed, incline)
++// via unary calls. Nothing is trusted after a reconnect until this succeeds.
++func resyncFromTreadmill() bool {
++	if workoutClient == nil {
++		return false
++	}
++	st, err := workoutClient.GetWorkoutState(grpcCtx(), &pb.Empty{})
++	if err != nil {
++		markLinkLost(fmt.Sprintf("GetWorkoutState: %v", err))
++		return false
++	}
++	mu.Lock()
++	applyWorkoutStateLocked(cleanState(st.WorkoutState.String()))
++	grpcConnected = true
++	mu.Unlock()
++	if speedClient != nil {
++		if sp, err := speedClient.GetSpeed(grpcCtx(), &pb.Empty{}); err == nil {
++			mu.Lock()
++			currentSpeed = sp.LastKph
++			mu.Unlock()
++		}
++	}
++	if inclineClient != nil {
++		if in, err := inclineClient.GetIncline(grpcCtx(), &pb.Empty{}); err == nil {
++			mu.Lock()
++			currentIncl = in.LastInclinePercent
++			mu.Unlock()
++		}
++	}
++	if consoleClient != nil {
++		mu.RLock()
++		missing := consoleInfo == nil
++		mu.RUnlock()
++		if missing && consoleFetching.CompareAndSwap(false, true) {
++			go func() { defer consoleFetching.Store(false); fetchConsoleInfo() }()
++		}
++	}
++	log.Printf("[LINK] resynced: workout=%s", currentWorkoutState())
++	broadcastState()
++	return true
++}
++
++var consoleFetching atomic.Bool
+diff -ruN '--exclude=trailrunner-bridge*' '--exclude=proto' '--exclude=CHANGES.diff' '--exclude=test-output.txt' grpc-bridge/go.mod grpc-bridge-v4/go.mod
+--- grpc-bridge/go.mod	2026-03-15 21:31:44.001160000 +0000
++++ grpc-bridge-v4/go.mod	2026-10-22 15:05:38.790089800 +0100
+@@ -3,12 +3,12 @@
+ go 1.24.0
+ 
+ require (
++	github.com/eclipse/paho.mqtt.golang v1.5.0
+ 	google.golang.org/grpc v1.79.2
+ 	google.golang.org/protobuf v1.36.11
+ )
+ 
+ require (
+-	github.com/eclipse/paho.mqtt.golang v1.5.0 // indirect
+ 	github.com/gorilla/websocket v1.5.3 // indirect
+ 	golang.org/x/net v0.48.0 // indirect
+ 	golang.org/x/sync v0.19.0 // indirect
+diff -ruN '--exclude=trailrunner-bridge*' '--exclude=proto' '--exclude=CHANGES.diff' '--exclude=test-output.txt' grpc-bridge/main.go grpc-bridge-v4/main.go
+--- grpc-bridge/main.go	2026-03-16 01:41:01.333087100 +0000
++++ grpc-bridge-v4/main.go	2026-10-22 15:12:37.633025300 +0100
+@@ -40,6 +40,7 @@
+ 	"strconv"
+ 	"strings"
+ 	"sync"
++	"sync/atomic"
+ 	"time"
+ 
+ 	pb "trailrunner-bridge/proto"
+@@ -92,11 +93,21 @@
+ 	wsClients = make(map[*wsConn]bool)
+ 
+ 	mqttClient    mqtt.Client
+-	mqttReady     bool
++	mqttReady     atomic.Bool
+ 	lastMQTTPub   time.Time
++	mqttPubMu     sync.Mutex
+ 
+ 	startTime = time.Now()
+ 
++	// v4: true only when THIS bridge started the current workout via
++	// StartNewWorkout (cleared on stop / IDLE / RESULTS). Guarded by mu.
++	bridgeStarted bool
++
++	// v4: motor-command ordering (see sendReduction / safeSpeedSet). Guarded by mu.
++	sendMu        sync.Mutex // serialises raising SetSpeed calls
++	speedEpoch    uint64     // bumped by every reduction/stop; stale raises are dropped
++	speedInFlight int        // raising SetSpeed calls currently on the wire
++
+ 	// Speed ramp rate limiting — max 4 kph change per second
+ 	lastSpeedSet     float64
+ 	lastSpeedSetTime time.Time
+@@ -150,32 +161,11 @@
+ 	consoleClient = pb.NewConsoleServiceClient(conn)
+ 	programClient = pb.NewProgrammedWorkoutSessionServiceClient(conn)
+ 
+-	// Test connection
+-	state, err := workoutClient.GetWorkoutState(grpcCtx(), &pb.Empty{})
+-	if err != nil {
+-		return fmt.Errorf("GetWorkoutState: %w", err)
+-	}
+-
+-	mu.Lock()
+-	workoutState = cleanState(state.WorkoutState.String())
+-	grpcConnected = true
+-	mu.Unlock()
+-
+-	log.Printf("[gRPC] Connected! Workout state: %s", workoutState)
+-
+-	// Initial values
+-	if s, err := speedClient.GetSpeed(grpcCtx(), &pb.Empty{}); err == nil {
+-		mu.Lock()
+-		currentSpeed = s.LastKph
+-		mu.Unlock()
+-		log.Printf("[gRPC] Speed: %.1f kph", s.LastKph)
+-	}
+-	if inc, err := inclineClient.GetIncline(grpcCtx(), &pb.Empty{}); err == nil {
+-		mu.Lock()
+-		currentIncl = inc.LastInclinePercent
+-		mu.Unlock()
+-		log.Printf("[gRPC] Incline: %.1f%%", inc.LastInclinePercent)
++	// Test connection + authoritative initial read (v4: shared with reconnect path)
++	if !resyncFromTreadmill() {
++		return fmt.Errorf("GetWorkoutState failed")
+ 	}
++	log.Printf("[gRPC] Connected! Workout state: %s", currentWorkoutState())
+ 
+ 	go subscribeSpeed()
+ 	go subscribeIncline()
+@@ -194,12 +184,8 @@
+ func grpcCtx() context.Context {
+ 	md := metadata.New(map[string]string{"client_id": clientID})
+ 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+-	// Cancel is called when the context deadline expires or the RPC completes.
+-	// For short-lived unary RPCs, the deadline handles cleanup.
+-	go func() {
+-		<-ctx.Done()
+-		cancel()
+-	}()
++	// v4: release the timer without a goroutine per call (go vet lostcancel).
++	time.AfterFunc(6*time.Second, cancel)
+ 	return metadata.NewOutgoingContext(ctx, md)
+ }
+ 
+@@ -289,26 +275,38 @@
+ 
+ func subscribeWorkoutState() {
+ 	for {
+-		stream, err := workoutClient.WorkoutStateChanged(grpcStreamCtx(), &pb.Empty{})
++		workoutStateSession()
++		time.Sleep(2 * time.Second)
++	}
++}
++
++// workoutStateSession runs one subscribe -> resync -> receive cycle and returns
++// when the stream ends or cannot be opened (state is then UNKNOWN).
++func workoutStateSession() {
++	stream, err := workoutClient.WorkoutStateChanged(grpcStreamCtx(), &pb.Empty{})
++	if err != nil {
++		log.Printf("[gRPC] Workout state sub error: %v", err)
++		markLinkLost("workout state subscribe failed")
++		time.Sleep(1 * time.Second)
++		return
++	}
++	log.Println("[gRPC] Workout state subscription active")
++	// v4: never trust state across a reconnect — re-read it first.
++	resyncFromTreadmill()
++	for {
++		msg, err := stream.Recv()
+ 		if err != nil {
+-			log.Printf("[gRPC] Workout state sub error: %v", err)
+-			time.Sleep(3 * time.Second)
+-			continue
+-		}
+-		log.Println("[gRPC] Workout state subscription active")
+-		for {
+-			msg, err := stream.Recv()
+-			if err != nil {
+-				log.Printf("[gRPC] Workout state stream ended: %v", err)
+-				break
+-			}
+-			mu.Lock()
+-			workoutState = cleanState(msg.WorkoutState.String())
+-			mu.Unlock()
+-			log.Printf("[gRPC] Workout state: %s", workoutState)
+-			broadcastState()
++			log.Printf("[gRPC] Workout state stream ended: %v", err)
++			markLinkLost("workout state stream ended")
++			return
+ 		}
+-		time.Sleep(2 * time.Second)
++		mu.Lock()
++		applyWorkoutStateLocked(cleanState(msg.WorkoutState.String()))
++		grpcConnected = true
++		st := workoutState
++		mu.Unlock()
++		log.Printf("[gRPC] Workout state: %s", st)
++		broadcastState()
+ 	}
+ }
+ 
+@@ -477,11 +475,11 @@
+ 			// Safety key removed — emergency notification
+ 			if msg.ConsoleState == pb.ConsoleState_SAFETY_KEY_REMOVED {
+ 				log.Println("[SAFETY] Safety key removed! Publishing to MQTT")
+-				if mqttReady && mqttClient != nil {
++				if mqttReady.Load() && mqttClient != nil {
+ 					mqttClient.Publish(mqttTopicPrefix+"/safety_key", 1, false, "removed")
+ 				}
+ 			} else {
+-				if mqttReady && mqttClient != nil {
++				if mqttReady.Load() && mqttClient != nil {
+ 					mqttClient.Publish(mqttTopicPrefix+"/safety_key", 0, false, "ok")
+ 				}
+ 			}
+@@ -617,40 +615,54 @@
+ // safeSpeedSet applies speed ramp rate limiting to prevent dangerous sudden
+ // speed jumps. Clamps to 0-22 kph and limits acceleration to maxSpeedRateKphS.
+ // Speed 0 is always allowed immediately (e-stop safe).
++//
++// v4: raising commands are serialised and carry an "epoch"; any stop/reduction
++// bumps the epoch so a raise that was decided earlier but not yet sent is
++// dropped instead of landing after the stop (WS/HTTP handlers run concurrently).
++// A decrease is no longer blocked by the safety key (it can only slow the belt).
+ func safeSpeedSet(targetKph float64) error {
++	if speedClient == nil {
++		return fmt.Errorf("gRPC not connected")
++	}
+ 	targetKph = clamp(targetKph, 0, 22)
+ 
+ 	// Speed 0 always bypasses rate limiting — emergency stop must be instant
+ 	if targetKph == 0 {
+-		mu.Lock()
+-		lastSpeedSet = 0
+-		lastSpeedSetTime = time.Now()
+-		mu.Unlock()
+-		_, err := speedClient.SetSpeed(grpcCtx(), &pb.SpeedRequest{Kph: 0})
+-		return err
++		return sendReduction(0)
+ 	}
+ 
+-	// Check safety key
+-	mu.RLock()
+-	sk := safetyKeyOut
+-	mu.RUnlock()
+-	if sk {
++	mu.Lock()
++	// Safety key: block anything that would RAISE speed; allow reductions.
++	if safetyKeyOut && targetKph > currentSpeed {
++		mu.Unlock()
+ 		return fmt.Errorf("safety key removed — motor commands blocked")
+ 	}
+ 
+ 	// Rate limit: max maxSpeedRateKphS kph/s change
+-	mu.Lock()
+ 	now := time.Now()
+ 	dt := now.Sub(lastSpeedSetTime).Seconds()
+ 	if dt < 0.1 {
+ 		dt = 0.1 // minimum 100ms between changes
+ 	}
++	if dt > 1.0 {
++		dt = 1.0 // v4: however long idle, one command moves at most maxSpeedRateKphS
++	}
+ 	maxDelta := maxSpeedRateKphS * dt
+-	prev := lastSpeedSet
++	// v4 baseline: lastSpeedSet can be stale (bridge restart, iFit/console change).
++	// Raises start from the higher of {last commanded, measured}; decreases from
++	// the lower, so neither direction is computed from a stale value.
++	hi, lo := lastSpeedSet, currentSpeed
++	if lo > hi {
++		hi, lo = lo, hi
++	}
++	prev := lo
++	if targetKph > hi {
++		prev = hi
++	}
+ 	delta := targetKph - prev
+ 	if delta > maxDelta {
++		log.Printf("[SAFETY] Speed ramp limited: requested %.1f, capped to %.1f (delta %.1f > max %.1f)", targetKph, prev+maxDelta, delta, maxDelta)
+ 		targetKph = prev + maxDelta
+-		log.Printf("[SAFETY] Speed ramp limited: requested %.1f, capped to %.1f (delta %.1f > max %.1f)", prev+delta-maxDelta+maxDelta, targetKph, delta, maxDelta)
+ 	} else if delta < -maxDelta {
+ 		// Deceleration is also rate-limited (except to 0, handled above)
+ 		targetKph = prev - maxDelta
+@@ -658,15 +670,57 @@
+ 	}
+ 	lastSpeedSet = targetKph
+ 	lastSpeedSetTime = now
++	epoch := speedEpoch
+ 	mu.Unlock()
+ 
++	sendMu.Lock()
++	defer sendMu.Unlock()
++	mu.Lock()
++	if speedEpoch != epoch {
++		mu.Unlock()
++		log.Printf("[SAFETY] Speed %.1f dropped — superseded by a stop/reduction", targetKph)
++		return fmt.Errorf("superseded by stop")
++	}
++	speedInFlight++
++	mu.Unlock()
+ 	_, err := speedClient.SetSpeed(grpcCtx(), &pb.SpeedRequest{Kph: targetKph})
++	mu.Lock()
++	speedInFlight--
++	mu.Unlock()
++	return err
++}
++
++// sendReduction sends a speed that must not be higher than the current one
++// (0 = stop). It never waits on the safety key, the rate limiter or sendMu
++// before its first send. If a raising SetSpeed was on the wire at that moment,
++// the reduction is re-sent once that call has finished so the stop wins.
++func sendReduction(target float64) error {
++	if speedClient == nil {
++		return fmt.Errorf("gRPC not connected")
++	}
++	mu.Lock()
++	race := speedInFlight > 0
++	speedEpoch++
++	lastSpeedSet = target
++	lastSpeedSetTime = time.Now()
++	mu.Unlock()
++	_, err := speedClient.SetSpeed(grpcCtx(), &pb.SpeedRequest{Kph: target})
++	if race {
++		sendMu.Lock()
++		sendMu.Unlock() //nolint:staticcheck // wait for the in-flight raise to finish
++		if _, err2 := speedClient.SetSpeed(grpcCtx(), &pb.SpeedRequest{Kph: target}); err == nil {
++			err = err2
++		}
++	}
+ 	return err
+ }
+ 
+ // safeInclineSet checks safety key before setting incline.
+ // Incline 0 always allowed (return to flat).
+ func safeInclineSet(targetPct float64) error {
++	if inclineClient == nil {
++		return fmt.Errorf("gRPC not connected")
++	}
+ 	targetPct = clamp(targetPct, -6, 40)
+ 
+ 	if targetPct != 0 {
+@@ -705,13 +759,29 @@
+ 	mux.HandleFunc("/ws", handleWS)
+ 
+ 	log.Printf("[HTTP] Listening on %s", listenAddr)
+-	if err := http.ListenAndServe(listenAddr, mux); err != nil {
++	// v4: timeouts so a stalled/slow-loris peer cannot pin a goroutine forever.
++	// (Hijacked WebSocket connections are not subject to these.)
++	srv := &http.Server{
++		Addr:              listenAddr,
++		Handler:           mux,
++		ReadHeaderTimeout: 10 * time.Second,
++		ReadTimeout:       20 * time.Second,
++		WriteTimeout:      20 * time.Second,
++		IdleTimeout:       60 * time.Second,
++	}
++	if err := srv.ListenAndServe(); err != nil {
+ 		log.Fatalf("[HTTP] %v", err)
+ 	}
+ }
+ 
++const maxBodyBytes = 64 << 10 // v4: cap request bodies
++
+ func cors(h http.HandlerFunc) http.HandlerFunc {
+ 	return func(w http.ResponseWriter, r *http.Request) {
++		touchClient() // v4: any HTTP request counts as "a client is there" for the dead-man
++		if r.Body != nil {
++			r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
++		}
+ 		w.Header().Set("Access-Control-Allow-Origin", "*")
+ 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+ 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+@@ -732,10 +802,14 @@
+ 	mu.RLock()
+ 	defer mu.RUnlock()
+ 	j(w, map[string]interface{}{
+-		"status": "ok", "version": "3.2-native",
++		"status": "ok", "version": "4.0-native",
+ 		"speed": currentSpeed, "incline": currentIncl, "hr": currentHR,
+ 		"workoutState": workoutState, "workoutId": workoutID,
+-		"grpc": grpcConnected, "mqtt": mqttReady, "clients": len(wsClients),
++		"grpc": grpcConnected, "mqtt": mqttReady.Load(), "clients": wsCount(),
++		"link": linkStatus(), "deadman": deadmanState,
++		"deadmanTimeoutS": deadmanTimeout.Seconds(), "bridgeStarted": bridgeStarted,
++		"safetyKeyOut": safetyKeyOut, "consoleState": consoleState,
++		"uptimeS": int(time.Since(startTime).Seconds()),
+ 	})
+ }
+ 
+@@ -757,6 +831,7 @@
+ 	}
+ 	mu.Lock()
+ 	workoutID = resp.WorkoutID
++	bridgeStarted = true
+ 	workoutState = "RUNNING"
+ 	mu.Unlock()
+ 	broadcastState()
+@@ -773,9 +848,7 @@
+ 		j(w, map[string]interface{}{"ok": false, "error": err.Error()})
+ 		return
+ 	}
+-	mu.Lock()
+-	workoutState = "IDLE"
+-	mu.Unlock()
++	setWorkoutState("IDLE")
+ 	broadcastState()
+ 	j(w, map[string]interface{}{"ok": true})
+ }
+@@ -790,9 +863,7 @@
+ 		j(w, map[string]interface{}{"ok": false, "error": err.Error()})
+ 		return
+ 	}
+-	mu.Lock()
+-	workoutState = "PAUSED"
+-	mu.Unlock()
++	setWorkoutState("PAUSED")
+ 	broadcastState()
+ 	j(w, map[string]interface{}{"ok": true})
+ }
+@@ -807,9 +878,7 @@
+ 		j(w, map[string]interface{}{"ok": false, "error": err.Error()})
+ 		return
+ 	}
+-	mu.Lock()
+-	workoutState = "RUNNING"
+-	mu.Unlock()
++	setWorkoutState("RUNNING")
+ 	broadcastState()
+ 	j(w, map[string]interface{}{"ok": true})
+ }
+@@ -890,9 +959,11 @@
+ 		"workout_state":      workoutState,
+ 		"workout_id":         workoutID,
+ 		"grpc":               grpcConnected,
+-		"mqtt":               mqttReady,
+-		"ws_clients":         len(wsClients),
+-		"version":            "3.2",
++		"mqtt":               mqttReady.Load(),
++		"ws_clients":         wsCount(),
++		"link":               linkStatus(),
++		"deadman":            deadmanState,
++		"version":            "4.0",
+ 		"uptime_sec":         int(time.Since(startTime).Seconds()),
+ 		"console_state":      consoleState,
+ 		"safety_key_removed": safetyKeyOut,
+@@ -910,7 +981,11 @@
+ 		http.Error(w, "POST only", 405)
+ 		return
+ 	}
+-	body, _ := io.ReadAll(r.Body)
++	body, err := io.ReadAll(r.Body)
++	if err != nil {
++		j(w, map[string]interface{}{"ok": false, "error": "body too large or unreadable"})
++		return
++	}
+ 	var summary map[string]interface{}
+ 	if err := json.Unmarshal(body, &summary); err != nil {
+ 		j(w, map[string]interface{}{"ok": false, "error": "invalid JSON"})
+@@ -919,7 +994,7 @@
+ 	log.Printf("[SUMMARY] Workout complete: %v", summary)
+ 
+ 	// Publish to MQTT so HA can trigger automations
+-	if mqttReady && mqttClient != nil {
++	if mqttReady.Load() && mqttClient != nil {
+ 		mqttClient.Publish(mqttTopicPrefix+"/workout/summary", 1, false, body)
+ 		log.Println("[SUMMARY] Published to MQTT")
+ 	}
+@@ -931,7 +1006,11 @@
+ 		http.Error(w, "POST only", 405)
+ 		return
+ 	}
+-	body, _ := io.ReadAll(r.Body)
++	body, err := io.ReadAll(r.Body)
++	if err != nil {
++		j(w, map[string]interface{}{"ok": false, "error": "body too large or unreadable"})
++		return
++	}
+ 	processMessage(body)
+ 	j(w, map[string]interface{}{"ok": true})
+ }
+@@ -957,6 +1036,12 @@
+ 		return
+ 	}
+ 
++	if wsCount() >= maxWSClients {
++		http.Error(w, "too many clients", 503)
++		return
++	}
++	touchClient()
++
+ 	hj, ok := w.(http.Hijacker)
+ 	if !ok {
+ 		http.Error(w, "hijack failed", 500)
+@@ -1006,7 +1091,40 @@
+ 	}()
+ }
+ 
++const maxWSClients = 16
++
++// motorSem bounds the number of concurrent non-zero motor goroutines spawned by
++// WS messages (v4). Speed-0 commands never go through it.
++var motorSem = make(chan struct{}, 16)
++
++func goSpeed(kph float64) {
++	if kph <= 0 {
++		go func() { _ = safeSpeedSet(kph) }() // stop / NaN->0 : never throttled
++		return
++	}
++	select {
++	case motorSem <- struct{}{}:
++		go func() { defer func() { <-motorSem }(); _ = safeSpeedSet(kph) }()
++	default:
++		log.Printf("[WS] Dropped speed %.1f — too many motor commands queued", kph)
++	}
++}
++
++func goIncline(pct float64) {
++	if pct == 0 {
++		go func() { _ = safeInclineSet(pct) }()
++		return
++	}
++	select {
++	case motorSem <- struct{}{}:
++		go func() { defer func() { <-motorSem }(); _ = safeInclineSet(pct) }()
++	default:
++		log.Printf("[WS] Dropped incline %.1f%% — too many motor commands queued", pct)
++	}
++}
++
+ func processMessage(data []byte) {
++	touchClient() // v4: WS message / POST /command counts as client activity
+ 	var msg map[string]interface{}
+ 	if err := json.Unmarshal(data, &msg); err != nil {
+ 		return
+@@ -1031,26 +1149,26 @@
+ 			if kph > 0 && wsState != "RUNNING" {
+ 				log.Printf("[WS] Blocked speed %.1f kph — workout is %s", kph, wsState)
+ 			} else {
+-				go func() { safeSpeedSet(kph) }()
++				goSpeed(kph)
+ 			}
+ 		} else if kph, ok := vals["KPH"].(float64); ok {
+ 			if kph > 0 && wsState != "RUNNING" {
+ 				log.Printf("[WS] Blocked speed %.1f kph — workout is %s", kph, wsState)
+ 			} else {
+-				go func() { safeSpeedSet(kph) }()
++				goSpeed(kph)
+ 			}
+ 		}
+ 		if inc, ok := vals["Incline"].(float64); ok {
+ 			if inc != 0 && wsState != "RUNNING" {
+ 				log.Printf("[WS] Blocked incline %.1f%% — workout is %s", inc, wsState)
+ 			} else {
+-				go func() { safeInclineSet(inc) }()
++				goIncline(inc)
+ 			}
+ 		} else if gr, ok := vals["Grade"].(float64); ok {
+ 			if gr != 0 && wsState != "RUNNING" {
+ 				log.Printf("[WS] Blocked incline %.1f%% — workout is %s", gr, wsState)
+ 			} else {
+-				go func() { safeInclineSet(gr) }()
++				goIncline(gr)
+ 			}
+ 		}
+ 
+@@ -1065,6 +1183,7 @@
+ 			} else {
+ 				mu.Lock()
+ 				workoutID = resp.WorkoutID
++				bridgeStarted = true
+ 				workoutState = "RUNNING"
+ 				mu.Unlock()
+ 				result = map[string]interface{}{"ok": true, "workoutId": resp.WorkoutID}
+@@ -1074,9 +1193,7 @@
+ 			if err != nil {
+ 				result = map[string]interface{}{"ok": false, "error": err.Error()}
+ 			} else {
+-				mu.Lock()
+-				workoutState = "IDLE"
+-				mu.Unlock()
++				setWorkoutState("IDLE")
+ 				result = map[string]interface{}{"ok": true}
+ 			}
+ 		case "pause":
+@@ -1084,9 +1201,7 @@
+ 			if err != nil {
+ 				result = map[string]interface{}{"ok": false, "error": err.Error()}
+ 			} else {
+-				mu.Lock()
+-				workoutState = "PAUSED"
+-				mu.Unlock()
++				setWorkoutState("PAUSED")
+ 				result = map[string]interface{}{"ok": true}
+ 			}
+ 		case "resume":
+@@ -1094,9 +1209,7 @@
+ 			if err != nil {
+ 				result = map[string]interface{}{"ok": false, "error": err.Error()}
+ 			} else {
+-				mu.Lock()
+-				workoutState = "RUNNING"
+-				mu.Unlock()
++				setWorkoutState("RUNNING")
+ 				result = map[string]interface{}{"ok": true}
+ 			}
+ 		}
+@@ -1128,7 +1241,10 @@
+ 			"grpc":         grpcConnected,
+ 			"safetyKeyOut": safetyKeyOut,
+ 			"consoleState": consoleState,
++			"link":         linkStatus(),
++			"deadman":      deadmanState,
+ 		},
++		"deadman": deadmanState,
+ 	}
+ }
+ 
+@@ -1141,6 +1257,12 @@
+ 	publishMQTTState()
+ }
+ 
++func wsCount() int {
++	wsMu.Lock()
++	defer wsMu.Unlock()
++	return len(wsClients)
++}
++
+ func broadcastWSData(data []byte) {
+ 	wsMu.Lock()
+ 	defer wsMu.Unlock()
+@@ -1155,8 +1277,11 @@
+ 	if ws.closed {
+ 		return
+ 	}
++	// v4: a stalled client must not block broadcastWSData (which holds wsMu)
++	ws.conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+ 	if _, err := ws.conn.Write(encodeWSFrame(data)); err != nil {
+ 		ws.closed = true
++		ws.conn.Close() // unblocks the reader goroutine, which removes it from wsClients
+ 	}
+ }
+ 
+@@ -1271,11 +1396,11 @@
+ 	opts.SetWill(mqttTopicPrefix+"/available", "offline", 1, true)
+ 	opts.SetConnectionLostHandler(func(c mqtt.Client, err error) {
+ 		log.Printf("[MQTT] Connection lost: %v", err)
+-		mqttReady = false
++		mqttReady.Store(false)
+ 	})
+ 	opts.SetOnConnectHandler(func(c mqtt.Client) {
+ 		log.Printf("[MQTT] Connected to %s", broker)
+-		mqttReady = true
++		mqttReady.Store(true)
+ 		publishHADiscovery()
+ 		subscribeCommands()
+ 	})
+@@ -1454,6 +1579,7 @@
+ 		topic := m.Topic()
+ 		payload := string(m.Payload())
+ 		log.Printf("[MQTT] Command: %s = %s", topic, payload)
++		touchClient()
+ 
+ 		switch {
+ 		case strings.HasSuffix(topic, "/speed"):
+@@ -1484,29 +1610,24 @@
+ 				if resp, err := workoutClient.StartNewWorkout(grpcCtx(), &pb.Empty{}); err == nil {
+ 					mu.Lock()
+ 					workoutID = resp.WorkoutID
++					bridgeStarted = true
+ 					workoutState = "RUNNING"
+ 					mu.Unlock()
+ 					broadcastState()
+ 				}
+ 			case "stop":
+ 				if _, err := workoutClient.Stop(grpcCtx(), &pb.Empty{}); err == nil {
+-					mu.Lock()
+-					workoutState = "IDLE"
+-					mu.Unlock()
++					setWorkoutState("IDLE")
+ 					broadcastState()
+ 				}
+ 			case "pause":
+ 				if _, err := workoutClient.Pause(grpcCtx(), &pb.Empty{}); err == nil {
+-					mu.Lock()
+-					workoutState = "PAUSED"
+-					mu.Unlock()
++					setWorkoutState("PAUSED")
+ 					broadcastState()
+ 				}
+ 			case "resume":
+ 				if _, err := workoutClient.Resume(grpcCtx(), &pb.Empty{}); err == nil {
+-					mu.Lock()
+-					workoutState = "RUNNING"
+-					mu.Unlock()
++					setWorkoutState("RUNNING")
+ 					broadcastState()
+ 				}
+ 			}
+@@ -1516,15 +1637,18 @@
+ }
+ 
+ func publishMQTTState() {
+-	if !mqttReady || mqttClient == nil {
++	if !mqttReady.Load() || mqttClient == nil {
+ 		return
+ 	}
+ 	// Throttle: at most once per 2 seconds to avoid MQTT flooding
+ 	now := time.Now()
++	mqttPubMu.Lock()
+ 	if now.Sub(lastMQTTPub) < 2*time.Second {
++		mqttPubMu.Unlock()
+ 		return
+ 	}
+ 	lastMQTTPub = now
++	mqttPubMu.Unlock()
+ 	mu.RLock()
+ 	payload := map[string]interface{}{
+ 		"speed":         currentSpeed,
+@@ -1539,6 +1663,8 @@
+ 		"grpc":               grpcConnected,
+ 		"console_state":      consoleState,
+ 		"safety_key_removed": safetyKeyOut,
++		"link":               linkStatus(),
++		"deadman":            deadmanState,
+ 	}
+ 	mu.RUnlock()
+ 	d, _ := json.Marshal(payload)
+@@ -1552,7 +1678,7 @@
+ func main() {
+ 	fmt.Println("")
+ 	fmt.Println("  ╔══════════════════════════════════════════════════════════════╗")
+-	fmt.Println("  ║  TrailRunner Bridge v3.2 (Native ARM64)                      ║")
++	fmt.Println("  ║  TrailRunner Bridge v4.0 (Native ARM64)                      ║")
+ 	fmt.Println("  ║  Direct Motor Control — No PC Required                       ║")
+ 	fmt.Println("  ║  gRPC + MQTT → glassos_service → FitPro → Motor              ║")
+ 	fmt.Println("  ╚══════════════════════════════════════════════════════════════╝")
+@@ -1571,6 +1697,10 @@
+ 		time.Sleep(5 * time.Second)
+ 	}
+ 
++	initDeadmanConfig()
++	touchClient()
++	go deadmanLoop()
++
+ 	// Periodic state broadcast + heartbeat
+ 	go func() {
+ 		tick := 0
+@@ -1579,9 +1709,10 @@
+ 			broadcastState()
+ 			tick++
+ 			if tick%150 == 0 { // every 5 minutes
++				nc := wsCount()
+ 				mu.RLock()
+-				log.Printf("[HEARTBEAT] speed=%.1f incline=%.1f workout=%s grpc=%v clients=%d",
+-					currentSpeed, currentIncl, workoutState, grpcConnected, len(wsClients))
++				log.Printf("[HEARTBEAT] speed=%.1f incline=%.1f workout=%s grpc=%v clients=%d deadman=%s",
++					currentSpeed, currentIncl, workoutState, grpcConnected, nc, deadmanState)
+ 				mu.RUnlock()
+ 			}
+ 		}
+@@ -1593,7 +1724,7 @@
+ 	go func() {
+ 		<-sigCh
+ 		log.Println("[BRIDGE] Shutting down...")
+-		if mqttReady && mqttClient != nil {
++		if mqttReady.Load() && mqttClient != nil {
+ 			mqttClient.Publish(mqttTopicPrefix+"/available", 1, true, "offline")
+ 			time.Sleep(200 * time.Millisecond)
+ 			mqttClient.Disconnect(500)
+diff -ruN '--exclude=trailrunner-bridge*' '--exclude=proto' '--exclude=CHANGES.diff' '--exclude=test-output.txt' grpc-bridge/main_test.go grpc-bridge-v4/main_test.go
+--- grpc-bridge/main_test.go	1970-01-01 01:00:00.000000000 +0100
++++ grpc-bridge-v4/main_test.go	2026-10-23 14:26:00.452083600 +0100
+@@ -0,0 +1,951 @@
++package main
++
++// Unit tests for the v4 safety changes. ALL gRPC clients here are in-process
++// fakes: nothing in this file ever dials the treadmill or any network address.
++
++import (
++	"context"
++	"errors"
++	"fmt"
++	"io"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"sync"
++	"testing"
++	"time"
++
++	pb "trailrunner-bridge/proto"
++
++	"google.golang.org/grpc"
++)
++
++// ── fakes ───────────────────────────────────────────────────────────────────
++
++type fakeSpeed struct {
++	pb.SpeedServiceClient // nil: any un-faked method panics (loudly)
++	mu                    sync.Mutex
++	belt                  float64   // what GetSpeed reports
++	follow                bool      // belt jumps to every SetSpeed value
++	calls                 []float64 // every SetSpeed value, in order
++	getErr                error
++	gate                  chan struct{} // if non-nil, SetSpeed(>0) blocks until closed
++	entered               chan struct{} // signalled when a gated SetSpeed starts
++}
++
++func (f *fakeSpeed) SetSpeed(ctx context.Context, in *pb.SpeedRequest, _ ...grpc.CallOption) (*pb.WorkoutResult, error) {
++	if in.Kph > 0 && f.gate != nil {
++		select {
++		case f.entered <- struct{}{}:
++		default:
++		}
++		<-f.gate
++	}
++	f.mu.Lock()
++	defer f.mu.Unlock()
++	f.calls = append(f.calls, in.Kph)
++	if f.follow {
++		f.belt = in.Kph
++	}
++	return &pb.WorkoutResult{}, nil
++}
++func (f *fakeSpeed) GetSpeed(ctx context.Context, in *pb.Empty, _ ...grpc.CallOption) (*pb.SpeedMetric, error) {
++	f.mu.Lock()
++	defer f.mu.Unlock()
++	if f.getErr != nil {
++		return nil, f.getErr
++	}
++	return &pb.SpeedMetric{LastKph: f.belt}, nil
++}
++func (f *fakeSpeed) snapshot() []float64 {
++	f.mu.Lock()
++	defer f.mu.Unlock()
++	return append([]float64(nil), f.calls...)
++}
++
++type fakeIncline struct {
++	pb.InclineServiceClient
++	mu    sync.Mutex
++	calls []float64
++}
++
++func (f *fakeIncline) SetIncline(ctx context.Context, in *pb.InclineRequest, _ ...grpc.CallOption) (*pb.WorkoutResult, error) {
++	f.mu.Lock()
++	defer f.mu.Unlock()
++	f.calls = append(f.calls, in.Percent)
++	return &pb.WorkoutResult{}, nil
++}
++func (f *fakeIncline) GetIncline(ctx context.Context, in *pb.Empty, _ ...grpc.CallOption) (*pb.InclineMetric, error) {
++	return &pb.InclineMetric{LastInclinePercent: 1.5}, nil
++}
++
++type fakeStream struct {
++	grpc.ClientStream
++	msgs []*pb.WorkoutStateMessage
++	end  error
++}
++
++func (s *fakeStream) Recv() (*pb.WorkoutStateMessage, error) {
++	if len(s.msgs) > 0 {
++		m := s.msgs[0]
++		s.msgs = s.msgs[1:]
++		return m, nil
++	}
++	return nil, s.end
++}
++
++type fakeWorkout struct {
++	pb.WorkoutServiceClient
++	mu        sync.Mutex
++	state     pb.WorkoutState
++	stateErr  error
++	startID   string
++	stream    *fakeStream
++	streamErr error
++	stops     int
++	stopErr   error
++}
++
++func (f *fakeWorkout) GetWorkoutState(ctx context.Context, in *pb.Empty, _ ...grpc.CallOption) (*pb.WorkoutStateMessage, error) {
++	f.mu.Lock()
++	defer f.mu.Unlock()
++	if f.stateErr != nil {
++		return nil, f.stateErr
++	}
++	return &pb.WorkoutStateMessage{WorkoutState: f.state}, nil
++}
++func (f *fakeWorkout) WorkoutStateChanged(ctx context.Context, in *pb.Empty, _ ...grpc.CallOption) (grpc.ServerStreamingClient[pb.WorkoutStateMessage], error) {
++	if f.streamErr != nil {
++		return nil, f.streamErr
++	}
++	return f.stream, nil
++}
++func (f *fakeWorkout) StartNewWorkout(ctx context.Context, in *pb.Empty, _ ...grpc.CallOption) (*pb.StartWorkoutResponse, error) {
++	return &pb.StartWorkoutResponse{WorkoutID: f.startID}, nil
++}
++func (f *fakeWorkout) Stop(ctx context.Context, in *pb.Empty, _ ...grpc.CallOption) (*pb.WorkoutResult, error) {
++	f.mu.Lock()
++	f.stops++
++	err := f.stopErr
++	f.mu.Unlock()
++	if err != nil {
++		return nil, err
++	}
++	return &pb.WorkoutResult{}, nil
++}
++
++// reset puts every global the code under test touches into a known state.
++func reset(t *testing.T) (*fakeSpeed, *fakeIncline, *fakeWorkout) {
++	t.Helper()
++	sp := &fakeSpeed{follow: true}
++	in := &fakeIncline{}
++	wk := &fakeWorkout{state: pb.WorkoutState_WORKOUT_STATE_IDLE, startID: "w-1"}
++	mu.Lock()
++	speedClient, inclineClient, workoutClient = sp, in, wk
++	workoutState, workoutID, grpcConnected = "RUNNING", "", true
++	currentSpeed, currentIncl = 0, 0
++	safetyKeyOut = false
++	bridgeStarted = false
++	lastSpeedSet, lastSpeedSetTime = 0, time.Time{}
++	speedEpoch, speedInFlight = 0, 0
++	deadmanState, deadmanLastTarget, deadmanLastStep = "off", 0, time.Time{}
++	deadmanZeroAt, deadmanStopTries, deadmanStopNext = time.Time{}, 0, time.Time{}
++	mu.Unlock()
++	deadmanTimeout, deadmanRate = 20*time.Second, 2.0
++	touchClient()
++	t.Cleanup(func() {
++		mu.Lock()
++		speedClient, inclineClient, workoutClient = nil, nil, nil
++		mu.Unlock()
++	})
++	return sp, in, wk
++}
++
++// ageClient pretends the last client activity was d ago relative to `now`.
++func ageClient(now time.Time, d time.Duration) { lastClientNano.Store(now.Add(-d).UnixNano()) }
++
++func setBridgeRun(started bool, belt float64, sp *fakeSpeed) {
++	mu.Lock()
++	bridgeStarted = started
++	currentSpeed = belt
++	workoutState = "RUNNING"
++	mu.Unlock()
++	sp.mu.Lock()
++	sp.belt = belt
++	sp.mu.Unlock()
++}
++
++func dmState() string { mu.RLock(); defer mu.RUnlock(); return deadmanState }
++
++// ── 1. stale state / link loss ──────────────────────────────────────────────
++
++func TestStreamEndMarksStateUnknownAndPublishesNoLink(t *testing.T) {
++	_, _, wk := reset(t)
++	wk.state = pb.WorkoutState_WORKOUT_STATE_RUNNING
++	wk.stream = &fakeStream{
++		msgs: []*pb.WorkoutStateMessage{{WorkoutState: pb.WorkoutState_WORKOUT_STATE_RUNNING}},
++		end:  io.EOF,
++	}
++	workoutStateSession() // opens, resyncs, receives RUNNING, then the stream ends
++
++	mu.RLock()
++	defer mu.RUnlock()
++	if workoutState != "UNKNOWN" {
++		t.Fatalf("workoutState = %q after stream end, want UNKNOWN", workoutState)
++	}
++	if grpcConnected {
++		t.Fatal("grpcConnected must be false after stream end")
++	}
++	m := stateMsg()
++	w := m["workout"].(map[string]interface{})
++	if w["state"] != "UNKNOWN" || w["link"] != "lost" || w["grpc"] != false {
++		t.Fatalf("published workout block = %v, want UNKNOWN/lost/grpc=false", w)
++	}
++}
++
++func TestStreamOpenFailureMarksUnknown(t *testing.T) {
++	_, _, wk := reset(t)
++	wk.streamErr = errors.New("unavailable")
++	workoutStateSession()
++	if got := currentWorkoutState(); got != "UNKNOWN" {
++		t.Fatalf("state = %q, want UNKNOWN", got)
++	}
++}
++
++func TestReconnectResyncsInsteadOfTrustingOldState(t *testing.T) {
++	sp, _, wk := reset(t)
++	markLinkLost("test")
++	if currentWorkoutState() != "UNKNOWN" {
++		t.Fatal("precondition: UNKNOWN")
++	}
++	wk.state = pb.WorkoutState_WORKOUT_STATE_PAUSED
++	sp.belt = 3.2
++	if !resyncFromTreadmill() {
++		t.Fatal("resync should succeed")
++	}
++	mu.RLock()
++	defer mu.RUnlock()
++	if workoutState != "PAUSED" || !grpcConnected || currentSpeed != 3.2 || currentIncl != 1.5 {
++		t.Fatalf("after resync: state=%s grpc=%v speed=%v incl=%v", workoutState, grpcConnected, currentSpeed, currentIncl)
++	}
++}
++
++func TestResyncFailureStaysUnknown(t *testing.T) {
++	_, _, wk := reset(t)
++	wk.stateErr = errors.New("down")
++	if resyncFromTreadmill() {
++		t.Fatal("resync must fail")
++	}
++	if currentWorkoutState() != "UNKNOWN" {
++		t.Fatal("must stay UNKNOWN when GetWorkoutState fails")
++	}
++}
++
++func TestUnknownStateBlocksRaisingButNotStop(t *testing.T) {
++	sp, _, _ := reset(t)
++	markLinkLost("test")
++	body := func(s string) *http.Request {
++		return httptest.NewRequest("POST", "/speed", strings.NewReader(s))
++	}
++	rec := httptest.NewRecorder()
++	cors(handleSpeed)(rec, body(`{"kph":8}`))
++	if !strings.Contains(rec.Body.String(), `"ok":false`) || len(sp.snapshot()) != 0 {
++		t.Fatalf("raise in UNKNOWN must be refused, got %s calls=%v", rec.Body.String(), sp.snapshot())
++	}
++	rec = httptest.NewRecorder()
++	cors(handleSpeed)(rec, body(`{"kph":0}`))
++	if c := sp.snapshot(); len(c) != 1 || c[0] != 0 {
++		t.Fatalf("speed 0 must go through in UNKNOWN, calls=%v", c)
++	}
++}
++
++func TestBridgeStartedFlagLifecycle(t *testing.T) {
++	_, _, wk := reset(t)
++	wk.startID = "abc"
++	rec := httptest.NewRecorder()
++	handleWorkoutStart(rec, httptest.NewRequest("POST", "/workout/start", nil))
++	mu.RLock()
++	bs, id := bridgeStarted, workoutID
++	mu.RUnlock()
++	if !bs || id != "abc" {
++		t.Fatalf("after start: bridgeStarted=%v id=%q", bs, id)
++	}
++	// the treadmill reports IDLE (e.g. stopped at the console): flag must clear
++	mu.Lock()
++	applyWorkoutStateLocked("IDLE")
++	bs = bridgeStarted
++	mu.Unlock()
++	if bs {
++		t.Fatal("bridgeStarted must clear when state goes IDLE")
++	}
++	handleWorkoutStart(httptest.NewRecorder(), httptest.NewRequest("POST", "/workout/start", nil))
++	handleWorkoutStop(httptest.NewRecorder(), httptest.NewRequest("POST", "/workout/stop", nil))
++	mu.RLock()
++	bs = bridgeStarted
++	mu.RUnlock()
++	if bs {
++		t.Fatal("bridgeStarted must clear after stop")
++	}
++}
++
++// ── 2. dead-man ─────────────────────────────────────────────────────────────
++
++func TestDeadmanTripsAndRampsDownMonotonically(t *testing.T) {
++	sp, _, _ := reset(t)
++	now := time.Now()
++	ageClient(now, 30*time.Second)
++	setBridgeRun(true, 12, sp)
++
++	prev := 12.0
++	for i := 0; i < 80 && dmState() != "tripped"; i++ {
++		now = now.Add(500 * time.Millisecond)
++		ageClient(now, 30*time.Second)
++		before := len(sp.snapshot())
++		deadmanEvaluate(now)
++		calls := sp.snapshot()
++		if len(calls) == before {
++			continue
++		}
++		v := calls[len(calls)-1]
++		if v >= prev {
++			t.Fatalf("step %d: dead-man commanded %.2f after %.2f (must strictly decrease)", i, v, prev)
++		}
++		if prev-v > 4.0*0.5+1e-9 && v != 0 {
++			t.Fatalf("step %d: drop %.2f->%.2f exceeds max decel for a 0.5s tick", i, prev, v)
++		}
++		if v != 0 && prev-v > 2.0 {
++			t.Fatalf("step %d: ramp too steep", i)
++		}
++		mu.Lock()
++		currentSpeed = v
++		mu.Unlock()
++		prev = v
++	}
++	if dmState() != "tripped" {
++		t.Fatalf("state = %s, want tripped", dmState())
++	}
++	calls := sp.snapshot()
++	if calls[len(calls)-1] != 0 {
++		t.Fatalf("final command %.2f, want 0", calls[len(calls)-1])
++	}
++	if len(calls) < 5 {
++		t.Fatalf("expected a gradual ramp from 12 kph, got only %v", calls)
++	}
++	// latched: no further commands while still no client
++	n := len(calls)
++	for i := 0; i < 10; i++ {
++		now = now.Add(time.Second)
++		ageClient(now, 60*time.Second)
++		deadmanEvaluate(now)
++	}
++	if len(sp.snapshot()) != n {
++		t.Fatal("tripped dead-man must be idempotent (no more commands)")
++	}
++	// workout is left RUNNING (resumable/stoppable by the UI), not stopped
++	if currentWorkoutState() != "RUNNING" {
++		t.Fatalf("workout state = %s, dead-man must not stop/pause the workout", currentWorkoutState())
++	}
++}
++
++func TestDeadmanSlowSpeedGoesStraightToZero(t *testing.T) {
++	sp, _, _ := reset(t)
++	now := time.Now()
++	ageClient(now, 30*time.Second)
++	setBridgeRun(true, 1.8, sp)
++	deadmanEvaluate(now)
++	if c := sp.snapshot(); len(c) != 1 || c[0] != 0 {
++		t.Fatalf("<=2 kph should step straight to 0, got %v", c)
++	}
++	if dmState() != "tripped" {
++		t.Fatalf("state = %s", dmState())
++	}
++}
++
++func TestDeadmanNeverIncreasesEvenWithLaggingBelt(t *testing.T) {
++	// The treadmill reports a constant 10 kph (belt lags / stream stale). Every
++	// command must still be <= the previous one and < 10.
++	sp, _, _ := reset(t)
++	sp.follow = false
++	now := time.Now()
++	setBridgeRun(true, 10, sp)
++	prev := 10.0
++	for i := 0; i < 40; i++ {
++		now = now.Add(500 * time.Millisecond)
++		ageClient(now, 30*time.Second)
++		deadmanEvaluate(now)
++	}
++	for _, v := range sp.snapshot() {
++		if v > prev || v >= 10 {
++			t.Fatalf("command %.2f raised/held speed (prev %.2f)", v, prev)
++		}
++		prev = v
++	}
++	if len(sp.snapshot()) == 0 {
++		t.Fatal("expected ramp commands")
++	}
++}
++
++func TestDeadmanDoesNotTripWhenClientPresent(t *testing.T) {
++	sp, _, _ := reset(t)
++	now := time.Now()
++	ageClient(now, 5*time.Second)
++	setBridgeRun(true, 10, sp)
++	deadmanEvaluate(now)
++	if len(sp.snapshot()) != 0 || dmState() != "off" {
++		t.Fatalf("must not trip with a recent client: calls=%v state=%s", sp.snapshot(), dmState())
++	}
++}
++
++func TestDeadmanDoesNotTripForIFitStartedWorkout(t *testing.T) {
++	sp, _, _ := reset(t)
++	now := time.Now()
++	ageClient(now, 10*time.Minute)
++	setBridgeRun(false, 10, sp) // bridgeStarted == false
++	for i := 0; i < 10; i++ {
++		now = now.Add(time.Second)
++		deadmanEvaluate(now)
++	}
++	if len(sp.snapshot()) != 0 || dmState() != "off" {
++		t.Fatalf("iFit workout must never be touched: calls=%v state=%s", sp.snapshot(), dmState())
++	}
++}
++
++func TestDeadmanDoesNotTripWhenSpeedAlreadyZero(t *testing.T) {
++	sp, _, _ := reset(t)
++	now := time.Now()
++	ageClient(now, 10*time.Minute)
++	setBridgeRun(true, 0, sp)
++	deadmanEvaluate(now)
++	if len(sp.snapshot()) != 0 || dmState() != "off" {
++		t.Fatalf("speed 0: no command, no trip. calls=%v state=%s", sp.snapshot(), dmState())
++	}
++}
++
++func TestDeadmanDisabledWithZeroTimeout(t *testing.T) {
++	sp, _, _ := reset(t)
++	deadmanTimeout = 0
++	now := time.Now()
++	ageClient(now, time.Hour)
++	setBridgeRun(true, 10, sp)
++	deadmanEvaluate(now)
++	if len(sp.snapshot()) != 0 {
++		t.Fatal("TR_DEADMAN_S=0 must disable the dead-man")
++	}
++}
++
++func TestDeadmanCancelsWhenClientReturns(t *testing.T) {
++	sp, _, _ := reset(t)
++	now := time.Now()
++	ageClient(now, 30*time.Second)
++	setBridgeRun(true, 12, sp)
++	deadmanEvaluate(now)
++	if dmState() != "ramping" {
++		t.Fatalf("state = %s, want ramping", dmState())
++	}
++	n := len(sp.snapshot())
++
++	now = now.Add(500 * time.Millisecond)
++	lastClientNano.Store(now.UnixNano()) // client is back
++	deadmanEvaluate(now)
++	if dmState() != "off" {
++		t.Fatalf("state = %s after client return, want off", dmState())
++	}
++	for i := 0; i < 5; i++ {
++		now = now.Add(500 * time.Millisecond)
++		lastClientNano.Store(now.UnixNano())
++		deadmanEvaluate(now)
++	}
++	if len(sp.snapshot()) != n {
++		t.Fatal("no further dead-man commands once a client has returned")
++	}
++}
++
++func TestDeadmanClientReturnClearsTrippedLatch(t *testing.T) {
++	sp, _, _ := reset(t)
++	now := time.Now()
++	ageClient(now, 30*time.Second)
++	setBridgeRun(true, 1.0, sp)
++	deadmanEvaluate(now)
++	if dmState() != "tripped" {
++		t.Fatal("precondition: tripped")
++	}
++	lastClientNano.Store(now.UnixNano())
++	deadmanEvaluate(now)
++	if dmState() != "off" {
++		t.Fatalf("state = %s, want off after client returns", dmState())
++	}
++}
++
++func TestDeadmanIgnoresSafetyKeyAndStillReduces(t *testing.T) {
++	sp, _, _ := reset(t)
++	now := time.Now()
++	ageClient(now, 30*time.Second)
++	setBridgeRun(true, 10, sp)
++	mu.Lock()
++	safetyKeyOut = true
++	mu.Unlock()
++	deadmanEvaluate(now)
++	if len(sp.snapshot()) != 1 {
++		t.Fatal("a reduction must not be blocked by the safety-key guard")
++	}
++}
++
++func TestDeadmanUsesFreshSpeedWhenCacheIsStale(t *testing.T) {
++	sp, _, _ := reset(t)
++	now := time.Now()
++	ageClient(now, 30*time.Second)
++	setBridgeRun(true, 0, sp) // stale cache says 0
++	sp.mu.Lock()
++	sp.belt = 9 // belt is actually moving
++	sp.mu.Unlock()
++	deadmanEvaluate(now)
++	if len(sp.snapshot()) != 1 {
++		t.Fatal("dead-man must read the real speed, not trust a stale cached 0")
++	}
++}
++
++func TestDeadmanRateNeverAboveLimiter(t *testing.T) {
++	t.Setenv("TR_DEADMAN_RATE", "99")
++	t.Setenv("TR_DEADMAN_S", "7.5")
++	initDeadmanConfig()
++	if deadmanRate > maxSpeedRateKphS || deadmanTimeout != 7500*time.Millisecond {
++		t.Fatalf("rate=%v timeout=%v", deadmanRate, deadmanTimeout)
++	}
++	t.Setenv("TR_DEADMAN_S", "0")
++	initDeadmanConfig()
++	if deadmanTimeout != 0 {
++		t.Fatal("0 must disable")
++	}
++	t.Setenv("TR_DEADMAN_S", "junk")
++	deadmanTimeout = 0
++	initDeadmanConfig()
++	t.Cleanup(func() { deadmanTimeout, deadmanRate = 20*time.Second, 2.0 })
++}
++
++func TestHTTPRequestCountsAsClientAndHealthShowsDeadman(t *testing.T) {
++	reset(t)
++	lastClientNano.Store(time.Now().Add(-time.Hour).UnixNano())
++	rec := httptest.NewRecorder()
++	cors(handleHealth)(rec, httptest.NewRequest("GET", "/health", nil))
++	if time.Since(time.Unix(0, lastClientNano.Load())) > time.Second {
++		t.Fatal("a /health request must refresh client presence")
++	}
++	if !strings.Contains(rec.Body.String(), `"deadman":"off"`) || !strings.Contains(rec.Body.String(), `"link":"ok"`) {
++		t.Fatalf("health body: %s", rec.Body.String())
++	}
++	rec = httptest.NewRecorder()
++	cors(handleState)(rec, httptest.NewRequest("GET", "/state", nil))
++	if !strings.Contains(rec.Body.String(), `"deadman":"off"`) {
++		t.Fatalf("state body: %s", rec.Body.String())
++	}
++}
++
++// ── 3. safety key / e-stop / rate limit ─────────────────────────────────────
++
++func TestSpeedZeroNeverBlockedBySafetyKey(t *testing.T) {
++	sp, _, _ := reset(t)
++	mu.Lock()
++	safetyKeyOut, currentSpeed = true, 8
++	mu.Unlock()
++	if err := safeSpeedSet(0); err != nil {
++		t.Fatalf("speed 0 with key out must succeed: %v", err)
++	}
++	if c := sp.snapshot(); len(c) != 1 || c[0] != 0 {
++		t.Fatalf("calls = %v", c)
++	}
++}
++
++func TestNaNBecomesStop(t *testing.T) {
++	sp, _, _ := reset(t)
++	nan := 0.0
++	nan = nan / nan
++	if err := safeSpeedSet(nan); err != nil {
++		t.Fatal(err)
++	}
++	if c := sp.snapshot(); len(c) != 1 || c[0] != 0 {
++		t.Fatalf("NaN must clamp to stop, got %v", c)
++	}
++}
++
++func TestSafetyKeyBlocksRaiseButAllowsReduction(t *testing.T) {
++	sp, _, _ := reset(t)
++	mu.Lock()
++	safetyKeyOut, currentSpeed = true, 6
++	lastSpeedSet, lastSpeedSetTime = 6, time.Now().Add(-time.Second)
++	mu.Unlock()
++	if err := safeSpeedSet(9); err == nil {
++		t.Fatal("raise with key out must be blocked")
++	}
++	if err := safeSpeedSet(4); err != nil {
++		t.Fatalf("reduction with key out must be allowed: %v", err)
++	}
++	if c := sp.snapshot(); len(c) != 1 || c[0] != 4 {
++		t.Fatalf("calls = %v", c)
++	}
++}
++
++func TestInclineZeroAllowedWithKeyOut(t *testing.T) {
++	_, in, _ := reset(t)
++	mu.Lock()
++	safetyKeyOut = true
++	mu.Unlock()
++	if err := safeInclineSet(0); err != nil {
++		t.Fatalf("incline 0 must be allowed: %v", err)
++	}
++	if err := safeInclineSet(5); err == nil {
++		t.Fatal("non-zero incline with key out must be blocked")
++	}
++	if len(in.calls) != 1 || in.calls[0] != 0 {
++		t.Fatalf("calls = %v", in.calls)
++	}
++}
++
++func TestRateLimitAcceleration(t *testing.T) {
++	sp, _, _ := reset(t)
++	// 100 ms after the last command: max step is 4*0.1 = 0.4 kph
++	mu.Lock()
++	lastSpeedSet, lastSpeedSetTime = 5, time.Now()
++	mu.Unlock()
++	if err := safeSpeedSet(20); err != nil {
++		t.Fatal(err)
++	}
++	got := sp.snapshot()[0]
++	if got < 5 || got > 5.5 {
++		t.Fatalf("rapid raise 5->20 capped to %.2f, want ~5.4", got)
++	}
++	// 2 s since last command: dt is capped at 1 s, so max step 4 kph
++	mu.Lock()
++	lastSpeedSet, lastSpeedSetTime = 5, time.Now().Add(-2*time.Second)
++	mu.Unlock()
++	safeSpeedSet(20)
++	got = sp.snapshot()[1]
++	if got < 8.9 || got > 9.1 {
++		t.Fatalf("2s raise 5->20 capped to %.2f, want ~9 (dt capped at 1s)", got)
++	}
++}
++
++func TestRateLimitDecelCappedButZeroImmediate(t *testing.T) {
++	sp, _, _ := reset(t)
++	mu.Lock()
++	lastSpeedSet, lastSpeedSetTime = 10, time.Now().Add(-time.Second)
++	currentSpeed = 10 // measured belt agrees
++	mu.Unlock()
++	safeSpeedSet(1) // asks for -9 in 1s: capped to -4
++	if got := sp.snapshot()[0]; got < 5.9 || got > 6.1 {
++		t.Fatalf("decel capped to %.2f, want ~6", got)
++	}
++	mu.Lock()
++	lastSpeedSet, lastSpeedSetTime = 10, time.Now()
++	mu.Unlock()
++	safeSpeedSet(0) // stop is instant, no limiter
++	if c := sp.snapshot(); c[len(c)-1] != 0 {
++		t.Fatalf("stop not immediate: %v", c)
++	}
++}
++
++func TestClampTo22(t *testing.T) {
++	sp, _, _ := reset(t)
++	mu.Lock()
++	lastSpeedSet, lastSpeedSetTime = 20, time.Now().Add(-10*time.Second)
++	mu.Unlock()
++	safeSpeedSet(99)
++	if got := sp.snapshot()[0]; got != 22 {
++		t.Fatalf("got %.1f want 22", got)
++	}
++}
++
++func TestStopIsNotDelayedByInFlightRaiseAndWinsOrdering(t *testing.T) {
++	sp, _, _ := reset(t)
++	sp.follow = false
++	sp.gate = make(chan struct{})
++	sp.entered = make(chan struct{}, 1)
++	mu.Lock()
++	lastSpeedSet, lastSpeedSetTime = 5, time.Now().Add(-time.Second)
++	mu.Unlock()
++
++	raiseDone := make(chan struct{})
++	go func() { safeSpeedSet(7); close(raiseDone) }()
++	select {
++	case <-sp.entered: // raise is now blocked "on the wire"
++	case <-time.After(2 * time.Second):
++		t.Fatal("raise never reached SetSpeed")
++	}
++
++	stopDone := make(chan struct{})
++	go func() { safeSpeedSet(0); close(stopDone) }()
++	// The first stop SetSpeed(0) must be sent while the raise is still blocked.
++	deadline := time.After(2 * time.Second)
++	for {
++		c := sp.snapshot()
++		if len(c) == 1 && c[0] == 0 {
++			break
++		}
++		select {
++		case <-deadline:
++			t.Fatalf("stop was delayed behind the in-flight raise; calls=%v", sp.snapshot())
++		case <-time.After(5 * time.Millisecond):
++		}
++	}
++	close(sp.gate) // let the raise land
++	<-raiseDone
++	<-stopDone
++	c := sp.snapshot()
++	if c[len(c)-1] != 0 {
++		t.Fatalf("last command must be the stop (re-asserted after the raise), got %v", c)
++	}
++}
++
++func TestRaiseDecidedBeforeStopIsDroppedNotSentAfter(t *testing.T) {
++	sp, _, _ := reset(t)
++	// Simulate: raise decided at epoch 0, a stop bumps the epoch, then the raise tries to send.
++	mu.Lock()
++	lastSpeedSet, lastSpeedSetTime = 5, time.Now().Add(-time.Second)
++	e := speedEpoch
++	mu.Unlock()
++	sendReduction(0)
++	sendMu.Lock()
++	mu.Lock()
++	stale := speedEpoch != e
++	mu.Unlock()
++	sendMu.Unlock()
++	if !stale {
++		t.Fatal("stop must bump the epoch")
++	}
++	if c := sp.snapshot(); len(c) != 1 || c[0] != 0 {
++		t.Fatalf("calls %v", c)
++	}
++}
++
++func TestMotorSemaphoreNeverThrottlesStop(t *testing.T) {
++	sp, _, _ := reset(t)
++	for i := 0; i < cap(motorSem); i++ {
++		motorSem <- struct{}{}
++	}
++	defer func() {
++		for len(motorSem) > 0 {
++			<-motorSem
++		}
++	}()
++	goSpeed(8) // dropped: queue full
++	goSpeed(0) // must still run
++	deadline := time.After(2 * time.Second)
++	for {
++		c := sp.snapshot()
++		if len(c) == 1 && c[0] == 0 {
++			return
++		}
++		select {
++		case <-deadline:
++			t.Fatalf("calls = %v (want exactly one stop, no raise)", c)
++		case <-time.After(5 * time.Millisecond):
++		}
++	}
++}
++
++// ── 4. HTTP robustness ──────────────────────────────────────────────────────
++
++func TestBodyLimit(t *testing.T) {
++	sp, _, _ := reset(t)
++	big := `{"kph":5,"pad":"` + strings.Repeat("x", maxBodyBytes+10) + `"}`
++	rec := httptest.NewRecorder()
++	cors(handleSpeed)(rec, httptest.NewRequest("POST", "/speed", strings.NewReader(big)))
++	if !strings.Contains(rec.Body.String(), `"ok":false`) || len(sp.snapshot()) != 0 {
++		t.Fatalf("oversize body must be rejected: %s", rec.Body.String())
++	}
++	rec = httptest.NewRecorder()
++	cors(handleCommand)(rec, httptest.NewRequest("POST", "/command", strings.NewReader(big)))
++	if !strings.Contains(rec.Body.String(), `"ok":false`) {
++		t.Fatalf("oversize /command body must be rejected: %s", rec.Body.String())
++	}
++}
++
++// ── v4.1 rate-limiter baseline / dt cap ─────────────────────────────────────
++
++func TestIdleGapCannotJumpMoreThan4(t *testing.T) {
++	sp, _, _ := reset(t)
++	mu.Lock()
++	lastSpeedSet, lastSpeedSetTime = 0, time.Now().Add(-10*time.Second)
++	mu.Unlock()
++	safeSpeedSet(22)
++	if got := sp.snapshot()[0]; got > 4.0+1e-6 || got < 3.9 {
++		t.Fatalf("10s idle then 22 kph gave %.2f, want <=4", got)
++	}
++	// a brand-new bridge (zero timestamp) is capped too
++	reset(t)
++	sp2 := speedClient.(*fakeSpeed)
++	safeSpeedSet(22)
++	if got := sp2.snapshot()[0]; got > 4.0+1e-6 {
++		t.Fatalf("fresh bridge first command gave %.2f, want <=4", got)
++	}
++}
++
++func TestRepeatedCommandsOneSecondApartClimb4Each(t *testing.T) {
++	sp, _, _ := reset(t)
++	want := 4.0
++	for i := 0; i < 5; i++ {
++		mu.Lock()
++		lastSpeedSetTime = time.Now().Add(-time.Second)
++		mu.Unlock()
++		safeSpeedSet(22)
++		got := sp.snapshot()[i]
++		if got < want-0.05 || got > want+0.05 {
++			t.Fatalf("step %d: got %.2f want %.1f", i, got, want)
++		}
++		want += 4
++	}
++}
++
++func TestStaleLowBaselineUsesMeasuredSpeedForRaise(t *testing.T) {
++	sp, _, _ := reset(t)
++	for _, c := range []struct{ req, want float64 }{{12, 12}, {22, 14}} {
++		mu.Lock()
++		lastSpeedSet, lastSpeedSetTime = 0, time.Now().Add(-5*time.Second)
++		currentSpeed = 10 // iFit/restart changed the belt
++		mu.Unlock()
++		n := len(sp.snapshot())
++		safeSpeedSet(c.req)
++		got := sp.snapshot()[n]
++		if got < c.want-0.05 || got > c.want+0.05 {
++			t.Fatalf("raise to %.0f from real 10 (stale 0): got %.2f want %.1f", c.req, got, c.want)
++		}
++	}
++}
++
++func TestStaleHighBaselineDoesNotInflateDecel(t *testing.T) {
++	sp, _, _ := reset(t)
++	mu.Lock()
++	lastSpeedSet, lastSpeedSetTime = 20, time.Now().Add(-5*time.Second) // stale high
++	currentSpeed = 6
++	mu.Unlock()
++	safeSpeedSet(3) // from real 6: 3 is within one 4 kph step
++	if got := sp.snapshot()[0]; got < 2.95 || got > 3.05 {
++		t.Fatalf("got %.2f want 3 (decel computed from real 6, not stale 20)", got)
++	}
++	mu.Lock()
++	lastSpeedSet, lastSpeedSetTime = 20, time.Now().Add(-5*time.Second)
++	currentSpeed = 12
++	mu.Unlock()
++	safeSpeedSet(1) // decel still rate-limited: 12 -> 8
++	if got := sp.snapshot()[1]; got < 7.9 || got > 8.1 {
++		t.Fatalf("got %.2f want ~8", got)
++	}
++}
++
++func TestStopAndDeadmanUnaffectedByDtCap(t *testing.T) {
++	sp, _, _ := reset(t)
++	mu.Lock()
++	lastSpeedSet, lastSpeedSetTime = 22, time.Now()
++	currentSpeed = 22
++	mu.Unlock()
++	safeSpeedSet(0)
++	if c := sp.snapshot(); len(c) != 1 || c[0] != 0 {
++		t.Fatalf("stop must be instant: %v", c)
++	}
++	now := time.Now()
++	ageClient(now, 30*time.Second)
++	setBridgeRun(true, 15, sp)
++	deadmanEvaluate(now)
++	c := sp.snapshot()
++	if len(c) != 2 || c[1] >= 15 || c[1] < 13 {
++		t.Fatalf("dead-man ramp step wrong: %v", c)
++	}
++}
++
++// ── creep-after-zero: console STOP ──────────────────────────────────────────
++
++func nStops(wk *fakeWorkout) int { wk.mu.Lock(); defer wk.mu.Unlock(); return wk.stops }
++
++// tripCreeping: bridge-started run, belt 1.6, SetSpeed(0) does not move the belt (console creeps at 0.8).
++func tripCreeping(t *testing.T) (*fakeSpeed, *fakeWorkout, time.Time) {
++	sp, _, wk := reset(t)
++	sp.follow = false
++	now := time.Now()
++	ageClient(now, 30*time.Second)
++	setBridgeRun(true, 1.6, sp)
++	deadmanEvaluate(now)
++	if dmState() != "tripped" {
++		t.Fatalf("state = %s, want tripped", dmState())
++	}
++	sp.mu.Lock()
++	sp.belt = 0.8
++	sp.mu.Unlock()
++	return sp, wk, now
++}
++
++func TestDeadmanCreepStopsWorkoutOnceAfter3s(t *testing.T) {
++	_, wk, t0 := tripCreeping(t)
++	for _, d := range []time.Duration{500 * time.Millisecond, time.Second, 2900 * time.Millisecond} {
++		deadmanEvaluate(t0.Add(d))
++	}
++	if nStops(wk) != 0 {
++		t.Fatal("Stop before 3s")
++	}
++	for d := 3 * time.Second; d <= 10*time.Second; d += 500 * time.Millisecond {
++		deadmanEvaluate(t0.Add(d))
++	}
++	if nStops(wk) != 1 {
++		t.Fatalf("stops = %d, want exactly 1", nStops(wk))
++	}
++	if dmState() != "tripped-stopped" || currentWorkoutState() != "IDLE" {
++		t.Fatalf("state=%s workout=%s", dmState(), currentWorkoutState())
++	}
++}
++
++func TestDeadmanBeltReachesZeroNoStop(t *testing.T) {
++	sp, wk, t0 := tripCreeping(t)
++	sp.mu.Lock()
++	sp.belt = 0
++	sp.mu.Unlock()
++	for d := time.Second; d <= 10*time.Second; d += time.Second {
++		deadmanEvaluate(t0.Add(d))
++	}
++	if nStops(wk) != 0 || dmState() != "tripped" || currentWorkoutState() != "RUNNING" {
++		t.Fatalf("stops=%d state=%s workout=%s", nStops(wk), dmState(), currentWorkoutState())
++	}
++}
++
++func TestDeadmanCreepClientReturnsBefore3sNoStop(t *testing.T) {
++	_, wk, t0 := tripCreeping(t)
++	now := t0.Add(2 * time.Second)
++	lastClientNano.Store(now.UnixNano())
++	deadmanEvaluate(now)
++	for d := 3 * time.Second; d <= 8*time.Second; d += time.Second {
++		now = t0.Add(d)
++		lastClientNano.Store(now.UnixNano())
++		deadmanEvaluate(now)
++	}
++	if nStops(wk) != 0 || dmState() != "off" {
++		t.Fatalf("stops=%d state=%s", nStops(wk), dmState())
++	}
++}
++
++func TestDeadmanCreepIFitWorkoutNoStop(t *testing.T) {
++	sp, _, wk := reset(t)
++	sp.follow = false
++	now := time.Now()
++	ageClient(now, 30*time.Second)
++	setBridgeRun(false, 0.8, sp)
++	mu.Lock()
++	deadmanState, deadmanZeroAt = "tripped", now.Add(-10*time.Second)
++	mu.Unlock()
++	deadmanEvaluate(now)
++	if nStops(wk) != 0 {
++		t.Fatal("must not stop a workout the bridge did not start")
++	}
++}
++
++func TestDeadmanCreepStopFailureRetriesMax5(t *testing.T) {
++	_, wk, t0 := tripCreeping(t)
++	wk.mu.Lock()
++	wk.stopErr = fmt.Errorf("boom")
++	wk.mu.Unlock()
++	for d := time.Second; d <= 40*time.Second; d += 500 * time.Millisecond {
++		deadmanEvaluate(t0.Add(d))
++	}
++	if nStops(wk) != 5 {
++		t.Fatalf("stops = %d, want 5", nStops(wk))
++	}
++	if dmState() != "tripped" {
++		t.Fatalf("state = %s", dmState())
++	}
++}

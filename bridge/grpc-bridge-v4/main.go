@@ -1,0 +1,1743 @@
+// TrailRunner gRPC Bridge — runs on the treadmill itself (no PC needed)
+//
+// Self-contained HTTP+WebSocket server that proxies commands from the
+// TrailRunner PWA to glassos_service's gRPC API on localhost:54321.
+//
+// Architecture (all on the treadmill):
+//   TrailRunner PWA (Chrome)
+//     ↕ HTTP/WebSocket (localhost:4510)
+//   This bridge (static ARM64 binary, ~15MB)
+//     ↕ gRPC with mTLS (localhost:54321)
+//   glassos_service
+//     ↕ FitPro USB → Motor controller
+//
+// Build:
+//   GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="-s -w" -o trailrunner-bridge
+//
+// Deploy:
+//   adb push trailrunner-bridge /data/local/tmp/
+//   adb push keys/ /sdcard/trailrunner/keys/
+//   adb shell chmod +x /data/local/tmp/trailrunner-bridge
+//   adb shell /data/local/tmp/trailrunner-bridge &
+
+package main
+
+import (
+	"context"
+	"crypto/sha1"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	pb "trailrunner-bridge/proto"
+
+	mqtt "github.com/eclipse/paho.mqtt.golang"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/metadata"
+)
+
+const (
+	listenAddr = "0.0.0.0:4510"
+	grpcAddr   = "localhost:54321"
+	clientID   = "com.ifit.eriador"
+)
+
+// ── Global state ────────────────────────────────────────────────────────────
+
+var (
+	mu            sync.RWMutex
+	currentSpeed  float64
+	currentIncl   float64
+	currentHR     int
+	workoutState  = "IDLE"
+	workoutID     string
+	grpcConnected bool
+
+	speedClient    pb.SpeedServiceClient
+	inclineClient  pb.InclineServiceClient
+	workoutClient  pb.WorkoutServiceClient
+	distClient     pb.DistanceServiceClient
+	calClient      pb.CaloriesBurnedServiceClient
+	timeClient     pb.ElapsedTimeServiceClient
+	elevClient     pb.ElevationServiceClient
+	hrClient       pb.HeartRateServiceClient
+	consoleClient  pb.ConsoleServiceClient
+	programClient  pb.ProgrammedWorkoutSessionServiceClient
+
+	currentDist    float64 // km
+	currentCals    float64 // kcal
+	currentElapsed int32   // seconds
+	currentElevGain float64 // meters
+
+	// Console info (from ConsoleService)
+	consoleInfo    *pb.ConsoleInfo
+	consoleState   string // from ConsoleState enum
+	safetyKeyOut   bool   // true when safety key is removed
+
+	wsMu      sync.Mutex
+	wsClients = make(map[*wsConn]bool)
+
+	mqttClient    mqtt.Client
+	mqttReady     atomic.Bool
+	lastMQTTPub   time.Time
+	mqttPubMu     sync.Mutex
+
+	startTime = time.Now()
+
+	// v4: true only when THIS bridge started the current workout via
+	// StartNewWorkout (cleared on stop / IDLE / RESULTS). Guarded by mu.
+	bridgeStarted bool
+
+	// v4: motor-command ordering (see sendReduction / safeSpeedSet). Guarded by mu.
+	sendMu        sync.Mutex // serialises raising SetSpeed calls
+	speedEpoch    uint64     // bumped by every reduction/stop; stale raises are dropped
+	speedInFlight int        // raising SetSpeed calls currently on the wire
+
+	// Speed ramp rate limiting — max 4 kph change per second
+	lastSpeedSet     float64
+	lastSpeedSetTime time.Time
+	maxSpeedRateKphS = 4.0 // max kph/s acceleration
+)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// gRPC CONNECTION + STREAMING
+// ═══════════════════════════════════════════════════════════════════════════════
+
+func connectGRPC() error {
+	keysDir := findKeysDir()
+	log.Printf("[gRPC] Using keys from: %s", keysDir)
+
+	caCert, err := os.ReadFile(filepath.Join(keysDir, "ca_cert.txt"))
+	if err != nil {
+		return fmt.Errorf("read CA cert: %w", err)
+	}
+	clientCert, err := tls.LoadX509KeyPair(
+		filepath.Join(keysDir, "cert.txt"),
+		filepath.Join(keysDir, "key.txt"),
+	)
+	if err != nil {
+		return fmt.Errorf("load client cert: %w", err)
+	}
+
+	caPool := x509.NewCertPool()
+	caPool.AppendCertsFromPEM(caCert)
+
+	creds := credentials.NewTLS(&tls.Config{
+		Certificates:       []tls.Certificate{clientCert},
+		RootCAs:            caPool,
+		InsecureSkipVerify: true,
+	})
+
+	conn, err := grpc.NewClient(grpcAddr,
+		grpc.WithTransportCredentials(creds),
+	)
+	if err != nil {
+		return fmt.Errorf("dial gRPC: %w", err)
+	}
+
+	speedClient = pb.NewSpeedServiceClient(conn)
+	inclineClient = pb.NewInclineServiceClient(conn)
+	workoutClient = pb.NewWorkoutServiceClient(conn)
+	distClient = pb.NewDistanceServiceClient(conn)
+	calClient = pb.NewCaloriesBurnedServiceClient(conn)
+	timeClient = pb.NewElapsedTimeServiceClient(conn)
+	elevClient = pb.NewElevationServiceClient(conn)
+	hrClient = pb.NewHeartRateServiceClient(conn)
+	consoleClient = pb.NewConsoleServiceClient(conn)
+	programClient = pb.NewProgrammedWorkoutSessionServiceClient(conn)
+
+	// Test connection + authoritative initial read (v4: shared with reconnect path)
+	if !resyncFromTreadmill() {
+		return fmt.Errorf("GetWorkoutState failed")
+	}
+	log.Printf("[gRPC] Connected! Workout state: %s", currentWorkoutState())
+
+	go subscribeSpeed()
+	go subscribeIncline()
+	go subscribeWorkoutState()
+	go subscribeDistance()
+	go subscribeCalories()
+	go subscribeElapsedTime()
+	go subscribeElevation()
+	go subscribeHeartRate()
+	go fetchConsoleInfo()
+	go subscribeConsoleState()
+
+	return nil
+}
+
+func grpcCtx() context.Context {
+	md := metadata.New(map[string]string{"client_id": clientID})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// v4: release the timer without a goroutine per call (go vet lostcancel).
+	time.AfterFunc(6*time.Second, cancel)
+	return metadata.NewOutgoingContext(ctx, md)
+}
+
+func grpcStreamCtx() context.Context {
+	md := metadata.New(map[string]string{"client_id": clientID})
+	return metadata.NewOutgoingContext(context.Background(), md)
+}
+
+func cleanState(s string) string {
+	return strings.TrimPrefix(s, "WORKOUT_STATE_")
+}
+
+func findKeysDir() string {
+	// /data/local/tmp/keys is checked first — world-readable, works from APK context.
+	// /sdcard/trailrunner/keys needs sdcard_rw group (stat succeeds but ReadFile fails
+	// from untrusted_app context), so it's checked second as a fallback for ADB usage.
+	for _, d := range []string{
+		"/data/local/tmp/keys",
+		"/sdcard/trailrunner/keys",
+		filepath.Join(filepath.Dir(os.Args[0]), "keys"),
+		"keys",
+	} {
+		// Verify we can actually READ the key files, not just stat them
+		if f, err := os.Open(filepath.Join(d, "ca_cert.txt")); err == nil {
+			f.Close()
+			return d
+		}
+	}
+	return "keys"
+}
+
+func subscribeSpeed() {
+	for {
+		stream, err := speedClient.SpeedSubscription(grpcStreamCtx(), &pb.Empty{})
+		if err != nil {
+			log.Printf("[gRPC] Speed sub error: %v", err)
+			time.Sleep(3 * time.Second)
+			continue
+		}
+		log.Println("[gRPC] Speed subscription active")
+		for {
+			m, err := stream.Recv()
+			if err != nil {
+				log.Printf("[gRPC] Speed stream ended: %v", err)
+				break
+			}
+			mu.Lock()
+			prev := currentSpeed
+			currentSpeed = m.LastKph
+			mu.Unlock()
+			if m.LastKph != prev {
+				log.Printf("[gRPC] Speed: %.1f kph (max=%.1f avg=%.1f)", m.LastKph, m.MaxKph, m.AvgKph)
+			}
+			broadcastState()
+		}
+		time.Sleep(2 * time.Second)
+	}
+}
+
+func subscribeIncline() {
+	for {
+		stream, err := inclineClient.InclineSubscription(grpcStreamCtx(), &pb.Empty{})
+		if err != nil {
+			log.Printf("[gRPC] Incline sub error: %v", err)
+			time.Sleep(3 * time.Second)
+			continue
+		}
+		log.Println("[gRPC] Incline subscription active")
+		for {
+			m, err := stream.Recv()
+			if err != nil {
+				log.Printf("[gRPC] Incline stream ended: %v", err)
+				break
+			}
+			mu.Lock()
+			prev := currentIncl
+			currentIncl = m.LastInclinePercent
+			mu.Unlock()
+			if m.LastInclinePercent != prev {
+				log.Printf("[gRPC] Incline: %.1f%% (max=%.1f avg=%.1f)", m.LastInclinePercent, m.MaxInclinePercent, m.AvgInclinePercent)
+			}
+			broadcastState()
+		}
+		time.Sleep(2 * time.Second)
+	}
+}
+
+func subscribeWorkoutState() {
+	for {
+		workoutStateSession()
+		time.Sleep(2 * time.Second)
+	}
+}
+
+// workoutStateSession runs one subscribe -> resync -> receive cycle and returns
+// when the stream ends or cannot be opened (state is then UNKNOWN).
+func workoutStateSession() {
+	stream, err := workoutClient.WorkoutStateChanged(grpcStreamCtx(), &pb.Empty{})
+	if err != nil {
+		log.Printf("[gRPC] Workout state sub error: %v", err)
+		markLinkLost("workout state subscribe failed")
+		time.Sleep(1 * time.Second)
+		return
+	}
+	log.Println("[gRPC] Workout state subscription active")
+	// v4: never trust state across a reconnect — re-read it first.
+	resyncFromTreadmill()
+	for {
+		msg, err := stream.Recv()
+		if err != nil {
+			log.Printf("[gRPC] Workout state stream ended: %v", err)
+			markLinkLost("workout state stream ended")
+			return
+		}
+		mu.Lock()
+		applyWorkoutStateLocked(cleanState(msg.WorkoutState.String()))
+		grpcConnected = true
+		st := workoutState
+		mu.Unlock()
+		log.Printf("[gRPC] Workout state: %s", st)
+		broadcastState()
+	}
+}
+
+func subscribeDistance() {
+	for {
+		stream, err := distClient.DistanceSubscription(grpcStreamCtx(), &pb.Empty{})
+		if err != nil {
+			log.Printf("[gRPC] Distance sub error: %v", err)
+			time.Sleep(3 * time.Second)
+			continue
+		}
+		for {
+			m, err := stream.Recv()
+			if err != nil {
+				break
+			}
+			mu.Lock()
+			currentDist = m.LastDistanceKm
+			mu.Unlock()
+			broadcastState()
+		}
+		time.Sleep(2 * time.Second)
+	}
+}
+
+func subscribeCalories() {
+	for {
+		stream, err := calClient.CaloriesBurnedSubscription(grpcStreamCtx(), &pb.Empty{})
+		if err != nil {
+			log.Printf("[gRPC] Calories sub error: %v", err)
+			time.Sleep(3 * time.Second)
+			continue
+		}
+		for {
+			m, err := stream.Recv()
+			if err != nil {
+				break
+			}
+			mu.Lock()
+			currentCals = m.LastCalories
+			mu.Unlock()
+			broadcastState()
+		}
+		time.Sleep(2 * time.Second)
+	}
+}
+
+func subscribeElapsedTime() {
+	for {
+		stream, err := timeClient.ElapsedTimeSubscription(grpcStreamCtx(), &pb.Empty{})
+		if err != nil {
+			log.Printf("[gRPC] ElapsedTime sub error: %v", err)
+			time.Sleep(3 * time.Second)
+			continue
+		}
+		for {
+			m, err := stream.Recv()
+			if err != nil {
+				break
+			}
+			mu.Lock()
+			currentElapsed = m.TimeSeconds
+			mu.Unlock()
+			broadcastState()
+		}
+		time.Sleep(2 * time.Second)
+	}
+}
+
+func subscribeElevation() {
+	for {
+		stream, err := elevClient.ElevationSubscription(grpcStreamCtx(), &pb.Empty{})
+		if err != nil {
+			log.Printf("[gRPC] Elevation sub error: %v", err)
+			time.Sleep(3 * time.Second)
+			continue
+		}
+		for {
+			m, err := stream.Recv()
+			if err != nil {
+				break
+			}
+			mu.Lock()
+			currentElevGain = m.ElevationGainMeters
+			mu.Unlock()
+			broadcastState()
+		}
+		time.Sleep(2 * time.Second)
+	}
+}
+
+func subscribeHeartRate() {
+	for {
+		stream, err := hrClient.HeartRateSubscription(grpcStreamCtx(), &pb.Empty{})
+		if err != nil {
+			log.Printf("[gRPC] HeartRate sub error: %v", err)
+			time.Sleep(3 * time.Second)
+			continue
+		}
+		log.Println("[gRPC] Heart rate subscription active")
+		for {
+			m, err := stream.Recv()
+			if err != nil {
+				log.Printf("[gRPC] HeartRate stream ended: %v", err)
+				break
+			}
+			bpm := int(m.LastBpm)
+			mu.Lock()
+			prev := currentHR
+			currentHR = bpm
+			mu.Unlock()
+			if bpm != prev && bpm > 0 {
+				log.Printf("[gRPC] HR: %d bpm (max=%d avg=%d)", bpm, int(m.MaxBpm), int(m.AvgBpm))
+			}
+			broadcastState()
+		}
+		time.Sleep(2 * time.Second)
+	}
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CONSOLE SERVICE — hardware info + safety key monitoring
+// ═══════════════════════════════════════════════════════════════════════════════
+
+func fetchConsoleInfo() {
+	for i := 0; i < 5; i++ {
+		info, err := consoleClient.GetConsole(grpcCtx(), &pb.Empty{})
+		if err != nil {
+			log.Printf("[Console] GetConsole attempt %d failed: %v", i+1, err)
+			time.Sleep(3 * time.Second)
+			continue
+		}
+		mu.Lock()
+		consoleInfo = info
+		mu.Unlock()
+		log.Printf("[Console] Hardware: model=%d firmware=%s serial=%s maxKph=%.1f maxIncline=%.1f%% minIncline=%.1f%%",
+			info.ModelNumber, info.FirmwareVersion, info.ProductSerialNumber,
+			info.MaxKph, info.MaxInclinePercent, info.MinInclinePercent)
+		return
+	}
+	log.Println("[Console] Could not fetch console info after 5 attempts")
+}
+
+func subscribeConsoleState() {
+	for {
+		stream, err := consoleClient.ConsoleStateChanged(grpcStreamCtx(), &pb.Empty{})
+		if err != nil {
+			log.Printf("[Console] State sub error: %v", err)
+			time.Sleep(5 * time.Second)
+			continue
+		}
+		log.Println("[Console] Console state subscription active")
+		for {
+			msg, err := stream.Recv()
+			if err != nil {
+				log.Printf("[Console] State stream ended: %v", err)
+				break
+			}
+			stateName := msg.ConsoleState.String()
+			mu.Lock()
+			consoleState = stateName
+			safetyKeyOut = (msg.ConsoleState == pb.ConsoleState_SAFETY_KEY_REMOVED)
+			mu.Unlock()
+			log.Printf("[Console] State: %s", stateName)
+
+			// Safety key removed — emergency notification
+			if msg.ConsoleState == pb.ConsoleState_SAFETY_KEY_REMOVED {
+				log.Println("[SAFETY] Safety key removed! Publishing to MQTT")
+				if mqttReady.Load() && mqttClient != nil {
+					mqttClient.Publish(mqttTopicPrefix+"/safety_key", 1, false, "removed")
+				}
+			} else {
+				if mqttReady.Load() && mqttClient != nil {
+					mqttClient.Publish(mqttTopicPrefix+"/safety_key", 0, false, "ok")
+				}
+			}
+			broadcastState()
+		}
+		time.Sleep(3 * time.Second)
+	}
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PROGRAMMED WORKOUT SERVICE — push pre-built workouts to motor controller
+// ═══════════════════════════════════════════════════════════════════════════════
+
+func handleProgrammedWorkout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "POST only", 405)
+		return
+	}
+
+	var req struct {
+		Title      string `json:"title"`
+		TargetType string `json:"targetType"` // TIME, DISTANCE, CALORIES
+		TargetValue float64 `json:"targetValue"`
+		Controls   []struct {
+			Type  string  `json:"type"`  // MPS, INCLINE
+			At    float64 `json:"at"`
+			Value float64 `json:"value"`
+		} `json:"controls"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		j(w, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+
+	// Build control list
+	var controls []*pb.Control
+	for _, c := range req.Controls {
+		ct := pb.ControlType_CONTROL_TYPE_UNKNOWN
+		switch strings.ToUpper(c.Type) {
+		case "MPS":
+			ct = pb.ControlType_CONTROL_TYPE_MPS
+		case "INCLINE":
+			ct = pb.ControlType_CONTROL_TYPE_INCLINE
+		case "RESISTANCE":
+			ct = pb.ControlType_CONTROL_TYPE_RESISTANCE
+		}
+		controls = append(controls, &pb.Control{
+			Type:  ct,
+			At:    c.At,
+			Value: c.Value,
+		})
+	}
+
+	// Map target type
+	tt := pb.WorkoutTargetType_WORKOUT_TARGET_TYPE_SECONDS
+	switch strings.ToUpper(req.TargetType) {
+	case "DISTANCE":
+		tt = pb.WorkoutTargetType_WORKOUT_TARGET_TYPE_METERS
+	case "CALORIES":
+		tt = pb.WorkoutTargetType_WORKOUT_TARGET_TYPE_CALORIES
+	}
+
+	// Build the workout segment
+	workout := &pb.Workout{
+		Title:       &req.Title,
+		Controls:    &pb.ControlList{Controls: controls},
+		TargetType:  tt,
+		TargetValue: &req.TargetValue,
+		WorkoutType: pb.WorkoutType_WORKOUT_TYPE_RUN,
+	}
+
+	segment := &pb.WorkoutSegmentDescriptor{
+		WorkoutMetadata: &pb.ActivityLogMetadata{
+			Title: req.Title,
+		},
+		ItemType:                   pb.ItemType_ITEM_TYPE_MAIN,
+		ManualWorkoutLengthSeconds: req.TargetValue,
+	}
+	// Store workout in segment metadata
+	_ = workout // workout data is encoded in controls
+	_ = segment
+
+	// Build AddAllWorkoutSegmentsRequest
+	addReq := &pb.AddAllWorkoutSegmentsRequest{
+		WorkoutSegments: []*pb.WorkoutSegmentDescriptor{segment},
+	}
+
+	resp, err := programClient.AddAndStart(grpcCtx(), addReq)
+	if err != nil {
+		j(w, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+
+	log.Printf("[PROGRAM] Workout '%s' pushed and started: %v", req.Title, resp)
+	j(w, map[string]interface{}{"ok": true, "title": req.Title, "controls": len(req.Controls)})
+}
+
+func handleConsoleInfo(w http.ResponseWriter, r *http.Request) {
+	mu.RLock()
+	info := consoleInfo
+	cs := consoleState
+	sk := safetyKeyOut
+	mu.RUnlock()
+
+	if info == nil {
+		j(w, map[string]interface{}{"ok": false, "error": "console info not available"})
+		return
+	}
+
+	j(w, map[string]interface{}{
+		"ok":                 true,
+		"model_number":       info.ModelNumber,
+		"part_number":        info.PartNumber,
+		"firmware_version":   info.FirmwareVersion,
+		"serial_number":      info.ProductSerialNumber,
+		"brainboard_serial":  info.BrainboardSerialNumber,
+		"max_kph":            info.MaxKph,
+		"min_kph":            info.MinKph,
+		"max_incline_pct":    info.MaxInclinePercent,
+		"min_incline_pct":    info.MinInclinePercent,
+		"can_set_speed":      info.CanSetSpeed,
+		"can_set_incline":    info.CanSetIncline,
+		"machine_type":       info.MachineType.String(),
+		"console_state":      cs,
+		"safety_key_removed": sk,
+	})
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SAFETY — rate-limited speed changes + safety key guard
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// safeSpeedSet applies speed ramp rate limiting to prevent dangerous sudden
+// speed jumps. Clamps to 0-22 kph and limits acceleration to maxSpeedRateKphS.
+// Speed 0 is always allowed immediately (e-stop safe).
+//
+// v4: raising commands are serialised and carry an "epoch"; any stop/reduction
+// bumps the epoch so a raise that was decided earlier but not yet sent is
+// dropped instead of landing after the stop (WS/HTTP handlers run concurrently).
+// A decrease is no longer blocked by the safety key (it can only slow the belt).
+func safeSpeedSet(targetKph float64) error {
+	if speedClient == nil {
+		return fmt.Errorf("gRPC not connected")
+	}
+	targetKph = clamp(targetKph, 0, 22)
+
+	// Speed 0 always bypasses rate limiting — emergency stop must be instant
+	if targetKph == 0 {
+		return sendReduction(0)
+	}
+
+	mu.Lock()
+	// Safety key: block anything that would RAISE speed; allow reductions.
+	if safetyKeyOut && targetKph > currentSpeed {
+		mu.Unlock()
+		return fmt.Errorf("safety key removed — motor commands blocked")
+	}
+
+	// Rate limit: max maxSpeedRateKphS kph/s change
+	now := time.Now()
+	dt := now.Sub(lastSpeedSetTime).Seconds()
+	if dt < 0.1 {
+		dt = 0.1 // minimum 100ms between changes
+	}
+	if dt > 1.0 {
+		dt = 1.0 // v4: however long idle, one command moves at most maxSpeedRateKphS
+	}
+	maxDelta := maxSpeedRateKphS * dt
+	// v4 baseline: lastSpeedSet can be stale (bridge restart, iFit/console change).
+	// Raises start from the higher of {last commanded, measured}; decreases from
+	// the lower, so neither direction is computed from a stale value.
+	hi, lo := lastSpeedSet, currentSpeed
+	if lo > hi {
+		hi, lo = lo, hi
+	}
+	prev := lo
+	if targetKph > hi {
+		prev = hi
+	}
+	delta := targetKph - prev
+	if delta > maxDelta {
+		log.Printf("[SAFETY] Speed ramp limited: requested %.1f, capped to %.1f (delta %.1f > max %.1f)", targetKph, prev+maxDelta, delta, maxDelta)
+		targetKph = prev + maxDelta
+	} else if delta < -maxDelta {
+		// Deceleration is also rate-limited (except to 0, handled above)
+		targetKph = prev - maxDelta
+		log.Printf("[SAFETY] Speed ramp limited (decel): capped to %.1f", targetKph)
+	}
+	lastSpeedSet = targetKph
+	lastSpeedSetTime = now
+	epoch := speedEpoch
+	mu.Unlock()
+
+	sendMu.Lock()
+	defer sendMu.Unlock()
+	mu.Lock()
+	if speedEpoch != epoch {
+		mu.Unlock()
+		log.Printf("[SAFETY] Speed %.1f dropped — superseded by a stop/reduction", targetKph)
+		return fmt.Errorf("superseded by stop")
+	}
+	speedInFlight++
+	mu.Unlock()
+	_, err := speedClient.SetSpeed(grpcCtx(), &pb.SpeedRequest{Kph: targetKph})
+	mu.Lock()
+	speedInFlight--
+	mu.Unlock()
+	return err
+}
+
+// sendReduction sends a speed that must not be higher than the current one
+// (0 = stop). It never waits on the safety key, the rate limiter or sendMu
+// before its first send. If a raising SetSpeed was on the wire at that moment,
+// the reduction is re-sent once that call has finished so the stop wins.
+func sendReduction(target float64) error {
+	if speedClient == nil {
+		return fmt.Errorf("gRPC not connected")
+	}
+	mu.Lock()
+	race := speedInFlight > 0
+	speedEpoch++
+	lastSpeedSet = target
+	lastSpeedSetTime = time.Now()
+	mu.Unlock()
+	_, err := speedClient.SetSpeed(grpcCtx(), &pb.SpeedRequest{Kph: target})
+	if race {
+		sendMu.Lock()
+		sendMu.Unlock() //nolint:staticcheck // wait for the in-flight raise to finish
+		if _, err2 := speedClient.SetSpeed(grpcCtx(), &pb.SpeedRequest{Kph: target}); err == nil {
+			err = err2
+		}
+	}
+	return err
+}
+
+// safeInclineSet checks safety key before setting incline.
+// Incline 0 always allowed (return to flat).
+func safeInclineSet(targetPct float64) error {
+	if inclineClient == nil {
+		return fmt.Errorf("gRPC not connected")
+	}
+	targetPct = clamp(targetPct, -6, 40)
+
+	if targetPct != 0 {
+		mu.RLock()
+		sk := safetyKeyOut
+		mu.RUnlock()
+		if sk {
+			return fmt.Errorf("safety key removed — motor commands blocked")
+		}
+	}
+
+	_, err := inclineClient.SetIncline(grpcCtx(), &pb.InclineRequest{Percent: targetPct})
+	return err
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// HTTP SERVER
+// ═══════════════════════════════════════════════════════════════════════════════
+
+func startHTTPServer() {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/health", cors(handleHealth))
+	mux.HandleFunc("/state", cors(handleState))
+	mux.HandleFunc("/workout/start", cors(handleWorkoutStart))
+	mux.HandleFunc("/workout/stop", cors(handleWorkoutStop))
+	mux.HandleFunc("/workout/pause", cors(handleWorkoutPause))
+	mux.HandleFunc("/workout/resume", cors(handleWorkoutResume))
+	mux.HandleFunc("/speed", cors(handleSpeed))
+	mux.HandleFunc("/incline", cors(handleIncline))
+	mux.HandleFunc("/command", cors(handleCommand))
+	mux.HandleFunc("/api/state", cors(handleAPIState))
+	mux.HandleFunc("/api/workout/summary", cors(handleWorkoutSummary))
+	mux.HandleFunc("/api/console", cors(handleConsoleInfo))
+	mux.HandleFunc("/workout/program", cors(handleProgrammedWorkout))
+	mux.HandleFunc("/ws", handleWS)
+
+	log.Printf("[HTTP] Listening on %s", listenAddr)
+	// v4: timeouts so a stalled/slow-loris peer cannot pin a goroutine forever.
+	// (Hijacked WebSocket connections are not subject to these.)
+	srv := &http.Server{
+		Addr:              listenAddr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       20 * time.Second,
+		WriteTimeout:      20 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+	if err := srv.ListenAndServe(); err != nil {
+		log.Fatalf("[HTTP] %v", err)
+	}
+}
+
+const maxBodyBytes = 64 << 10 // v4: cap request bodies
+
+func cors(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		touchClient() // v4: any HTTP request counts as "a client is there" for the dead-man
+		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+		}
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(204)
+			return
+		}
+		h(w, r)
+	}
+}
+
+func j(w http.ResponseWriter, v interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(v)
+}
+
+func handleHealth(w http.ResponseWriter, r *http.Request) {
+	mu.RLock()
+	defer mu.RUnlock()
+	j(w, map[string]interface{}{
+		"status": "ok", "version": "4.0-native",
+		"speed": currentSpeed, "incline": currentIncl, "hr": currentHR,
+		"workoutState": workoutState, "workoutId": workoutID,
+		"grpc": grpcConnected, "mqtt": mqttReady.Load(), "clients": wsCount(),
+		"link": linkStatus(), "deadman": deadmanState,
+		"deadmanTimeoutS": deadmanTimeout.Seconds(), "bridgeStarted": bridgeStarted,
+		"safetyKeyOut": safetyKeyOut, "consoleState": consoleState,
+		"uptimeS": int(time.Since(startTime).Seconds()),
+	})
+}
+
+func handleState(w http.ResponseWriter, r *http.Request) {
+	mu.RLock()
+	defer mu.RUnlock()
+	j(w, stateMsg())
+}
+
+func handleWorkoutStart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	resp, err := workoutClient.StartNewWorkout(grpcCtx(), &pb.Empty{})
+	if err != nil {
+		j(w, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+	mu.Lock()
+	workoutID = resp.WorkoutID
+	bridgeStarted = true
+	workoutState = "RUNNING"
+	mu.Unlock()
+	broadcastState()
+	j(w, map[string]interface{}{"ok": true, "workoutId": resp.WorkoutID})
+}
+
+func handleWorkoutStop(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	_, err := workoutClient.Stop(grpcCtx(), &pb.Empty{})
+	if err != nil {
+		j(w, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+	setWorkoutState("IDLE")
+	broadcastState()
+	j(w, map[string]interface{}{"ok": true})
+}
+
+func handleWorkoutPause(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	_, err := workoutClient.Pause(grpcCtx(), &pb.Empty{})
+	if err != nil {
+		j(w, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+	setWorkoutState("PAUSED")
+	broadcastState()
+	j(w, map[string]interface{}{"ok": true})
+}
+
+func handleWorkoutResume(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	_, err := workoutClient.Resume(grpcCtx(), &pb.Empty{})
+	if err != nil {
+		j(w, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+	setWorkoutState("RUNNING")
+	broadcastState()
+	j(w, map[string]interface{}{"ok": true})
+}
+
+func handleSpeed(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	var req struct {
+		KPH float64 `json:"kph"`
+		MPH float64 `json:"mph"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		j(w, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+	kph := req.KPH
+	if kph == 0 && req.MPH > 0 {
+		kph = req.MPH * 1.60934
+	}
+	// Safety: only allow speed changes when workout is running (or setting to 0)
+	mu.RLock()
+	state := workoutState
+	mu.RUnlock()
+	if kph > 0 && state != "RUNNING" {
+		j(w, map[string]interface{}{"ok": false, "error": "workout not running", "state": state})
+		return
+	}
+	err := safeSpeedSet(kph)
+	if err != nil {
+		j(w, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+	j(w, map[string]interface{}{"ok": true, "kph": kph})
+}
+
+func handleIncline(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	var req struct {
+		Percent float64 `json:"percent"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		j(w, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+	// Safety: only allow incline changes when workout is running (or resetting to 0)
+	mu.RLock()
+	state := workoutState
+	mu.RUnlock()
+	if req.Percent != 0 && state != "RUNNING" {
+		j(w, map[string]interface{}{"ok": false, "error": "workout not running", "state": state})
+		return
+	}
+	err := safeInclineSet(req.Percent)
+	if err != nil {
+		j(w, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+	j(w, map[string]interface{}{"ok": true, "percent": req.Percent})
+}
+
+func handleAPIState(w http.ResponseWriter, r *http.Request) {
+	mu.RLock()
+	defer mu.RUnlock()
+	state := map[string]interface{}{
+		"speed_kph":          currentSpeed,
+		"speed_mph":          currentSpeed / 1.60934,
+		"incline_pct":        currentIncl,
+		"heart_rate":         currentHR,
+		"distance_km":        currentDist,
+		"calories":           currentCals,
+		"elapsed_sec":        currentElapsed,
+		"elevation_m":        currentElevGain,
+		"workout_state":      workoutState,
+		"workout_id":         workoutID,
+		"grpc":               grpcConnected,
+		"mqtt":               mqttReady.Load(),
+		"ws_clients":         wsCount(),
+		"link":               linkStatus(),
+		"deadman":            deadmanState,
+		"version":            "4.0",
+		"uptime_sec":         int(time.Since(startTime).Seconds()),
+		"console_state":      consoleState,
+		"safety_key_removed": safetyKeyOut,
+	}
+	if consoleInfo != nil {
+		state["max_kph"] = consoleInfo.MaxKph
+		state["max_incline_pct"] = consoleInfo.MaxInclinePercent
+		state["min_incline_pct"] = consoleInfo.MinInclinePercent
+	}
+	j(w, state)
+}
+
+func handleWorkoutSummary(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		j(w, map[string]interface{}{"ok": false, "error": "body too large or unreadable"})
+		return
+	}
+	var summary map[string]interface{}
+	if err := json.Unmarshal(body, &summary); err != nil {
+		j(w, map[string]interface{}{"ok": false, "error": "invalid JSON"})
+		return
+	}
+	log.Printf("[SUMMARY] Workout complete: %v", summary)
+
+	// Publish to MQTT so HA can trigger automations
+	if mqttReady.Load() && mqttClient != nil {
+		mqttClient.Publish(mqttTopicPrefix+"/workout/summary", 1, false, body)
+		log.Println("[SUMMARY] Published to MQTT")
+	}
+	j(w, map[string]interface{}{"ok": true})
+}
+
+func handleCommand(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		j(w, map[string]interface{}{"ok": false, "error": "body too large or unreadable"})
+		return
+	}
+	processMessage(body)
+	j(w, map[string]interface{}{"ok": true})
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// WEBSOCKET (minimal RFC 6455)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+type wsConn struct {
+	conn   net.Conn
+	mu     sync.Mutex
+	closed bool
+}
+
+func handleWS(w http.ResponseWriter, r *http.Request) {
+	if strings.ToLower(r.Header.Get("Upgrade")) != "websocket" {
+		http.Error(w, "WebSocket required", 400)
+		return
+	}
+	key := r.Header.Get("Sec-WebSocket-Key")
+	if key == "" {
+		http.Error(w, "Missing key", 400)
+		return
+	}
+
+	if wsCount() >= maxWSClients {
+		http.Error(w, "too many clients", 503)
+		return
+	}
+	touchClient()
+
+	hj, ok := w.(http.Hijacker)
+	if !ok {
+		http.Error(w, "hijack failed", 500)
+		return
+	}
+	conn, bufrw, err := hj.Hijack()
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	h := sha1.New()
+	h.Write([]byte(key + "258EAFA5-E914-47DA-95CA-5AB5A0F6CE10"))
+	accept := base64.StdEncoding.EncodeToString(h.Sum(nil))
+
+	bufrw.WriteString("HTTP/1.1 101 Switching Protocols\r\n")
+	bufrw.WriteString("Upgrade: websocket\r\n")
+	bufrw.WriteString("Connection: Upgrade\r\n")
+	bufrw.WriteString("Sec-WebSocket-Accept: " + accept + "\r\n\r\n")
+	bufrw.Flush()
+
+	ws := &wsConn{conn: conn}
+	wsMu.Lock()
+	wsClients[ws] = true
+	wsMu.Unlock()
+	log.Println("[WS] Client connected")
+	broadcastState()
+
+	go func() {
+		defer func() {
+			wsMu.Lock()
+			delete(wsClients, ws)
+			wsMu.Unlock()
+			conn.Close()
+			log.Println("[WS] Client disconnected")
+		}()
+		buf := make([]byte, 8192)
+		for {
+			n, err := conn.Read(buf)
+			if err != nil {
+				return
+			}
+			if msg := decodeWSFrame(buf[:n]); msg != nil {
+				processMessage(msg)
+			}
+		}
+	}()
+}
+
+const maxWSClients = 16
+
+// motorSem bounds the number of concurrent non-zero motor goroutines spawned by
+// WS messages (v4). Speed-0 commands never go through it.
+var motorSem = make(chan struct{}, 16)
+
+func goSpeed(kph float64) {
+	if kph <= 0 {
+		go func() { _ = safeSpeedSet(kph) }() // stop / NaN->0 : never throttled
+		return
+	}
+	select {
+	case motorSem <- struct{}{}:
+		go func() { defer func() { <-motorSem }(); _ = safeSpeedSet(kph) }()
+	default:
+		log.Printf("[WS] Dropped speed %.1f — too many motor commands queued", kph)
+	}
+}
+
+func goIncline(pct float64) {
+	if pct == 0 {
+		go func() { _ = safeInclineSet(pct) }()
+		return
+	}
+	select {
+	case motorSem <- struct{}{}:
+		go func() { defer func() { <-motorSem }(); _ = safeInclineSet(pct) }()
+	default:
+		log.Printf("[WS] Dropped incline %.1f%% — too many motor commands queued", pct)
+	}
+}
+
+func processMessage(data []byte) {
+	touchClient() // v4: WS message / POST /command counts as client activity
+	var msg map[string]interface{}
+	if err := json.Unmarshal(data, &msg); err != nil {
+		return
+	}
+
+	t, _ := msg["type"].(string)
+	switch t {
+	case "get":
+		broadcastState()
+
+	case "set":
+		vals, ok := msg["values"].(map[string]interface{})
+		if !ok {
+			return
+		}
+		// Safety: check workout state before allowing motor commands
+		mu.RLock()
+		wsState := workoutState
+		mu.RUnlock()
+		if mph, ok := vals["MPH"].(float64); ok {
+			kph := mph * 1.60934
+			if kph > 0 && wsState != "RUNNING" {
+				log.Printf("[WS] Blocked speed %.1f kph — workout is %s", kph, wsState)
+			} else {
+				goSpeed(kph)
+			}
+		} else if kph, ok := vals["KPH"].(float64); ok {
+			if kph > 0 && wsState != "RUNNING" {
+				log.Printf("[WS] Blocked speed %.1f kph — workout is %s", kph, wsState)
+			} else {
+				goSpeed(kph)
+			}
+		}
+		if inc, ok := vals["Incline"].(float64); ok {
+			if inc != 0 && wsState != "RUNNING" {
+				log.Printf("[WS] Blocked incline %.1f%% — workout is %s", inc, wsState)
+			} else {
+				goIncline(inc)
+			}
+		} else if gr, ok := vals["Grade"].(float64); ok {
+			if gr != 0 && wsState != "RUNNING" {
+				log.Printf("[WS] Blocked incline %.1f%% — workout is %s", gr, wsState)
+			} else {
+				goIncline(gr)
+			}
+		}
+
+	case "workout":
+		action, _ := msg["action"].(string)
+		var result map[string]interface{}
+		switch action {
+		case "start":
+			resp, err := workoutClient.StartNewWorkout(grpcCtx(), &pb.Empty{})
+			if err != nil {
+				result = map[string]interface{}{"ok": false, "error": err.Error()}
+			} else {
+				mu.Lock()
+				workoutID = resp.WorkoutID
+				bridgeStarted = true
+				workoutState = "RUNNING"
+				mu.Unlock()
+				result = map[string]interface{}{"ok": true, "workoutId": resp.WorkoutID}
+			}
+		case "stop":
+			_, err := workoutClient.Stop(grpcCtx(), &pb.Empty{})
+			if err != nil {
+				result = map[string]interface{}{"ok": false, "error": err.Error()}
+			} else {
+				setWorkoutState("IDLE")
+				result = map[string]interface{}{"ok": true}
+			}
+		case "pause":
+			_, err := workoutClient.Pause(grpcCtx(), &pb.Empty{})
+			if err != nil {
+				result = map[string]interface{}{"ok": false, "error": err.Error()}
+			} else {
+				setWorkoutState("PAUSED")
+				result = map[string]interface{}{"ok": true}
+			}
+		case "resume":
+			_, err := workoutClient.Resume(grpcCtx(), &pb.Empty{})
+			if err != nil {
+				result = map[string]interface{}{"ok": false, "error": err.Error()}
+			} else {
+				setWorkoutState("RUNNING")
+				result = map[string]interface{}{"ok": true}
+			}
+		}
+		if result != nil {
+			result["type"] = "workout_result"
+			result["action"] = action
+			d, _ := json.Marshal(result)
+			broadcastWSData(d)
+		}
+		broadcastState()
+	}
+}
+
+func stateMsg() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "stats",
+		"values": map[string]string{
+			"KPH":        fmt.Sprintf("%.1f", currentSpeed),
+			"Incline":    fmt.Sprintf("%.1f", currentIncl),
+			"Heart Rate": fmt.Sprintf("%d", currentHR),
+			"Distance":   fmt.Sprintf("%.3f", currentDist),
+			"Calories":   fmt.Sprintf("%.0f", currentCals),
+			"Elapsed":    fmt.Sprintf("%d", currentElapsed),
+			"Elevation":  fmt.Sprintf("%.1f", currentElevGain),
+		},
+		"workout": map[string]interface{}{
+			"state":        workoutState,
+			"id":           workoutID,
+			"grpc":         grpcConnected,
+			"safetyKeyOut": safetyKeyOut,
+			"consoleState": consoleState,
+			"link":         linkStatus(),
+			"deadman":      deadmanState,
+		},
+		"deadman": deadmanState,
+	}
+}
+
+func broadcastState() {
+	mu.RLock()
+	msg := stateMsg()
+	mu.RUnlock()
+	d, _ := json.Marshal(msg)
+	broadcastWSData(d)
+	publishMQTTState()
+}
+
+func wsCount() int {
+	wsMu.Lock()
+	defer wsMu.Unlock()
+	return len(wsClients)
+}
+
+func broadcastWSData(data []byte) {
+	wsMu.Lock()
+	defer wsMu.Unlock()
+	for ws := range wsClients {
+		ws.send(data)
+	}
+}
+
+func (ws *wsConn) send(data []byte) {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	if ws.closed {
+		return
+	}
+	// v4: a stalled client must not block broadcastWSData (which holds wsMu)
+	ws.conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+	if _, err := ws.conn.Write(encodeWSFrame(data)); err != nil {
+		ws.closed = true
+		ws.conn.Close() // unblocks the reader goroutine, which removes it from wsClients
+	}
+}
+
+func encodeWSFrame(payload []byte) []byte {
+	n := len(payload)
+	var hdr []byte
+	if n < 126 {
+		hdr = []byte{0x81, byte(n)}
+	} else if n < 65536 {
+		hdr = []byte{0x81, 126, byte(n >> 8), byte(n)}
+	} else {
+		hdr = make([]byte, 10)
+		hdr[0] = 0x81
+		hdr[1] = 127
+		for i := 0; i < 8; i++ {
+			hdr[9-i] = byte(n >> (8 * i))
+		}
+	}
+	return append(hdr, payload...)
+}
+
+func decodeWSFrame(buf []byte) []byte {
+	if len(buf) < 2 {
+		return nil
+	}
+	if buf[0]&0x0f != 0x01 {
+		return nil // only text frames
+	}
+	masked := (buf[1] & 0x80) != 0
+	plen := int(buf[1] & 0x7f)
+	off := 2
+	if plen == 126 {
+		if len(buf) < 4 {
+			return nil
+		}
+		plen = int(buf[2])<<8 | int(buf[3])
+		off = 4
+	} else if plen == 127 {
+		if len(buf) < 10 {
+			return nil
+		}
+		plen = 0
+		for i := 2; i < 10; i++ {
+			plen = plen<<8 | int(buf[i])
+		}
+		off = 10
+	}
+	var mask []byte
+	if masked {
+		if len(buf) < off+4 {
+			return nil
+		}
+		mask = buf[off : off+4]
+		off += 4
+	}
+	if len(buf) < off+plen {
+		return nil
+	}
+	out := make([]byte, plen)
+	copy(out, buf[off:off+plen])
+	if masked {
+		for i := range out {
+			out[i] ^= mask[i&3]
+		}
+	}
+	return out
+}
+
+func clamp(v, lo, hi float64) float64 {
+	// NaN protection: NaN comparisons are always false, so NaN would
+	// pass through all guards. Return lo (safe fallback) instead.
+	if v != v { // NaN is the only float where v != v
+		log.Printf("[SAFETY] NaN value rejected in clamp — returning %.1f", lo)
+		return lo
+	}
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MQTT — Home Assistant auto-discovery + state publishing
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const (
+	mqttTopicPrefix = "trailrunner"
+	mqttDeviceName  = "TrailRunner X32i"
+)
+
+func mqttDeviceJSON() string {
+	return `{"identifiers":["trailrunner_x32i"],"name":"TrailRunner X32i","manufacturer":"NordicTrack","model":"X32i","sw_version":"3.2"}`
+}
+
+func connectMQTT() {
+	broker := os.Getenv("MQTT_BROKER")
+	if broker == "" {
+		broker = "tcp://192.168.100.1:1883" // common router/HA address
+	}
+
+	opts := mqtt.NewClientOptions()
+	opts.AddBroker(broker)
+	opts.SetClientID("trailrunner-bridge")
+	opts.SetKeepAlive(30 * time.Second)
+	opts.SetAutoReconnect(true)
+	opts.SetConnectRetry(true)
+	opts.SetConnectRetryInterval(10 * time.Second)
+	// Last Will: mark offline if bridge crashes
+	opts.SetWill(mqttTopicPrefix+"/available", "offline", 1, true)
+	opts.SetConnectionLostHandler(func(c mqtt.Client, err error) {
+		log.Printf("[MQTT] Connection lost: %v", err)
+		mqttReady.Store(false)
+	})
+	opts.SetOnConnectHandler(func(c mqtt.Client) {
+		log.Printf("[MQTT] Connected to %s", broker)
+		mqttReady.Store(true)
+		publishHADiscovery()
+		subscribeCommands()
+	})
+
+	// Optional auth
+	if u := os.Getenv("MQTT_USER"); u != "" {
+		opts.SetUsername(u)
+		opts.SetPassword(os.Getenv("MQTT_PASS"))
+	}
+
+	mqttClient = mqtt.NewClient(opts)
+	go func() {
+		log.Printf("[MQTT] Connecting to %s ...", broker)
+		if token := mqttClient.Connect(); token.Wait() && token.Error() != nil {
+			log.Printf("[MQTT] Initial connect failed: %v (will retry)", token.Error())
+		}
+	}()
+}
+
+func publishHADiscovery() {
+	dev := mqttDeviceJSON()
+
+	// Sensors
+	sensors := []struct {
+		name, id, unit, icon, valTpl string
+		devClass                     string
+	}{
+		{"Speed", "speed", "km/h", "mdi:speedometer", "{{ value_json.speed }}", "speed"},
+		{"Incline", "incline", "%", "mdi:slope-uphill", "{{ value_json.incline }}", ""},
+		{"Heart Rate", "heart_rate", "bpm", "mdi:heart-pulse", "{{ value_json.hr }}", ""},
+		{"Distance", "distance", "km", "mdi:map-marker-distance", "{{ value_json.distance }}", "distance"},
+		{"Calories", "calories", "kcal", "mdi:fire", "{{ value_json.calories }}", ""},
+		{"Duration", "duration", "s", "mdi:timer", "{{ value_json.elapsed }}", "duration"},
+		{"Elevation Gain", "elevation_gain", "m", "mdi:elevation-rise", "{{ value_json.elevation }}", "distance"},
+	}
+
+	for _, s := range sensors {
+		topic := fmt.Sprintf("homeassistant/sensor/trailrunner/%s/config", s.id)
+		payload := map[string]interface{}{
+			"name":                s.name,
+			"unique_id":           "trailrunner_" + s.id,
+			"state_topic":         mqttTopicPrefix + "/state",
+			"value_template":      s.valTpl,
+			"unit_of_measurement": s.unit,
+			"icon":                s.icon,
+			"device":              json.RawMessage(dev),
+		}
+		if s.devClass != "" {
+			payload["device_class"] = s.devClass
+		}
+		d, _ := json.Marshal(payload)
+		mqttClient.Publish(topic, 1, true, d)
+	}
+
+	// Workout state sensor
+	statePayload := map[string]interface{}{
+		"name":            "Workout State",
+		"unique_id":       "trailrunner_workout_state",
+		"state_topic":     mqttTopicPrefix + "/state",
+		"value_template":  "{{ value_json.workout_state }}",
+		"icon":            "mdi:run",
+		"device":          json.RawMessage(dev),
+	}
+	d, _ := json.Marshal(statePayload)
+	mqttClient.Publish("homeassistant/sensor/trailrunner/workout_state/config", 1, true, d)
+
+	// Speed number control
+	speedCtrl := map[string]interface{}{
+		"name":            "Set Speed",
+		"unique_id":       "trailrunner_set_speed",
+		"command_topic":   mqttTopicPrefix + "/command/speed",
+		"state_topic":     mqttTopicPrefix + "/state",
+		"value_template":  "{{ value_json.speed }}",
+		"min":             0, "max": 22, "step": 0.5,
+		"unit_of_measurement": "km/h",
+		"icon":            "mdi:speedometer",
+		"device":          json.RawMessage(dev),
+	}
+	d, _ = json.Marshal(speedCtrl)
+	mqttClient.Publish("homeassistant/number/trailrunner/set_speed/config", 1, true, d)
+
+	// Incline number control
+	incCtrl := map[string]interface{}{
+		"name":            "Set Incline",
+		"unique_id":       "trailrunner_set_incline",
+		"command_topic":   mqttTopicPrefix + "/command/incline",
+		"state_topic":     mqttTopicPrefix + "/state",
+		"value_template":  "{{ value_json.incline }}",
+		"min":             -6, "max": 40, "step": 0.5,
+		"unit_of_measurement": "%",
+		"icon":            "mdi:slope-uphill",
+		"device":          json.RawMessage(dev),
+	}
+	d, _ = json.Marshal(incCtrl)
+	mqttClient.Publish("homeassistant/number/trailrunner/set_incline/config", 1, true, d)
+
+	// Workout control buttons
+	buttons := []struct{ name, id, icon string }{
+		{"Start Workout", "start", "mdi:play"},
+		{"Stop Workout", "stop", "mdi:stop"},
+		{"Pause Workout", "pause", "mdi:pause"},
+		{"Resume Workout", "resume", "mdi:play-pause"},
+	}
+	for _, b := range buttons {
+		topic := fmt.Sprintf("homeassistant/button/trailrunner/%s/config", b.id)
+		payload := map[string]interface{}{
+			"name":          b.name,
+			"unique_id":     "trailrunner_" + b.id,
+			"command_topic": mqttTopicPrefix + "/command/workout",
+			"payload_press": b.id,
+			"icon":          b.icon,
+			"device":        json.RawMessage(dev),
+		}
+		d, _ := json.Marshal(payload)
+		mqttClient.Publish(topic, 1, true, d)
+	}
+
+	// Binary sensor — safety key
+	safetyPayload := map[string]interface{}{
+		"name":            "Safety Key",
+		"unique_id":       "trailrunner_safety_key",
+		"state_topic":     mqttTopicPrefix + "/safety_key",
+		"payload_on":      "removed",
+		"payload_off":     "ok",
+		"device_class":    "safety",
+		"icon":            "mdi:key-alert",
+		"device":          json.RawMessage(dev),
+	}
+	d, _ = json.Marshal(safetyPayload)
+	mqttClient.Publish("homeassistant/binary_sensor/trailrunner/safety_key/config", 1, true, d)
+
+	// Binary sensor — treadmill availability
+	availPayload := map[string]interface{}{
+		"name":            "Available",
+		"unique_id":       "trailrunner_available",
+		"state_topic":     mqttTopicPrefix + "/available",
+		"payload_on":      "online",
+		"payload_off":     "offline",
+		"device_class":    "connectivity",
+		"device":          json.RawMessage(dev),
+	}
+	d, _ = json.Marshal(availPayload)
+	mqttClient.Publish("homeassistant/binary_sensor/trailrunner/available/config", 1, true, d)
+	mqttClient.Publish(mqttTopicPrefix+"/available", 1, true, "online")
+
+	// Binary sensor — gRPC connection to treadmill motor controller
+	grpcPayload := map[string]interface{}{
+		"name":            "gRPC Connected",
+		"unique_id":       "trailrunner_grpc_connected",
+		"state_topic":     mqttTopicPrefix + "/state",
+		"value_template":  "{{ 'ON' if value_json.grpc else 'OFF' }}",
+		"device_class":    "connectivity",
+		"icon":            "mdi:lan-connect",
+		"device":          json.RawMessage(dev),
+	}
+	d, _ = json.Marshal(grpcPayload)
+	mqttClient.Publish("homeassistant/binary_sensor/trailrunner/grpc_connected/config", 1, true, d)
+
+	// Sensor — console state (IDLE, ACTIVE, etc.)
+	consoleStatePayload := map[string]interface{}{
+		"name":            "Console State",
+		"unique_id":       "trailrunner_console_state",
+		"state_topic":     mqttTopicPrefix + "/state",
+		"value_template":  "{{ value_json.console_state | default('UNKNOWN') }}",
+		"icon":            "mdi:monitor",
+		"device":          json.RawMessage(dev),
+	}
+	d, _ = json.Marshal(consoleStatePayload)
+	mqttClient.Publish("homeassistant/sensor/trailrunner/console_state/config", 1, true, d)
+
+	log.Println("[MQTT] Home Assistant auto-discovery published")
+}
+
+func subscribeCommands() {
+	mqttClient.Subscribe(mqttTopicPrefix+"/command/#", 1, func(c mqtt.Client, m mqtt.Message) {
+		topic := m.Topic()
+		payload := string(m.Payload())
+		log.Printf("[MQTT] Command: %s = %s", topic, payload)
+		touchClient()
+
+		switch {
+		case strings.HasSuffix(topic, "/speed"):
+			if kph, err := strconv.ParseFloat(payload, 64); err == nil {
+				mu.RLock()
+				mqState := workoutState
+				mu.RUnlock()
+				if kph > 0 && mqState != "RUNNING" {
+					log.Printf("[MQTT] Blocked speed %.1f kph — workout is %s", kph, mqState)
+				} else {
+					safeSpeedSet(kph)
+				}
+			}
+		case strings.HasSuffix(topic, "/incline"):
+			if pct, err := strconv.ParseFloat(payload, 64); err == nil {
+				mu.RLock()
+				mqState := workoutState
+				mu.RUnlock()
+				if pct != 0 && mqState != "RUNNING" {
+					log.Printf("[MQTT] Blocked incline %.1f%% — workout is %s", pct, mqState)
+				} else {
+					safeInclineSet(pct)
+				}
+			}
+		case strings.HasSuffix(topic, "/workout"):
+			switch payload {
+			case "start":
+				if resp, err := workoutClient.StartNewWorkout(grpcCtx(), &pb.Empty{}); err == nil {
+					mu.Lock()
+					workoutID = resp.WorkoutID
+					bridgeStarted = true
+					workoutState = "RUNNING"
+					mu.Unlock()
+					broadcastState()
+				}
+			case "stop":
+				if _, err := workoutClient.Stop(grpcCtx(), &pb.Empty{}); err == nil {
+					setWorkoutState("IDLE")
+					broadcastState()
+				}
+			case "pause":
+				if _, err := workoutClient.Pause(grpcCtx(), &pb.Empty{}); err == nil {
+					setWorkoutState("PAUSED")
+					broadcastState()
+				}
+			case "resume":
+				if _, err := workoutClient.Resume(grpcCtx(), &pb.Empty{}); err == nil {
+					setWorkoutState("RUNNING")
+					broadcastState()
+				}
+			}
+		}
+	})
+	log.Println("[MQTT] Subscribed to command topics")
+}
+
+func publishMQTTState() {
+	if !mqttReady.Load() || mqttClient == nil {
+		return
+	}
+	// Throttle: at most once per 2 seconds to avoid MQTT flooding
+	now := time.Now()
+	mqttPubMu.Lock()
+	if now.Sub(lastMQTTPub) < 2*time.Second {
+		mqttPubMu.Unlock()
+		return
+	}
+	lastMQTTPub = now
+	mqttPubMu.Unlock()
+	mu.RLock()
+	payload := map[string]interface{}{
+		"speed":         currentSpeed,
+		"incline":       currentIncl,
+		"hr":            currentHR,
+		"distance":      currentDist,
+		"calories":      currentCals,
+		"elapsed":       currentElapsed,
+		"elevation":     currentElevGain,
+		"workout_state":      workoutState,
+		"workout_id":         workoutID,
+		"grpc":               grpcConnected,
+		"console_state":      consoleState,
+		"safety_key_removed": safetyKeyOut,
+		"link":               linkStatus(),
+		"deadman":            deadmanState,
+	}
+	mu.RUnlock()
+	d, _ := json.Marshal(payload)
+	mqttClient.Publish(mqttTopicPrefix+"/state", 0, false, d)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MAIN
+// ═══════════════════════════════════════════════════════════════════════════════
+
+func main() {
+	fmt.Println("")
+	fmt.Println("  ╔══════════════════════════════════════════════════════════════╗")
+	fmt.Println("  ║  TrailRunner Bridge v4.0 (Native ARM64)                      ║")
+	fmt.Println("  ║  Direct Motor Control — No PC Required                       ║")
+	fmt.Println("  ║  gRPC + MQTT → glassos_service → FitPro → Motor              ║")
+	fmt.Println("  ╚══════════════════════════════════════════════════════════════╝")
+	fmt.Println("")
+
+	// Connect MQTT (non-blocking, retries in background)
+	connectMQTT()
+
+	// Connect to glassos gRPC (retry loop)
+	for {
+		err := connectGRPC()
+		if err == nil {
+			break
+		}
+		log.Printf("[gRPC] Failed: %v — retrying in 5s...", err)
+		time.Sleep(5 * time.Second)
+	}
+
+	initDeadmanConfig()
+	touchClient()
+	go deadmanLoop()
+
+	// Periodic state broadcast + heartbeat
+	go func() {
+		tick := 0
+		for {
+			time.Sleep(2 * time.Second)
+			broadcastState()
+			tick++
+			if tick%150 == 0 { // every 5 minutes
+				nc := wsCount()
+				mu.RLock()
+				log.Printf("[HEARTBEAT] speed=%.1f incline=%.1f workout=%s grpc=%v clients=%d deadman=%s",
+					currentSpeed, currentIncl, workoutState, grpcConnected, nc, deadmanState)
+				mu.RUnlock()
+			}
+		}
+	}()
+
+	// Graceful shutdown — mark offline on MQTT before exit
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt)
+	go func() {
+		<-sigCh
+		log.Println("[BRIDGE] Shutting down...")
+		if mqttReady.Load() && mqttClient != nil {
+			mqttClient.Publish(mqttTopicPrefix+"/available", 1, true, "offline")
+			time.Sleep(200 * time.Millisecond)
+			mqttClient.Disconnect(500)
+		}
+		os.Exit(0)
+	}()
+
+	fmt.Println("")
+	fmt.Println("[BRIDGE] Ready!")
+	fmt.Printf("[BRIDGE] PWA connect to: http://localhost:4510/ws\n")
+	fmt.Printf("[BRIDGE] REST API: /workout/start, /workout/stop, /speed, /incline\n")
+	fmt.Println("")
+
+	// Blocks
+	startHTTPServer()
+}

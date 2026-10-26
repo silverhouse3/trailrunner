@@ -1,0 +1,2 @@
+ok  	trailrunner-bridge	2.052s
+?   	trailrunner-bridge/proto	[no test files]

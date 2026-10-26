@@ -1,0 +1,174 @@
+=== RUN   TestStreamEndMarksStateUnknownAndPublishesNoLink
+2026/10/23 14:26:22 [gRPC] Workout state subscription active
+2026/10/23 14:26:22 [LINK] resynced: workout=RUNNING
+2026/10/23 14:26:22 [gRPC] Workout state: RUNNING
+2026/10/23 14:26:22 [gRPC] Workout state stream ended: EOF
+2026/10/23 14:26:22 [LINK] LOST (workout state stream ended) — workout state now UNKNOWN
+--- PASS: TestStreamEndMarksStateUnknownAndPublishesNoLink (0.00s)
+=== RUN   TestStreamOpenFailureMarksUnknown
+2026/10/23 14:26:22 [gRPC] Workout state sub error: unavailable
+2026/10/23 14:26:22 [LINK] LOST (workout state subscribe failed) — workout state now UNKNOWN
+--- PASS: TestStreamOpenFailureMarksUnknown (1.00s)
+=== RUN   TestReconnectResyncsInsteadOfTrustingOldState
+2026/10/23 14:26:23 [LINK] LOST (test) — workout state now UNKNOWN
+2026/10/23 14:26:23 [LINK] resynced: workout=PAUSED
+--- PASS: TestReconnectResyncsInsteadOfTrustingOldState (0.00s)
+=== RUN   TestResyncFailureStaysUnknown
+2026/10/23 14:26:23 [LINK] LOST (GetWorkoutState: down) — workout state now UNKNOWN
+--- PASS: TestResyncFailureStaysUnknown (0.00s)
+=== RUN   TestUnknownStateBlocksRaisingButNotStop
+2026/10/23 14:26:23 [LINK] LOST (test) — workout state now UNKNOWN
+--- PASS: TestUnknownStateBlocksRaisingButNotStop (0.00s)
+=== RUN   TestBridgeStartedFlagLifecycle
+--- PASS: TestBridgeStartedFlagLifecycle (0.00s)
+=== RUN   TestDeadmanTripsAndRampsDownMonotonically
+2026/10/23 14:26:23 [DEADMAN] !!! TRIPPED: no client for 30s, bridge-started workout, belt 12.0 kph — ramping DOWN to 0
+2026/10/23 14:26:23 [DEADMAN] ramp 12.0 -> 11.0 kph
+2026/10/23 14:26:23 [DEADMAN] ramp 11.0 -> 10.0 kph
+2026/10/23 14:26:23 [DEADMAN] ramp 10.0 -> 9.0 kph
+2026/10/23 14:26:23 [DEADMAN] ramp 9.0 -> 8.0 kph
+2026/10/23 14:26:23 [DEADMAN] ramp 8.0 -> 7.0 kph
+2026/10/23 14:26:23 [DEADMAN] ramp 7.0 -> 6.0 kph
+2026/10/23 14:26:23 [DEADMAN] ramp 6.0 -> 5.0 kph
+2026/10/23 14:26:23 [DEADMAN] ramp 5.0 -> 4.0 kph
+2026/10/23 14:26:23 [DEADMAN] ramp 4.0 -> 3.0 kph
+2026/10/23 14:26:23 [DEADMAN] ramp 3.0 -> 0.0 kph
+2026/10/23 14:26:23 [DEADMAN] belt commanded to 0 — TRIPPED (workout left RUNNING; UI may resume or stop)
+--- PASS: TestDeadmanTripsAndRampsDownMonotonically (0.00s)
+=== RUN   TestDeadmanSlowSpeedGoesStraightToZero
+2026/10/23 14:26:23 [DEADMAN] !!! TRIPPED: no client for 30s, bridge-started workout, belt 1.8 kph — ramping DOWN to 0
+2026/10/23 14:26:23 [DEADMAN] ramp 1.8 -> 0.0 kph
+2026/10/23 14:26:23 [DEADMAN] belt commanded to 0 — TRIPPED (workout left RUNNING; UI may resume or stop)
+--- PASS: TestDeadmanSlowSpeedGoesStraightToZero (0.00s)
+=== RUN   TestDeadmanNeverIncreasesEvenWithLaggingBelt
+2026/10/23 14:26:23 [DEADMAN] !!! TRIPPED: no client for 30s, bridge-started workout, belt 10.0 kph — ramping DOWN to 0
+2026/10/23 14:26:23 [DEADMAN] ramp 10.0 -> 9.0 kph
+2026/10/23 14:26:23 [DEADMAN] ramp 10.0 -> 8.0 kph
+2026/10/23 14:26:23 [DEADMAN] ramp 10.0 -> 7.0 kph
+2026/10/23 14:26:23 [DEADMAN] ramp 10.0 -> 6.0 kph
+2026/10/23 14:26:23 [DEADMAN] ramp 10.0 -> 5.0 kph
+2026/10/23 14:26:23 [DEADMAN] ramp 10.0 -> 4.0 kph
+2026/10/23 14:26:23 [DEADMAN] ramp 10.0 -> 3.0 kph
+2026/10/23 14:26:23 [DEADMAN] ramp 10.0 -> 0.0 kph
+2026/10/23 14:26:23 [DEADMAN] belt commanded to 0 — TRIPPED (workout left RUNNING; UI may resume or stop)
+2026/10/23 14:26:23 [DEADMAN] belt still moving after 0 - stopping workout (belt 10.0 kph)
+2026/10/23 14:26:23 [DEADMAN] console STOP sent - TRIPPED-STOPPED (workout IDLE)
+--- PASS: TestDeadmanNeverIncreasesEvenWithLaggingBelt (0.00s)
+=== RUN   TestDeadmanDoesNotTripWhenClientPresent
+--- PASS: TestDeadmanDoesNotTripWhenClientPresent (0.00s)
+=== RUN   TestDeadmanDoesNotTripForIFitStartedWorkout
+--- PASS: TestDeadmanDoesNotTripForIFitStartedWorkout (0.00s)
+=== RUN   TestDeadmanDoesNotTripWhenSpeedAlreadyZero
+--- PASS: TestDeadmanDoesNotTripWhenSpeedAlreadyZero (0.00s)
+=== RUN   TestDeadmanDisabledWithZeroTimeout
+--- PASS: TestDeadmanDisabledWithZeroTimeout (0.00s)
+=== RUN   TestDeadmanCancelsWhenClientReturns
+2026/10/23 14:26:23 [DEADMAN] !!! TRIPPED: no client for 30s, bridge-started workout, belt 12.0 kph — ramping DOWN to 0
+2026/10/23 14:26:23 [DEADMAN] ramp 12.0 -> 11.0 kph
+2026/10/23 14:26:23 [DEADMAN] client returned — dead-man cancelled (was ramping). Belt NOT restored; user must set speed.
+--- PASS: TestDeadmanCancelsWhenClientReturns (0.00s)
+=== RUN   TestDeadmanClientReturnClearsTrippedLatch
+2026/10/23 14:26:23 [DEADMAN] !!! TRIPPED: no client for 30s, bridge-started workout, belt 1.0 kph — ramping DOWN to 0
+2026/10/23 14:26:23 [DEADMAN] ramp 1.0 -> 0.0 kph
+2026/10/23 14:26:23 [DEADMAN] belt commanded to 0 — TRIPPED (workout left RUNNING; UI may resume or stop)
+2026/10/23 14:26:23 [DEADMAN] client returned — dead-man cancelled (was tripped). Belt NOT restored; user must set speed.
+--- PASS: TestDeadmanClientReturnClearsTrippedLatch (0.00s)
+=== RUN   TestDeadmanIgnoresSafetyKeyAndStillReduces
+2026/10/23 14:26:23 [DEADMAN] !!! TRIPPED: no client for 30s, bridge-started workout, belt 10.0 kph — ramping DOWN to 0
+2026/10/23 14:26:23 [DEADMAN] ramp 10.0 -> 9.0 kph
+--- PASS: TestDeadmanIgnoresSafetyKeyAndStillReduces (0.00s)
+=== RUN   TestDeadmanUsesFreshSpeedWhenCacheIsStale
+2026/10/23 14:26:23 [DEADMAN] !!! TRIPPED: no client for 30s, bridge-started workout, belt 9.0 kph — ramping DOWN to 0
+2026/10/23 14:26:23 [DEADMAN] ramp 9.0 -> 8.0 kph
+--- PASS: TestDeadmanUsesFreshSpeedWhenCacheIsStale (0.00s)
+=== RUN   TestDeadmanRateNeverAboveLimiter
+2026/10/23 14:26:23 [DEADMAN] armed: timeout 8s, ramp 4.0 kph/s
+2026/10/23 14:26:23 [DEADMAN] disabled (TR_DEADMAN_S=0)
+2026/10/23 14:26:23 [DEADMAN] bad TR_DEADMAN_S="junk" — using default 20s
+2026/10/23 14:26:23 [DEADMAN] disabled (TR_DEADMAN_S=0)
+--- PASS: TestDeadmanRateNeverAboveLimiter (0.00s)
+=== RUN   TestHTTPRequestCountsAsClientAndHealthShowsDeadman
+--- PASS: TestHTTPRequestCountsAsClientAndHealthShowsDeadman (0.00s)
+=== RUN   TestSpeedZeroNeverBlockedBySafetyKey
+--- PASS: TestSpeedZeroNeverBlockedBySafetyKey (0.00s)
+=== RUN   TestNaNBecomesStop
+2026/10/23 14:26:23 [SAFETY] NaN value rejected in clamp — returning 0.0
+--- PASS: TestNaNBecomesStop (0.00s)
+=== RUN   TestSafetyKeyBlocksRaiseButAllowsReduction
+--- PASS: TestSafetyKeyBlocksRaiseButAllowsReduction (0.00s)
+=== RUN   TestInclineZeroAllowedWithKeyOut
+--- PASS: TestInclineZeroAllowedWithKeyOut (0.00s)
+=== RUN   TestRateLimitAcceleration
+2026/10/23 14:26:23 [SAFETY] Speed ramp limited: requested 20.0, capped to 5.4 (delta 15.0 > max 0.4)
+2026/10/23 14:26:23 [SAFETY] Speed ramp limited: requested 20.0, capped to 9.0 (delta 15.0 > max 4.0)
+--- PASS: TestRateLimitAcceleration (0.00s)
+=== RUN   TestRateLimitDecelCappedButZeroImmediate
+2026/10/23 14:26:23 [SAFETY] Speed ramp limited (decel): capped to 6.0
+--- PASS: TestRateLimitDecelCappedButZeroImmediate (0.00s)
+=== RUN   TestClampTo22
+--- PASS: TestClampTo22 (0.00s)
+=== RUN   TestStopIsNotDelayedByInFlightRaiseAndWinsOrdering
+--- PASS: TestStopIsNotDelayedByInFlightRaiseAndWinsOrdering (0.01s)
+=== RUN   TestRaiseDecidedBeforeStopIsDroppedNotSentAfter
+--- PASS: TestRaiseDecidedBeforeStopIsDroppedNotSentAfter (0.00s)
+=== RUN   TestMotorSemaphoreNeverThrottlesStop
+2026/10/23 14:26:23 [WS] Dropped speed 8.0 — too many motor commands queued
+--- PASS: TestMotorSemaphoreNeverThrottlesStop (0.01s)
+=== RUN   TestBodyLimit
+--- PASS: TestBodyLimit (0.00s)
+=== RUN   TestIdleGapCannotJumpMoreThan4
+2026/10/23 14:26:23 [SAFETY] Speed ramp limited: requested 22.0, capped to 4.0 (delta 22.0 > max 4.0)
+2026/10/23 14:26:23 [SAFETY] Speed ramp limited: requested 22.0, capped to 4.0 (delta 22.0 > max 4.0)
+--- PASS: TestIdleGapCannotJumpMoreThan4 (0.00s)
+=== RUN   TestRepeatedCommandsOneSecondApartClimb4Each
+2026/10/23 14:26:23 [SAFETY] Speed ramp limited: requested 22.0, capped to 4.0 (delta 22.0 > max 4.0)
+2026/10/23 14:26:23 [SAFETY] Speed ramp limited: requested 22.0, capped to 8.0 (delta 18.0 > max 4.0)
+2026/10/23 14:26:23 [SAFETY] Speed ramp limited: requested 22.0, capped to 12.0 (delta 14.0 > max 4.0)
+2026/10/23 14:26:23 [SAFETY] Speed ramp limited: requested 22.0, capped to 16.0 (delta 10.0 > max 4.0)
+2026/10/23 14:26:23 [SAFETY] Speed ramp limited: requested 22.0, capped to 20.0 (delta 6.0 > max 4.0)
+--- PASS: TestRepeatedCommandsOneSecondApartClimb4Each (0.00s)
+=== RUN   TestStaleLowBaselineUsesMeasuredSpeedForRaise
+2026/10/23 14:26:23 [SAFETY] Speed ramp limited: requested 22.0, capped to 14.0 (delta 12.0 > max 4.0)
+--- PASS: TestStaleLowBaselineUsesMeasuredSpeedForRaise (0.00s)
+=== RUN   TestStaleHighBaselineDoesNotInflateDecel
+2026/10/23 14:26:23 [SAFETY] Speed ramp limited (decel): capped to 8.0
+--- PASS: TestStaleHighBaselineDoesNotInflateDecel (0.00s)
+=== RUN   TestStopAndDeadmanUnaffectedByDtCap
+2026/10/23 14:26:23 [DEADMAN] !!! TRIPPED: no client for 30s, bridge-started workout, belt 15.0 kph — ramping DOWN to 0
+2026/10/23 14:26:23 [DEADMAN] ramp 15.0 -> 14.0 kph
+--- PASS: TestStopAndDeadmanUnaffectedByDtCap (0.00s)
+=== RUN   TestDeadmanCreepStopsWorkoutOnceAfter3s
+2026/10/23 14:26:23 [DEADMAN] !!! TRIPPED: no client for 30s, bridge-started workout, belt 1.6 kph — ramping DOWN to 0
+2026/10/23 14:26:23 [DEADMAN] ramp 1.6 -> 0.0 kph
+2026/10/23 14:26:23 [DEADMAN] belt commanded to 0 — TRIPPED (workout left RUNNING; UI may resume or stop)
+2026/10/23 14:26:23 [DEADMAN] belt still moving after 0 - stopping workout (belt 0.8 kph)
+2026/10/23 14:26:23 [DEADMAN] console STOP sent - TRIPPED-STOPPED (workout IDLE)
+--- PASS: TestDeadmanCreepStopsWorkoutOnceAfter3s (0.00s)
+=== RUN   TestDeadmanBeltReachesZeroNoStop
+2026/10/23 14:26:23 [DEADMAN] !!! TRIPPED: no client for 30s, bridge-started workout, belt 1.6 kph — ramping DOWN to 0
+2026/10/23 14:26:23 [DEADMAN] ramp 1.6 -> 0.0 kph
+2026/10/23 14:26:23 [DEADMAN] belt commanded to 0 — TRIPPED (workout left RUNNING; UI may resume or stop)
+--- PASS: TestDeadmanBeltReachesZeroNoStop (0.00s)
+=== RUN   TestDeadmanCreepClientReturnsBefore3sNoStop
+2026/10/23 14:26:23 [DEADMAN] !!! TRIPPED: no client for 30s, bridge-started workout, belt 1.6 kph — ramping DOWN to 0
+2026/10/23 14:26:23 [DEADMAN] ramp 1.6 -> 0.0 kph
+2026/10/23 14:26:23 [DEADMAN] belt commanded to 0 — TRIPPED (workout left RUNNING; UI may resume or stop)
+2026/10/23 14:26:23 [DEADMAN] client returned — dead-man cancelled (was tripped). Belt NOT restored; user must set speed.
+--- PASS: TestDeadmanCreepClientReturnsBefore3sNoStop (0.00s)
+=== RUN   TestDeadmanCreepIFitWorkoutNoStop
+--- PASS: TestDeadmanCreepIFitWorkoutNoStop (0.00s)
+=== RUN   TestDeadmanCreepStopFailureRetriesMax5
+2026/10/23 14:26:23 [DEADMAN] !!! TRIPPED: no client for 30s, bridge-started workout, belt 1.6 kph — ramping DOWN to 0
+2026/10/23 14:26:23 [DEADMAN] ramp 1.6 -> 0.0 kph
+2026/10/23 14:26:23 [DEADMAN] belt commanded to 0 — TRIPPED (workout left RUNNING; UI may resume or stop)
+2026/10/23 14:26:23 [DEADMAN] belt still moving after 0 - stopping workout (belt 0.8 kph)
+2026/10/23 14:26:23 [DEADMAN] console STOP failed (try 1/5): boom
+2026/10/23 14:26:23 [DEADMAN] console STOP failed (try 2/5): boom
+2026/10/23 14:26:23 [DEADMAN] console STOP failed (try 3/5): boom
+2026/10/23 14:26:23 [DEADMAN] console STOP failed (try 4/5): boom
+2026/10/23 14:26:23 [DEADMAN] console STOP failed (try 5/5): boom
+2026/10/23 14:26:23 [DEADMAN] giving up on STOP after 5 tries - belt still 0.8 kph
+--- PASS: TestDeadmanCreepStopFailureRetriesMax5 (0.00s)
+PASS
+ok  	trailrunner-bridge	2.042s
+?   	trailrunner-bridge/proto	[no test files]
