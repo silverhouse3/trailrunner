@@ -881,7 +881,7 @@ const UI = {
     const el = document.getElementById('historyList');
     if (!el) return;
     const routeId = Engine.route ? Engine.route.id : null;
-    const runs = routeId ? Store.getRunsForRoute(routeId) : Store.getRuns();
+    const runs = (routeId ? Store.getRunsForRoute(routeId) : Store.getRuns()).filter(r => !r.imported);   // imported Strava runs live on the stats page only
 
     if (!runs.length) {
       el.innerHTML = '<div class="wb-empty">No saved runs yet.<br>Finish and save a run, then race it here.</div>';
@@ -896,14 +896,6 @@ const UI = {
         var sUrl = StravaUpload.activityUrlFor(r.id);
         sv = sUrl ? '<a class="hr-btn hr-strava on" href="' + _esc(sUrl) + '" target="_blank" onclick="event.stopPropagation()">On Strava - View on Strava</a>'
                   : '<div class="hr-btn hr-strava" onclick="event.stopPropagation();App.sendRunToStrava(\'' + safeId + '\')">SEND TO STRAVA</div>';
-      }
-      if (r.source === 'strava') {   // imported from Strava: no track points, never re-uploaded, not a ghost / Run Again source
-        return '<div class="history-row">' +
-          '<div class="hr-date">' + date + '</div>' +
-          '<div class="hr-name">' + _esc(r.routeName || 'Strava run') + ' <span style="color:#FC5200;font-size:11px;font-weight:900;border:1px solid #FC5200;border-radius:6px;padding:1px 6px">Strava</span></div>' +
-          '<div class="hr-time">' + Engine.fmtTime(r.elapsed) + '</div>' +
-          '<div class="hr-dist">' + Units.distKmU(r.distanceKm || 0, 1) + '</div>' +
-        '</div>';
       }
       return '<div class="history-row" onclick="App.loadGhost(\'' + safeId + '\')">' +
         '<div class="hr-date">' + date + '</div>' +

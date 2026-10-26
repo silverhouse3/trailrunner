@@ -78,7 +78,7 @@
       opts = opts || {};
       var now = opts.now || runStamp(run) || Date.now();
       var km = runKm(run), el = runTime(run);
-      var hist = (history || []).filter(function (h) { return h && (!run.id || h.id !== run.id) && runKm(h) > 0.2 && runTime(h) > 0 && runStamp(h) <= now + 1000; });
+      var hist = (history || []).filter(function (h) { return h && !h.imported && h.source !== 'strava' && (!run.id || h.id !== run.id) && runKm(h) > 0.2 && runTime(h) > 0 && runStamp(h) <= now + 1000; });
       hist.sort(function (a, b) { return runStamp(b) - runStamp(a); });
       var paceKm = km > 0 ? el / km : 0;
       var sc = (run._speedSamples > 0) ? run._speedSum / run._speedSamples : 0;

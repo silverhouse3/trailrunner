@@ -219,7 +219,9 @@ var IDBStore = {
       if (run.id && runs.length > 0 && runs[0].id === run.id) return;
       runs.unshift(run);
       // Cap at 50 in localStorage (IndexedDB holds unlimited)
-      while (runs.length > 50) runs.pop();
+      // (runs imported from Strava are small and capped separately - see Store._capRuns)
+      if (typeof Store !== 'undefined' && Store._capRuns) Store._capRuns(runs);
+      else while (runs.length > 50) runs.pop();
       localStorage.setItem('tr_runs', JSON.stringify(runs));
     } catch(e) {
       console.warn('[IDBStore] localStorage write failed:', e);

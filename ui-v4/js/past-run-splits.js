@@ -32,7 +32,7 @@ var PastRunSplits = {
 
   /** Normalise a stored run into the PastRun shape; returns null if it has no usable splits. */
   normalise: function (r) {
-    if (!r) return null;
+    if (!r || r.imported || r.source === 'strava') return null;   // imported Strava runs are not comparison sources
     var splits = [];
     if (r.splits && r.splits.length) {
       for (var i = 0; i < r.splits.length; i++) {

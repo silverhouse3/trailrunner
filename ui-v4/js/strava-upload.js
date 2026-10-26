@@ -217,6 +217,7 @@
     reason: function (run) {
       if (!run || !api() || !api().isConnected()) return 'off';
       var id = run.id;
+      if (run.source === 'strava' || run.imported || (run.synced && run.synced.strava && run.synced.strava.imported)) return 'uploaded';   // came FROM Strava: never send back
       if (id && root.StravaRacers && root.StravaRacers.uploadedMap()[id]) return 'uploaded';
       if ((run.elapsed || 0) < this.MIN_ELAPSED_S || (run.distanceM || 0) < this.MIN_DISTANCE_M) return 'short';
       if (id && this.skippedMap()[id]) return 'skipped';

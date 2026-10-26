@@ -7,7 +7,9 @@
 //   POST /oauth/token                    authorization_code + refresh_token (rotating refresh tokens)
 //   GET  /oauth/authorize                302 back to redirect_uri?code=mockcode (manual dev)
 //   GET  /api/v3/athlete
-//   GET  /api/v3/athlete/activities      ?page&per_page  (newest first; Run/TrailRun/Ride/Walk mix)
+//   GET  /api/v3/athlete/activities      ?page&per_page&after&before  (newest first; Run/TrailRun/Ride/Walk mix)
+//   GET  /api/v3/activities/:id          detail (calories, splits_metric)
+//   POST /mock/activities {items,replace,only}  add (only: serve ONLY these on the list) list-only activities
 //   GET  /api/v3/activities/:id/streams  ?keys&key_by_type=true
 //   GET  /api/v3/athletes/:id/routes
 //   GET  /api/v3/routes/:id/streams      (array form, as Strava returns for routes)
@@ -248,6 +250,13 @@ function handle(req, res) {
   if (path === '/mock/uploads') return send(res, 200, Object.keys(S.uploads).map(function (k) { return S.uploads[k]; }));
   if (path === '/mock/expire') { Object.keys(S.access).forEach(function (k) { S.access[k] = Math.floor(Date.now() / 1000) - 10; }); return send(res, 200, { ok: true }); }
   if (path === '/mock/info') return send(res, 200, { activities: ACTS.map(function (a) { return { id: a.id, name: a.name, sport_type: a.sport_type, distance: a.distance, gain: a.total_elevation_gain, moving: a.moving_time }; }), baseLoopM: Math.round(BASE_LOOP.L), decoyLoopM: Math.round(DECOY_LOOP.L), reverseLoopM: Math.round(REV_LOOP.L) });
+  if (path === '/mock/activities' && req.method === 'POST') {   // add extra list-only activities (summary shape); {items:[...]} 
+    return readBody(req).then(function (b) {
+      var j = {}; try { j = JSON.parse(b.toString() || '{}'); } catch (e) {}
+      S.extraActs = (j.replace ? [] : (S.extraActs || [])).concat(j.items || []); S.only = !!j.only;
+      send(res, 200, { ok: true, extra: S.extraActs.length });
+    });
+  }
   if (path === '/mock/fault' || path === '/mock/config') {
     return readBody(req).then(function (b) {
       var j = {}; try { j = JSON.parse(b.toString() || '{}'); } catch (e) {}
@@ -292,8 +301,21 @@ function handle(req, res) {
 
   if (p === '/athlete') return send(res, 200, { id: 4242, firstname: 'Soph', lastname: 'Mock', resource_state: 3 }, uh);
   if (p === '/athlete/activities') {
-    var page = +q.get('page') || 1, per = +q.get('per_page') || 30;
-    return send(res, 200, ACTS.slice((page - 1) * per, page * per), uh);
+    var page = +q.get('page') || 1, per = +q.get('per_page') || 30, list = S.only ? (S.extraActs || []) : (S.extraActs || []).concat(ACTS);
+    // `after` / `before` (epoch seconds) filter like Strava; newest first
+    var aft = +q.get('after') || 0, bef = +q.get('before') || 0;
+    if (aft || bef) list = list.filter(function (x) { var t = Date.parse(x.start_date) / 1000; return (!aft || t > aft) && (!bef || t < bef); });
+    list = list.slice().sort(function (x, y) { return Date.parse(y.start_date) - Date.parse(x.start_date); });
+    return send(res, 200, list.slice((page - 1) * per, page * per), uh);
+  }
+  if ((m = /^\/activities\/(\d+)$/.exec(p))) {   // detail (summary + calories + km splits), used by the stats-page import on demand
+    var det = (S.extraActs || []).concat(ACTS).filter(function (x) { return String(x.id) === m[1]; })[0];
+    if (!det) return send(res, 404, { message: 'Record Not Found' }, uh);
+    var o = JSON.parse(JSON.stringify(det)), km = Math.floor(det.distance / 1000), sp = [];
+    for (var kk = 1; kk <= km; kk++) sp.push({ distance: 1000, elapsed_time: Math.round(1000 / det.average_speed), moving_time: Math.round(1000 / det.average_speed), split: kk, average_speed: det.average_speed, average_heartrate: det.average_heartrate });
+    if (det.distance - km * 1000 > 50) sp.push({ distance: Math.round(det.distance - km * 1000), elapsed_time: 100, moving_time: 100, split: km + 1, average_speed: det.average_speed });
+    o.calories = Math.round(det.distance / 1000 * 62); o.splits_metric = sp; o.resource_state = 3;
+    return send(res, 200, o, uh);
   }
   if ((m = /^\/activities\/(\d+)\/streams$/.exec(p))) {
     var sim = SIMS[m[1]]; if (!sim) return send(res, 404, { message: 'Record Not Found' }, uh);

@@ -463,6 +463,8 @@ window.VoiceCommands = (function() {
       speak('No runs recorded yet. Get out there!');
       return;
     }
+    runs = runs.filter(function (x) { return !x.imported; });   // imported Strava runs are not 'your last run' here
+    if (!runs.length) { speak('No runs recorded yet. Get out there!'); return; }
     var r = runs[0];
     var dist = (r.distanceKm || 0).toFixed(1);
     var elapsed = r.elapsedSec || r.elapsed || 0;

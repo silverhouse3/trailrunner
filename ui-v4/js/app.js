@@ -883,7 +883,7 @@ const App = {
       var allRuns = Store.getRuns();
       var wkName = Engine.run.routeName;
       for (var wi = 0; wi < allRuns.length; wi++) {
-        if (allRuns[wi].routeName === wkName && allRuns[wi].splits && allRuns[wi].splits.length > 0) {
+        if (!allRuns[wi].imported && allRuns[wi].routeName === wkName && allRuns[wi].splits && allRuns[wi].splits.length > 0) {
           MilestoneTracker._lastRunSplits = allRuns[wi].splits;
           break;
         }
@@ -1455,6 +1455,7 @@ const App = {
     if (typeof RunAgain === 'undefined') return;
     var run = Store.getRuns().find(function (r) { return r.id === runId; });
     if (!run) { this._toast('Run not found', 'var(--red)'); return; }
+    if (run.imported) { this._toast('Imported from Strava - no speed timeline to run again', 'var(--red)'); return; }
     UI.closeHistoryPanel();
     var self = this;
     RunAgain.open(RunAgain.fromRun(run), { onArm: function (w) { self.armWorkout(w); } });
@@ -1463,6 +1464,7 @@ const App = {
     if (!window.StravaUpload) return;
     var run = Store.getRuns().find(function (r) { return r.id === runId; });
     if (!run) { this._toast('Run not found', 'var(--red)'); return; }
+    if (run.imported) return;
     var self = this;
     StravaUpload.promptStored(run).then(function () { if (UI.renderHistory) UI.renderHistory(); self._updateSyncPill(); }).catch(function () {});
   },
@@ -1475,7 +1477,7 @@ const App = {
   loadGhost(runId) {
     const runs = Store.getRuns();
     const run = runs.find(r => r.id === runId);
-    if (run) {
+    if (run && !run.imported) {
       Engine.loadGhost(run);
       UI.closeHistoryPanel();
     }

@@ -78,10 +78,20 @@ const Store = {
     run.id = run.id || 'run_' + Date.now();
     run.savedAt = new Date().toISOString();
     runs.unshift(run); // newest first
-    // Cap storage (track points can be large)
-    while (runs.length > 50) runs.pop();
+    // Cap storage (track points can be large). Runs imported from Strava (small, no track points) are not
+    // counted in the 50 and have their own cap, so importing never pushes out your own recorded runs.
+    Store._capRuns(runs);
     this._set('runs', runs);
     return run;
+  },
+
+  _capRuns(runs) {
+    const own = () => runs.filter(r => !r.imported).length;
+    let i = runs.length - 1;
+    while (own() > 50 && i >= 0) { if (!runs[i].imported) runs.splice(i, 1); i--; }
+    let imp = runs.filter(r => r.imported).length;
+    for (i = runs.length - 1; imp > 300 && i >= 0; i--) { if (runs[i].imported) { runs.splice(i, 1); imp--; } }
+    return runs;
   },
 
   getRunsForRoute(routeId) {

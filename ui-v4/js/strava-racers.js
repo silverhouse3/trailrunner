@@ -219,6 +219,7 @@
       for (var rid in up) if (String(up[rid]) === String(item.id)) return true;
       for (i = 0; i < localRuns.length; i++) {
         var r = localRuns[i], rs = Date.parse(r.startedAt);
+        if (r.imported || r.source === 'strava') continue;   // imported FROM Strava: not a treadmill run
         if (isNaN(rs) || isNaN(st)) continue;
         if (Math.abs(rs - st) / 1000 <= M.dupStartS && (!item.distance || !r.distanceM || Math.abs(item.distance - r.distanceM) / r.distanceM <= M.dupDistFrac)) return true;
         if (r.synced && r.synced.strava && String(r.synced.strava.activityId) === String(item.id)) return true;
@@ -276,7 +277,7 @@
       var self = this;
       return new Promise(function (resolve) {
         var all = [], seen = {};
-        function add(arr) { (arr || []).forEach(function (r) { if (r && !seen[r.id || r.startedAt]) { seen[r.id || r.startedAt] = 1; all.push(r); } }); }
+        function add(arr) { (arr || []).forEach(function (r) { if (r && !r.imported && r.source !== 'strava' && !seen[r.id || r.startedAt]) { seen[r.id || r.startedAt] = 1; all.push(r); } }); }
         try { if (env('Store')) add(env('Store').getRuns()); } catch (e) {}
         try {
           if (env('IDBStore') && env('IDBStore')._db && env('IDBStore').getRuns) {
@@ -293,7 +294,7 @@
     treadmillProfiles: function (route, runs) {
       var out = [], i, self = this;
       (runs || []).forEach(function (r) {
-        if (r.routeId !== route.id) return;
+        if (r.routeId !== route.id || r.imported) return;
         var p = self.profileFromRun(r, route);
         if (p) out.push(p);
       });
@@ -329,7 +330,7 @@
           return A.listRecentRuns({ want: 30 }).then(function (lst) {
             var cands = [];
             lst.items.forEach(function (it) {
-              if (haveAcc[it.id] || saved.seen[it.id]) return;
+              if (haveAcc[it.id] || (saved.seen[it.id] && saved.seen[it.id] !== 'dup')) return;   // 'dup' is re-checked (older versions could mark it because of imported runs)
               if (meta && meta.stravaId === it.id) return;
               if (self.isDuplicate(it, runs)) { saved.seen[it.id] = 'dup'; rejected.push({ id: it.id, why: 'duplicate-of-treadmill-run' }); return; }
               var pre = self.preMatch(route, it);
