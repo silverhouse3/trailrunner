@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1920, initial-scale=1">
+<title>TrailRunner — Post-Workout Summary Mockup</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --bg: #0a1628; --bg-card: #0f1d33; --border: #1e3050;
+  --text: #e8f0ff; --text-mid: #8094ab; --text-dim: #5a7899;
+  --cyan: #00d4ff; --green: #00d4aa; --orange: #f59e0b;
+  --red: #ef4444; --blue: #3b82f6; --yellow: #fbbf24;
+  --strava: #fc4c02;
+}
+html, body {
+  width: 1920px; height: 1080px; overflow: hidden;
+  background: var(--bg); color: var(--text);
+  font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center;
+}
+
+/* Close button */
+.close-btn {
+  position: absolute; top: 24px; left: 24px;
+  width: 48px; height: 48px; border-radius: 24px;
+  background: rgba(0,212,255,0.1); border: 1px solid rgba(0,212,255,0.2);
+  color: var(--cyan); font-size: 22px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* Badge */
+.badge { font-size: 48px; font-weight: 800; color: var(--green); margin-bottom: 4px; }
+.badge-sub { font-size: 18px; color: var(--text-mid); margin-bottom: 48px; }
+
+/* Workout name */
+.wk-name {
+  font-size: 22px; font-weight: 700; margin-bottom: 24px;
+  padding: 8px 24px; border-radius: 8px;
+  background: rgba(0,212,255,0.06); border: 1px solid rgba(0,212,255,0.15);
+}
+
+/* Stats row */
+.stats-row {
+  display: flex; gap: 48px; margin-bottom: 48px;
+  flex-wrap: wrap; justify-content: center;
+}
+.stat-item {
+  display: flex; align-items: center; gap: 12px;
+}
+.stat-icon {
+  width: 36px; height: 36px; border-radius: 18px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+}
+.stat-val { font-size: 32px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.stat-lbl { font-size: 14px; color: var(--text-mid); font-weight: 500; }
+.stat-info { display: flex; flex-direction: column; }
+
+/* Chart area */
+.chart-wrap {
+  width: 1400px; height: 240px;
+  background: rgba(15,29,51,0.5); border-radius: 16px;
+  border: 1px solid var(--border); padding: 24px;
+  position: relative; margin-bottom: 16px;
+}
+.chart-canvas { width: 100%; height: 100%; }
+
+/* Chart grid */
+.cg-line {
+  position: absolute; left: 80px; right: 80px; height: 1px;
+  border-top: 1px dotted rgba(255,255,255,0.12);
+}
+.cg-label-l {
+  position: absolute; left: 24px; font-size: 12px; color: var(--text-dim);
+  font-weight: 600; transform: translateY(-50%);
+}
+.cg-label-r {
+  position: absolute; right: 24px; font-size: 12px; color: var(--text-dim);
+  font-weight: 600; transform: translateY(-50%);
+}
+
+/* Legend */
+.legend-row {
+  display: flex; gap: 48px; justify-content: center; margin-bottom: 48px;
+}
+.legend-item {
+  display: flex; align-items: center; gap: 8px; font-size: 14px;
+}
+.legend-dot { width: 12px; height: 12px; border-radius: 6px; }
+.legend-val { color: var(--text); font-weight: 600; }
+.legend-detail { color: var(--text-mid); }
+
+/* Action buttons */
+.actions {
+  display: flex; gap: 16px;
+}
+.act-btn {
+  padding: 16px 40px; border-radius: 12px; border: none;
+  font-size: 16px; font-weight: 700; cursor: pointer;
+  letter-spacing: 0.03em; transition: all 0.15s;
+}
+.act-btn.save { background: var(--green); color: var(--bg); }
+.act-btn.save:hover { filter: brightness(1.1); }
+.act-btn.strava {
+  background: rgba(252,76,2,0.15); color: var(--strava);
+  border: 2px solid rgba(252,76,2,0.3);
+}
+.act-btn.export {
+  background: rgba(59,130,246,0.15); color: var(--blue);
+  border: 2px solid rgba(59,130,246,0.3);
+}
+.act-btn.discard {
+  background: transparent; color: var(--text-dim);
+  border: 2px solid var(--border);
+}
+
+/* Strava connected indicator */
+.strava-badge {
+  position: absolute; top: 24px; right: 24px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 16px; border-radius: 20px;
+  background: rgba(252,76,2,0.1); border: 1px solid rgba(252,76,2,0.2);
+  font-size: 13px; font-weight: 600; color: var(--strava);
+}
+.strava-dot {
+  width: 8px; height: 8px; border-radius: 4px;
+  background: var(--strava); box-shadow: 0 0 6px var(--strava);
+}
+
+/* Garmin badge */
+.garmin-badge {
+  position: absolute; top: 24px; right: 220px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 16px; border-radius: 20px;
+  background: rgba(0,125,195,0.1); border: 1px solid rgba(0,125,195,0.2);
+  font-size: 13px; font-weight: 600; color: #007dc3;
+}
+</style>
+</head>
+<body>
+
+<div class="close-btn">&#x2715;</div>
+
+<div class="strava-badge"><div class="strava-dot"></div> Auto-syncing to Strava</div>
+<div class="garmin-badge">&#x231A; Garmin Connected</div>
+
+<div class="badge">Nice job!</div>
+<div class="badge-sub">Keep up the great work</div>
+
+<div class="wk-name">My Manual Workout</div>
+
+<div class="stats-row">
+  <div class="stat-item">
+    <div class="stat-icon" style="background:rgba(0,212,170,0.15);color:var(--green)">&#x23F1;</div>
+    <div class="stat-info"><div class="stat-val">12</div><div class="stat-lbl">min</div></div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-icon" style="background:rgba(59,130,246,0.15);color:var(--blue)">&#x21C4;</div>
+    <div class="stat-info"><div class="stat-val">0.68</div><div class="stat-lbl">mi</div></div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-icon" style="background:rgba(0,212,255,0.15);color:var(--cyan)">&#x26A1;</div>
+    <div class="stat-info"><div class="stat-val">8:42</div><div class="stat-lbl">min/mi</div></div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-icon" style="background:rgba(251,191,36,0.15);color:var(--yellow)">&#x1F525;</div>
+    <div class="stat-info"><div class="stat-val">142</div><div class="stat-lbl">cals (est)</div></div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-icon" style="background:rgba(34,197,94,0.15);color:#22c55e">&#x25B2;</div>
+    <div class="stat-info"><div class="stat-val">85</div><div class="stat-lbl">ft</div></div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-icon" style="background:rgba(239,68,68,0.15);color:var(--red)">&#x2764;</div>
+    <div class="stat-info"><div class="stat-val">148</div><div class="stat-lbl">avg bpm</div></div>
+  </div>
+</div>
+
+<!-- Chart -->
+<div class="chart-wrap">
+  <!-- Grid lines -->
+  <div class="cg-line" style="top: 24px;"></div>
+  <div class="cg-label-l" style="top: 24px;">40 %</div>
+
+  <div class="cg-line" style="top: 50%;"></div>
+  <div class="cg-label-l" style="top: 50%;">17 %</div>
+
+  <div class="cg-line" style="bottom: 24px;"></div>
+  <div class="cg-label-l" style="bottom: 18px;">-6 %</div>
+
+  <canvas id="summaryChart" class="chart-canvas"></canvas>
+</div>
+
+<div class="legend-row">
+  <div class="legend-item">
+    <div class="legend-dot" style="background:var(--cyan)"></div>
+    <span class="legend-val">Incline</span>
+    <span class="legend-detail">3.0 % avg &middot; 15.0 % max</span>
+  </div>
+  <div class="legend-item">
+    <div class="legend-dot" style="background:var(--orange)"></div>
+    <span class="legend-val">Speed</span>
+    <span class="legend-detail">4.3 mph avg &middot; 6.8 mph max</span>
+  </div>
+  <div class="legend-item">
+    <div class="legend-dot" style="background:var(--red)"></div>
+    <span class="legend-val">Heart Rate</span>
+    <span class="legend-detail">148 avg &middot; 172 max</span>
+  </div>
+</div>
+
+<div class="actions">
+  <button class="act-btn save">Save Run</button>
+  <button class="act-btn strava">Upload to Strava</button>
+  <button class="act-btn export">Export GPX</button>
+  <button class="act-btn export">Export TCX</button>
+  <button class="act-btn discard">Discard</button>
+</div>
+
+<script>
+// Draw simulated workout chart
+const canvas = document.getElementById('summaryChart');
+const ctx = canvas.getContext('2d');
+canvas.width = canvas.offsetWidth * 2;
+canvas.height = canvas.offsetHeight * 2;
+ctx.scale(2, 2);
+const w = canvas.offsetWidth, h = canvas.offsetHeight;
+const pad = 60;
+
+// Generate realistic workout data
+const points = 200;
+const inclineData = [], speedData = [], hrData = [];
+for (let i = 0; i < points; i++) {
+  const t = i / points;
+  // Warm up -> hills -> cool down
+  let inc = 0;
+  if (t < 0.1) inc = t * 50; // warm up ramp
+  else if (t < 0.3) inc = 5 + Math.sin((t-0.1)*15) * 8;
+  else if (t < 0.6) inc = 10 + Math.sin((t-0.3)*10) * 12;
+  else if (t < 0.8) inc = 5 + Math.sin((t-0.6)*12) * 6;
+  else inc = (1-t)*25; // cool down
+  inclineData.push(Math.max(-6, inc + (Math.random()-0.5)*2));
+
+  let spd = 3;
+  if (t < 0.1) spd = 2 + t * 30;
+  else if (t < 0.8) spd = 5 + Math.sin(t*8) * 2 + (Math.random()-0.5);
+  else spd = 5 * (1-((t-0.8)/0.2));
+  speedData.push(Math.max(0, spd));
+
+  hrData.push(100 + inc * 2 + spd * 5 + (Math.random()-0.5)*8);
+}
+
+// Draw incline (blue filled area)
+ctx.fillStyle = 'rgba(0, 180, 255, 0.2)';
+ctx.strokeStyle = 'rgba(0, 212, 255, 0.7)';
+ctx.lineWidth = 2;
+ctx.beginPath();
+ctx.moveTo(pad, h);
+for (let i = 0; i < points; i++) {
+  const x = pad + (i / points) * (w - pad*2);
+  const y = h - ((inclineData[i] + 6) / 46) * h;
+  ctx.lineTo(x, y);
+}
+ctx.lineTo(w - pad, h);
+ctx.closePath();
+ctx.fill();
+ctx.beginPath();
+for (let i = 0; i < points; i++) {
+  const x = pad + (i / points) * (w - pad*2);
+  const y = h - ((inclineData[i] + 6) / 46) * h;
+  i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+}
+ctx.stroke();
+
+// Draw speed (orange line)
+ctx.strokeStyle = 'rgba(245, 158, 11, 0.8)';
+ctx.lineWidth = 2.5;
+ctx.beginPath();
+for (let i = 0; i < points; i++) {
+  const x = pad + (i / points) * (w - pad*2);
+  const y = h - (speedData[i] / 14) * h;
+  i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+}
+ctx.stroke();
+
+// Draw HR (red dotted line, subtle)
+ctx.strokeStyle = 'rgba(239, 68, 68, 0.4)';
+ctx.lineWidth = 1.5;
+ctx.setLineDash([4, 4]);
+ctx.beginPath();
+for (let i = 0; i < points; i++) {
+  const x = pad + (i / points) * (w - pad*2);
+  const y = h - ((hrData[i] - 80) / 120) * h;
+  i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+}
+ctx.stroke();
+ctx.setLineDash([]);
+</script>
+</body>
+</html>
