@@ -881,6 +881,24 @@ const Engine = {
   AP_MIN_INTERVAL_MS: 5000,   // autopilot may change speed/incline at most once every 5 s (and never above the user's max)
   _apLastAdjust: 0,
 
+  /** User incline cap in %. An explicit 0 is honoured (only null/undefined/NaN fall back to 15). */
+  _maxInclineCap() {
+    var v = Store.getSettings().safetyMaxIncline;
+    if (v == null || isNaN(+v)) v = 15;
+    return Math.min(15, +v);
+  },
+
+  /** If the target incline is above the user cap, lower it one 0.5% step. Returns true if it acted. */
+  _pullInclineToCap() {
+    var cap = this._maxInclineCap();
+    if (this.ctrl.targetIncline > cap) {
+      this.ctrl.targetIncline = Math.max(cap, +(this.ctrl.targetIncline - 0.5).toFixed(1));
+      this._apLastAdjust = Date.now();
+      return true;
+    }
+    return false;
+  },
+
   _applyAutoControl() {
     const maxHR = this.run.maxHR;
     // P0-1: a stale sample (no fresh HR for HR_STALE_MS) counts as LOST
@@ -911,8 +929,10 @@ const Engine = {
       const zMax = Math.round(maxHR * zone.max);
       const hr = this.run.hr;
 
-      if (hr > 0 && apMayAdjust) {
-        const maxInc = Math.min(15, (Store.getSettings().safetyMaxIncline || 15));
+      if (hr > 0 && apMayAdjust && this._pullInclineToCap()) {
+        // incline was above the user cap: step it down (0.5% per 5 s) and skip the zone logic this tick
+      } else if (hr > 0 && apMayAdjust) {
+        const maxInc = this._maxInclineCap();
         if (hr > zMax + 3) {
           this.ctrl.targetIncline = Math.max(-3, this.ctrl.targetIncline - 0.5); this._apLastAdjust = Date.now();
         } else if (hr < zMin - 3) {
@@ -930,7 +950,9 @@ const Engine = {
       const zMax = Math.round(maxHR * zone.max);
       const hr = this.run.hr;
 
-      if (hr > 0 && apMayAdjust) {
+      if (hr > 0 && apMayAdjust && this._pullInclineToCap()) {
+        // incline was above the user cap: step it down (0.5% per 5 s) and skip the zone logic this tick
+      } else if (hr > 0 && apMayAdjust) {
         if (hr > zMax + 3) {
           this.ctrl.targetSpeed = Math.max(3, this.ctrl.targetSpeed - 0.5); this._apLastAdjust = Date.now();
         } else if (hr < zMin - 3) {

@@ -247,6 +247,19 @@ button:focus, input:focus { outline: none; }
 #whStageName { font-size: 26px; font-weight: 800; }
 #whStageTimer { font-size: 28px; font-weight: 900; color: var(--cyan); font-variant-numeric: tabular-nums; }
 #whNext { font-size: 18px; color: var(--cyan); font-weight: 700; flex: 1; overflow: hidden; text-overflow: ellipsis; }
+#workoutHud #whNext { min-width: 0; flex: 1 1 0; }
+#workoutHud #whStageName { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+#workoutHud #whProgName { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+#workoutHud #whStageTimer { flex: none; }
+#whChase { flex: none; max-width: 100%; min-width: 0; display: flex; align-items: baseline; gap: 14px; overflow: hidden; border-left: 3px solid #a78bfa; padding-left: 12px; }
+#whChaseLbl { max-width: 560px; min-width: 0; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; font-size: 18px; font-weight: 800; color: #a78bfa; letter-spacing: .06em; }
+#whChaseGap { flex: none; font-size: 24px; font-weight: 900; font-variant-numeric: tabular-nums; color: var(--green); }
+#whChaseGap.behind { color: var(--red); }
+/* half layout (720 px bar): the gap must always show, so the programme name and NEXT text give way first */
+#rootApp.half #workoutHud { gap: 14px; }
+#rootApp.half #workoutHud #whProgName, #rootApp.half #workoutHud #whNext { display: none; }
+#rootApp.half #whChase { padding-left: 8px; gap: 10px; }
+#rootApp.half #whChaseGap { font-size: 20px; }
 #whWarn { font-size: 18px; font-weight: 800; color: var(--orange); }
 .wh-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: var(--border); overflow: hidden; }
 #whProgFill { height: 100%; background: var(--green); border-radius: 4px; transition: width .5s; width: 0; }
@@ -942,3 +955,7 @@ button:focus, input:focus { outline: none; }
   font-size: 56px; font-weight: 700; line-height: 1.2; text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,.6);
   pointer-events: none; opacity: 0; visibility: hidden; transition: opacity .3s; }
 #screenMsg.show { opacity: 1; visibility: visible; }
+/* Headphones (BTAudio) — reuses the .btp-* pairing look */
+.bta-box { padding: 4px 0 80px; width: 100%; border-top: 2px solid var(--border); margin-top: 12px; }
+.bta-add { min-width: 260px; }
+.bta-forget { min-width: 120px; margin-left: 10px; font-size: 20px; }

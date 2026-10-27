@@ -69,7 +69,7 @@
       }
       if (points.length < 2) return { kind: 'run', error: 'This run has no speed timeline recorded (runs shorter than ~10 s, or saved by an older version).', name: run.routeName || 'Run' };
       var distM = run.distanceM != null ? run.distanceM : (run.distanceKm || 0) * 1000;
-      return { kind: 'run', id: run.id || null, name: run.routeName || 'Free Run', routeId: run.routeId || null,
+      return { kind: 'run', id: run.id || null, name: run.routeName || 'Free Run', routeId: run.routeId || null, date: run.startedAt || null,
         elapsed: run.elapsed || points[points.length - 1].t, distM: distM || points[points.length - 1].d, points: points, hasIncline: hasInc, derived: false };
     },
 
@@ -84,7 +84,7 @@
         points.push({ t: t[i], d: d ? d[i] : 0, speed: r1((v[i] || 0) * 3.6), incline: inc });
       }
       if (points.length < 2) return { kind: 'strava', error: 'Not enough samples in this activity.', name: meta.name || 'Strava activity' };
-      return { kind: 'strava', id: meta.id != null ? 'strava_' + meta.id : null, name: meta.name || 'Strava activity', routeId: meta.routeId || null,
+      return { kind: 'strava', id: meta.id != null ? 'strava_' + meta.id : null, name: meta.name || 'Strava activity', routeId: meta.routeId || null, date: meta.date || meta.startedAt || null,
         elapsed: t[t.length - 1], distM: d ? d[d.length - 1] : 0, points: points, hasIncline: !!g, derived: true };
     },
 
@@ -197,7 +197,7 @@
         warmUp: { enabled: false, duration: 0, speed: 0, incline: 0 },
         coolDown: { enabled: false, duration: 0, speed: 0, incline: 0 },
         tags: ['run again'],
-        runAgain: { sourceKind: src.kind, sourceId: src.id, sourceName: src.name, routeId: src.routeId || null, pct: pct, basis: basis,
+        runAgain: { sourceKind: src.kind, sourceId: src.id, sourceName: src.name, sourceDate: src.date || null, routeId: src.routeId || null, pct: pct, basis: basis,
           inclineRecorded: !!src.hasIncline, derived: !!src.derived, originalElapsed: src.elapsed, originalDistM: src.distM, clipped: h.clipped },
       };
       if (basis === 'distance') w.segments = h.stages.map(function (s) { return { distance: s.distance, speed: s.speed, incline: s.incline, label: s.label }; });
@@ -248,6 +248,83 @@
     },
     /** The runnable copy (no preview-only fields). */
     runnable: function (w) { var c = JSON.parse(JSON.stringify(w)); delete c._base; return c; },
+
+
+    // ── CHASING marker (display only: never touches belt / speed / incline) ──
+    // The target is the Run Again plan itself (the same stages the workout runs, +N%): where a runner holding exactly the
+    // planned pace would be. Its clock starts when stage 1 starts (a warm-up is the user's own extra), pauses with the run.
+    _cs: null,
+    chaseLabel: function (ra, short) {
+      ra = ra || {};
+      var p0 = +ra.pct || 0;
+      if (short) return 'CHASING' + (p0 > 0 ? ' +' + (p0 % 1 ? p0.toFixed(1) : p0) + '%' : '');
+      var d = '';
+      if (ra.sourceDate) { var dt = new Date(ra.sourceDate); if (!isNaN(dt.getTime())) { try { d = ' of ' + dt.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }); } catch (e) { d = ' of ' + dt.toDateString().slice(4, 10); } } }
+      if (!d && ra.sourceName) { var nm = String(ra.sourceName); if (nm.length > 24) nm = nm.slice(0, 23) + '\u2026'; d = ' (' + nm + ')'; }
+      var who = ra.sourceKind === 'strava' ? 'Strava run' : 'your run';
+      var p = +ra.pct || 0;
+      return 'CHASING: ' + who + d + (p > 0 ? ' +' + (p % 1 ? p.toFixed(1) : p) + '%' : ' (same pace)');
+    },
+    /** Cumulative timeline of the plan's stages: [{t0,t1,d0,d1,v}] (s, m, m/s) + totals. */
+    chaseTimeline: function (w) {
+      var SU = G('SpeedUnits'), st = (w && (w.segments || w.intervals)) || [], out = [], t = 0, d = 0;
+      for (var i = 0; i < st.length; i++) {
+        var s = st[i], kph = SU && SU.toKph ? SU.toKph(s.speed, w.speedUnit || 'kph') : +s.speed;
+        var v = Math.max(0.3, kph / 3.6), dur, dist;
+        if (s.duration != null) { dur = +s.duration; dist = v * dur; }
+        else { dist = SU && SU.distToMetres ? SU.distToMetres(s.distance, w.distanceUnit || 'km') : s.distance * 1000; dur = dist / v; }
+        if (!(dur > 0) || !(dist > 0)) continue;
+        out.push({ t0: t, t1: t + dur, d0: d, d1: d + dist, v: v }); t += dur; d += dist;
+      }
+      return { stages: out, totalS: t, totalM: d };
+    },
+    _planDistAt: function (tl, t) {
+      if (t <= 0) return 0; if (t >= tl.totalS) return tl.totalM;
+      for (var i = 0; i < tl.stages.length; i++) { var s = tl.stages[i]; if (t <= s.t1) return s.d0 + (t - s.t0) * s.v; }
+      return tl.totalM;
+    },
+    _planTimeAt: function (tl, m) {
+      if (m <= 0) return 0; if (m >= tl.totalM) return tl.totalS;
+      for (var i = 0; i < tl.stages.length; i++) { var s = tl.stages[i]; if (m <= s.d1) return s.t0 + (m - s.d0) / s.v; }
+      return tl.totalS;
+    },
+    /** Pure: gap of a runner at {tS: seconds since stage 1, runnerM: metres since stage 1} to the plan. */
+    chaseGap: function (tl, tS, runnerM) {
+      var tc = Math.max(0, Math.min(tl.totalS, tS)), targetM = this._planDistAt(tl, tc);
+      return { targetM: targetM, gapM: runnerM - targetM, gapS: this._planTimeAt(tl, runnerM) - tc,
+        targetFrac: tl.totalM > 0 ? Math.min(1, targetM / tl.totalM) : 0, runFrac: tl.totalM > 0 ? Math.max(0, Math.min(1, runnerM / tl.totalM)) : 0 };
+    },
+    fmtGap: function (gapS, gapM) {
+      var a = Math.abs(Math.round(gapS));
+      if (a < 1) return { text: 'ON PACE', cls: 'ahead', sign: 0 };
+      var U = G('Units'), mTxt;
+      try { mTxt = U && U.elevNum ? Math.round(Math.abs(U.elevNum(gapM))) + ' ' + U.elevLabel() : Math.round(Math.abs(gapM)) + ' m'; } catch (e) { mTxt = Math.round(Math.abs(gapM)) + ' m'; }
+      return { text: (gapS >= 0 ? '+' : '-') + fmtT(a) + (gapS >= 0 ? ' AHEAD' : ' BEHIND') + ' · ' + mTxt, cls: gapS >= 0 ? 'ahead' : 'behind', sign: gapS >= 0 ? 1 : -1 };
+    },
+    /** null when the active workout is not a Run Again plan. Otherwise {label, phase, started, done, gapText, cls, targetFrac, runFrac, basis, targetAbsM}. */
+    chaseInfo: function () {
+      var now = Date.now(), m = this._memo;   // one computation per UI tick, shared by the HUD / oval / track-view callers
+      var WSx = G('WorkoutSegments');
+      if (m && now - m.at < 100 && m.s === (WSx && WSx.active)) return m.v;
+      var v = this._chaseCompute(); this._memo = { at: now, s: WSx && WSx.active, v: v }; return v;
+    },
+    _chaseCompute: function () {
+      var WS = G('WorkoutSegments'), E = G('Engine'), s = WS && WS.active;
+      if (!s || !s.workout || !s.workout.runAgain || !E || !E.run) return null;
+      var w = s.workout, ra = w.runAgain;
+      if (!this._cs || this._cs.s !== s) this._cs = { s: s, tl: this.chaseTimeline(w), baseEl: null, baseDist: 0 };
+      var cs = this._cs, tl = cs.tl;
+      if (!cs.label) { cs.label = this.chaseLabel(ra); cs.shortLabel = this.chaseLabel(ra, true); }
+      var label = cs.label;
+      var info = { label: label, shortLabel: cs.shortLabel, phase: s.phase, started: false, done: false, gapText: '', cls: 'ahead', targetFrac: 0, runFrac: 0, basis: ra.basis || 'time', targetAbsM: 0, pct: +ra.pct || 0 };
+      if (!tl.totalM) return info;
+      if (s.phase === 'warmup') { info.gapText = 'TARGET STARTS WITH STAGE 1'; return info; }
+      if (s.phase === 'cooldown' || s.phase === 'complete') { info.done = true; info.runFrac = 1; info.targetFrac = 1; info.gapText = 'TARGET PLAN DONE'; return info; }
+      if (cs.baseEl == null) { cs.baseEl = s.elapsed || 0; cs.baseDist = E.run.distanceM || 0; }
+      var g = this.chaseGap(tl, (s.elapsed || 0) - cs.baseEl, Math.max(0, (E.run.distanceM || 0) - cs.baseDist)), f = this.fmtGap(g.gapS, g.gapM);
+      info.started = true; info.gapText = f.text; info.cls = f.cls; info.targetFrac = g.targetFrac; info.runFrac = g.runFrac; info.targetAbsM = cs.baseDist + g.targetM; info.gapS = g.gapS; info.gapM = g.gapM;
+      return info;
+    },
 
     // ── pending hand-over from stats.html ───────────────────────────────────
     setPending: function (runId) { try { root.localStorage.setItem(this.KEY_PENDING, runId); } catch (e) {} },

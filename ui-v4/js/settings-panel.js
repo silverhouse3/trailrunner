@@ -503,10 +503,13 @@ ${_ttsOK?`      <div class="sp-row">
 
   _accBluetooth(s) {
     const hrStatus = (typeof BLEHR !== 'undefined' && BLEHR.connected) ? 'Connected' : 'Not Connected';
+    // Headphones (Android app bridge only; empty string when not running inside the app).
+    const btAudio = (typeof BTAudio !== 'undefined') ? BTAudio.html() : '';
+    if (btAudio) setTimeout(() => { if (typeof BTAudio !== 'undefined' && document.getElementById('btAudioBox')) BTAudio.mount(); }, 0);
     // Bridge v5+ pairing screen (feature-detected inside BTPair; older bridge shows the hint text).
     if (typeof BTPair !== 'undefined' && BTPair.supported !== false) {
       setTimeout(() => { if (typeof BTPair !== 'undefined' && document.getElementById('btPairBox')) BTPair.mount(); }, 0);
-      return BTPair.html();
+      return BTPair.html() + btAudio;
     }
     return `
       <div class="sp-row">
@@ -518,6 +521,7 @@ ${_ttsOK?`      <div class="sp-row">
         <span class="sp-label">External Speaker</span>
         <span class="sp-status">Built-in RT5651</span>
       </div>
+      ${btAudio}
     `;
   },
 
@@ -999,7 +1003,7 @@ ${_ttsOK?`      <div class="sp-row">
     }
     // Safety limits
     s.safetyMaxSpeed = s.safetyMaxSpeed || 20;
-    s.safetyMaxIncline = s.safetyMaxIncline || 15;
+    s.safetyMaxIncline = (s.safetyMaxIncline == null || isNaN(+s.safetyMaxIncline)) ? 15 : s.safetyMaxIncline;
 
     Store.saveSettings(s);
 

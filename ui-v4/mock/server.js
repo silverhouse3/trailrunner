@@ -120,8 +120,17 @@ function tick() {
 setInterval(tick, 250);
 
 var dispMsg = null, dispId = 0;
+// HR staleness model: POST /mock/hr {freeze:true} stops the strap (glassos sends no new HR). The bridge keeps
+// sending the last value; with bridgeFix (default true, mirrors the fixed Go bridge) it reports 0 after 12 s.
+// {freeze:true, bridgeFix:false} models the OLD bridge that repeats the frozen value forever. {freeze:false} resumes.
+function hrReported() {
+  var live = sim.hrOverride != null ? sim.hrOverride : Math.round(sim.hr);
+  if (!sim.hrFrozen) return live;
+  if (sim.hrFrozen.bridgeFix && Date.now() - sim.hrFrozen.at > 12000) return 0;
+  return sim.hrFrozen.bpm;
+}
 function stateMsg() {
-  var hr = sim.hrOverride != null ? sim.hrOverride : Math.round(sim.hr);
+  var hr = hrReported();
   var display = dispMsg && Date.now() < dispMsg.until ? { message: { id: dispMsg.id, text: dispMsg.text, seconds: dispMsg.seconds, leftSeconds: (dispMsg.until - Date.now()) / 1000 } } : {};
   return {
     display: display,
@@ -150,7 +159,7 @@ function stateMsg() {
 function health() {
   return {
     status: 'ok', version: 'mock-1.0',
-    speed: +sim.kph.toFixed(1), incline: +sim.incline.toFixed(1), hr: Math.round(sim.hr),
+    speed: +sim.kph.toFixed(1), incline: +sim.incline.toFixed(1), hr: hrReported(),
     workoutState: sim.force && sim.force.state ? sim.force.state : sim.workoutState, workoutId: sim.workoutId,
     grpc: true, mqtt: false, clients: wsClients.length, mock: true,
   };
@@ -325,6 +334,8 @@ var server = http.createServer(function (req, res) {
       return sendJSON(res, { ok: true, safetyKeyOut: sim.safetyKeyOut });
     }
     if (path === '/mock/hr') {
+      if (body.freeze === true) { sim.hrFrozen = { bpm: sim.hrOverride != null ? sim.hrOverride : Math.round(sim.hr), at: Date.now(), bridgeFix: body.bridgeFix !== false }; log('HR FROZEN at ' + sim.hrFrozen.bpm); return sendJSON(res, { ok: true, frozen: sim.hrFrozen }); }
+      if (body.freeze === false) { sim.hrFrozen = null; log('HR resumed'); if (body.bpm === undefined) return sendJSON(res, { ok: true }); }
       sim.hrOverride = (body.bpm === null || body.bpm === undefined || body.bpm === '') ? null : parseInt(body.bpm, 10);
       if (sim.hrOverride != null) sim.hr = sim.hrOverride;
       log('HR override ' + sim.hrOverride);
@@ -338,7 +349,7 @@ var server = http.createServer(function (req, res) {
     if (path === '/mock/reset') {
       sim.force = null;
       sim.workoutState = 'IDLE'; sim.workoutId = null; sim.safetyKeyOut = false; sim.targetKph = 0; sim.kph = 0;
-      sim.targetIncline = 0; sim.incline = 0; sim.hr = 68; sim.hrOverride = null; sim.distanceKm = 0; sim.elapsedSec = 0;
+      sim.targetIncline = 0; sim.incline = 0; sim.hr = 68; sim.hrOverride = null; sim.hrFrozen = null; sim.distanceKm = 0; sim.elapsedSec = 0;
       sim.elevGainM = 0; sim.calories = 0; log('RESET');
       return sendJSON(res, { ok: true });
     }

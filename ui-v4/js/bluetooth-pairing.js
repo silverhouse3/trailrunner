@@ -141,3 +141,124 @@ var BTPair = {
   }
 };
 setTimeout(function () { try { BTPair._get(); } catch (e) {} }, 3000);  // feature-detect early so the HR pill knows
+
+// ════════════════════════════════════════════════════════════════════════════
+// BTAudio — "ADD HEADPHONES" (Settings > Bluetooth). Pairs Bluetooth AUDIO devices through the Android app
+// (window.AndroidBridge.btAudio*, TrailRunner chooser7+), NOT through the treadmill bridge: no HTTP calls at all,
+// no speed / incline / workout / STOP commands. The app only ever lists audio-class devices.
+// ════════════════════════════════════════════════════════════════════════════
+var BTAudio = {
+  data: null,
+  pairing: null,        // address being paired/connected (local UI state)
+  pairingSince: 0,
+  scanReq: false,
+  error: '',
+  _timer: null,
+
+  available() { try { return !!(window.AndroidBridge && typeof AndroidBridge.btAudioState === 'function'); } catch (e) { return false; } },
+  _esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); },
+  _call(fn, a) {
+    try {
+      var r = (a === undefined) ? AndroidBridge[fn]() : AndroidBridge[fn](a);
+      var d = typeof r === 'string' ? JSON.parse(r) : r;
+      return d && typeof d === 'object' ? d : null;
+    } catch (e) { this.error = 'Headphone pairing is not working on this screen.'; return null; }
+  },
+
+  html() {
+    if (this.available()) return '<div id="btAudioBox" class="bta-box">' + this._inner() + '</div>';
+    if (window.AndroidBridge) return '<div class="bta-box"><div class="btp-hint">Headphone pairing needs the TrailRunner app update.</div></div>';
+    return '';
+  },
+
+  mount() {
+    var self = this;
+    if (!this.available()) return;
+    this.refresh();
+    if (this._timer) clearInterval(this._timer);
+    this._timer = setInterval(function () {
+      if (!document.getElementById('btAudioBox')) { clearInterval(self._timer); self._timer = null; return; }
+      self.refresh();
+    }, 1500);
+  },
+
+  refresh() {
+    var d = this._call('btAudioState');
+    if (d) {
+      this.data = d;
+      if (this.pairing) {
+        var p = this.pairing, b = this._bonded(p);
+        if (b && b.connected) { this.pairing = null; this.error = ''; }
+        else if (d.lastError && !d.discovering && Date.now() - this.pairingSince > 1500) { this.error = d.lastError; this.pairing = null; }
+        else if (Date.now() - this.pairingSince > 45000) { this.error = 'That took too long. Put the headphones in pairing mode and try again.'; this.pairing = null; }
+      } else if (d.lastError) this.error = d.lastError;
+      if (!d.discovering) this.scanReq = false;
+    }
+    this._draw();
+  },
+
+  _bonded(addr) { var l = (this.data && this.data.bonded) || []; for (var i = 0; i < l.length; i++) if (l[i].address === addr) return l[i]; return null; },
+  _draw() { var el = document.getElementById('btAudioBox'); if (el) el.innerHTML = this._inner(); },
+
+  _bars(rssi) { var n = rssi >= -55 ? 4 : rssi >= -67 ? 3 : rssi >= -80 ? 2 : 1; return BTPair._bars(n); },
+
+  _inner() {
+    var d = this.data, h = '';
+    h += '<div class="btp-head"><div class="btp-title">Headphones</div>';
+    if (!d) return h + '</div><div class="btp-hint">Checking Bluetooth…</div>';
+    var scanning = !!d.discovering || this.scanReq;
+    if (d.enabled === false) return h + '</div><div class="btp-hint warn">' + this._esc(d.lastError || 'Bluetooth is switched off.') + '</div>';
+    h += '<button class="btp-btn scan bta-add" onclick="BTAudio.scan(' + (scanning ? 'false' : 'true') + ')">' + (scanning ? 'Stop' : 'ADD HEADPHONES') + '</button></div>';
+    var bonded = d.bonded || [], self = this;
+    if (bonded.length) {
+      h += '<div class="btp-sec">MY HEADPHONES</div>';
+      bonded.forEach(function (b) {
+        var a = self._esc(b.address), busy = self.pairing === b.address;
+        h += '<div class="btp-row"><div class="btp-ic">🎧</div><div class="btp-main"><div class="btp-name">' + self._esc(b.name) + '</div><div class="btp-sub">' +
+          (b.connected ? '<span class="btp-st ok">Connected</span> Audio output' : busy ? '<span class="btp-st wait">Connecting…</span>' : 'Not connected') + '</div></div>' +
+          (b.connected ? '<button class="btp-btn off" onclick="BTAudio.disconnect(\'' + a + '\')">Disconnect</button>'
+            : busy ? '<button class="btp-btn" disabled>Connecting…</button>'
+            : '<button class="btp-btn on" onclick="BTAudio.connect(\'' + a + '\')">Connect</button>') +
+          '<button class="btp-btn bta-forget" onclick="BTAudio.forget(\'' + a + '\')">Forget</button></div>';
+      });
+    }
+    var found = (d.found || []).filter(function (f) { return !self._bonded(f.address); }).sort(function (x, y) { return (y.rssi || -100) - (x.rssi || -100); });
+    if (scanning || found.length) {
+      h += '<div class="btp-sec">NEARBY' + (scanning ? ' <span class="btp-st wait">Searching…</span>' : '') + '</div>';
+      if (!found.length) h += '<div class="btp-hint">Put your headphones in pairing mode (hold the Bluetooth button until the light flashes).</div>';
+      found.forEach(function (f) {
+        var a = self._esc(f.address), busy = self.pairing === f.address;
+        h += '<div class="btp-row"><div class="btp-ic">🎧</div><div class="btp-main"><div class="btp-name">' + self._esc(f.name) + '</div><div class="btp-sub">' +
+          (busy ? '<span class="btp-st wait">Pairing…</span> ' : '') + self._bars(f.rssi) + '</div></div>' +
+          (busy ? '<button class="btp-btn" disabled>Pairing…</button>' : '<button class="btp-btn on" onclick="BTAudio.pair(\'' + a + '\')">Pair</button>') + '</div>';
+      });
+    } else if (!bonded.length) {
+      h += '<div class="btp-hint">Tap ADD HEADPHONES, then put your headphones in pairing mode.</div>';
+    }
+    if (this.error) h += '<div class="btp-hint warn">' + this._esc(this.error) + '</div>';
+    return h;
+  },
+
+  _apply(d) { if (d) { this.data = d; if (d.lastError) this.error = d.lastError; } this._draw(); },
+
+  scan(start) {
+    this.error = ''; this.scanReq = !!start;
+    var d = this._call('btAudioScan', !!start);
+    if (d && d.lastError) { this.scanReq = false; }
+    this._apply(d);
+  },
+  pair(addr) {
+    this.error = ''; this.pairing = addr; this.pairingSince = Date.now(); this._draw();
+    var d = this._call('btAudioPair', addr);
+    if (d && d.lastError) { this.pairing = null; }
+    this._apply(d);
+  },
+  connect(addr) {
+    this.error = ''; this.pairing = addr; this.pairingSince = Date.now(); this._draw();
+    var d = this._call('btAudioConnect', addr);
+    if (d && d.lastError) { this.pairing = null; }
+    this._apply(d);
+  },
+  disconnect(addr) { this.error = ''; this._apply(this._call('btAudioDisconnect', addr)); },
+  forget(addr) { this.error = ''; if (this.pairing === addr) this.pairing = null; this._apply(this._call('btAudioForget', addr)); }
+};

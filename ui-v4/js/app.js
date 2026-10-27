@@ -124,17 +124,23 @@ const App = {
           elevProfile: this._elevProfileKm(),
         });
         // Sync ghost position
+        var tvGhosts = [];
         if (Engine.ghostEnabled && Engine.ghost) {
-          TrackView.setGhosts([{
+          tvGhosts.push({
             name: Engine.ghost.routeName || 'GHOST',
             distKm: (Engine.ghost.distanceM || 0) / 1000,
             color: '#a78bfa',
             pace: '',
             source: 'ghost',
-          }]);
-        } else {
-          TrackView.setGhosts([]);
+          });
         }
+        // Run Again: the chase target as a runner on the numbers/track view (display only)
+        var tvCh = null;
+        try { tvCh = (typeof RunAgain !== 'undefined' && RunAgain.chaseInfo) ? RunAgain.chaseInfo() : null; } catch (e) { tvCh = null; }
+        if (tvCh && tvCh.started && !tvCh.done) {
+          tvGhosts.push({ name: 'TARGET' + (tvCh.pct > 0 ? ' +' + (tvCh.pct % 1 ? tvCh.pct.toFixed(1) : tvCh.pct) + '%' : ''), distKm: tvCh.targetAbsM / 1000, color: '#c4b5fd', pace: '', source: 'chase' });
+        }
+        TrackView.setGhosts(tvGhosts);
       }
 
       // Feed trail cam with current run data
@@ -218,6 +224,17 @@ const App = {
             OvalTrack.setHRZoneColour(zoneCol);
           }
         }
+      }
+
+      // ── Run Again: chase target marker on the oval (display only) ──
+      if (typeof OvalTrack !== 'undefined' && OvalTrack.setChase) {
+        var ovCh = null;
+        try { ovCh = (WorkoutSegments.active && typeof RunAgain !== 'undefined' && RunAgain.chaseInfo) ? RunAgain.chaseInfo() : null; } catch (e) { ovCh = null; }
+        if (ovCh && ovCh.started && !ovCh.done) {
+          OvalTrack.setChase({ fraction: ovCh.targetFrac, gapS: ovCh.gapS, text: ovCh.gapText, ahead: ovCh.cls === 'ahead', pct: ovCh.pct });
+          // time-based plans: the stock progress is stage-index based (jumpy) → use the continuous fraction so runner and target share one scale
+          if (ovCh.basis === 'time' && OvalTrack.active) OvalTrack.setProgress(ovCh.runFrac);
+        } else OvalTrack.setChase(null);
       }
 
       // ── Feed OvalTrack without WorkoutSegments (route or free run) ──
@@ -1519,7 +1536,11 @@ const App = {
   },
 
   adjustIncline(delta) {
-    Engine.ctrl.targetIncline = Math.max(-6, Math.min(40, +(Engine.ctrl.targetIncline + delta).toFixed(1)));
+    // clamp to machine limits and the user's max-incline setting (an explicit 0 is honoured)
+    var _capMax = TM.machineMaxIncline, _capMin = TM.machineMinIncline;
+    var _us = Store.getSettings().safetyMaxIncline;
+    if (_us != null && !isNaN(+_us)) _capMax = Math.min(_capMax, +_us);
+    Engine.ctrl.targetIncline = Math.max(_capMin, Math.min(_capMax, +(Engine.ctrl.targetIncline + delta).toFixed(1)));
     if (TM.connected) {
       TM.setIncline(Engine.ctrl.targetIncline);
     }
@@ -1592,7 +1613,8 @@ const App = {
         var segs = WorkoutSegments.getSegmentsWithColours();
         OvalTrack.setSegments(segs.map(function(s) {
           return {
-            distance: s.distance || (s.duration || 30),
+            // Run Again (time basis): the oval position is a distance fraction, so size the arcs by planned distance too
+            distance: s.distance || ((WorkoutSegments.active.workout.runAgain && s.duration > 0 && s.speed > 0) ? SpeedUnits.toKph(s.speed, s.speedUnit) / 3.6 * s.duration : (s.duration || 30)),
             speed: SpeedUnits.toKph(s.speed, s.speedUnit),
             incline: s.incline || 0,
             colour: s.colour

@@ -649,7 +649,8 @@ var TM = {
     if (!this.connected) return;
     if (isNaN(pct)) return;
     if (!this._sessionStarted) { console.warn('[TM] setIncline(' + pct + ') REFUSED — no user START this session'); return; }
-    var clamped = Math.max(-6, Math.min(40, pct));
+    // SAFETY: clamp to the machine's own incline limits (defaults 15 / -3 until the bridge reports real ones)
+    var clamped = Math.max(this.machineMinIncline, Math.min(this.machineMaxIncline, pct));
     var rounded = Math.round(clamped * 2) / 2;
     // DEDUP: skip if value unchanged
     if (rounded === this._lastIncline && !force) return;

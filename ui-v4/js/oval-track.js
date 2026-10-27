@@ -58,6 +58,7 @@ var OvalTrack = {
 
   // ── Ghost state ────────────────────────────────────────────────────────────
   _ghostProgress: 0,
+  _chase: null,
   _ghostDelta: 0,      // seconds, positive = ahead
 
   // ── HR state ───────────────────────────────────────────────────────────────
@@ -156,6 +157,9 @@ var OvalTrack = {
   setGhostProgress: function(fraction) {
     this._ghostProgress = Math.max(0, Math.min(1, fraction || 0));
   },
+
+  /** Run Again chase target: {fraction 0..1, gapS, text, ahead, pct} or null. Display only. */
+  setChase: function(c) { this._chase = c ? { fraction: Math.max(0, Math.min(1, c.fraction || 0)), gapS: c.gapS || 0, text: String(c.text || ''), ahead: !!c.ahead, pct: c.pct || 0 } : null; },
 
   setGhostDelta: function(seconds) {
     this._ghostDelta = seconds || 0;
@@ -352,6 +356,9 @@ var OvalTrack = {
     if (this.config.showGhost) {
       this._drawGhost(c);
     }
+
+    // ── Run Again chase target ────────────────────────────────────────
+    if (this._chase) this._drawChase(c);
 
     // ── Arcade ghosts (Blinky, Pinky, Inky, Clyde) ─────────────────
     this._drawArcadeGhosts(c, now);
@@ -601,6 +608,21 @@ var OvalTrack = {
     c.arc(pt.x, pt.y, 10, 0, Math.PI * 2); // 20px diameter
     c.fillStyle = '#ffffff';
     c.fill();
+    c.restore();
+  },
+
+  _drawChase: function(c) {
+    var ch = this._chase; if (!ch) return;
+    var pt = this._fracToPoint(ch.fraction);
+    c.save();
+    c.beginPath(); c.arc(pt.x, pt.y, 13, 0, Math.PI * 2);
+    c.fillStyle = 'rgba(167,139,250,0.85)'; c.fill();
+    c.lineWidth = 3; c.strokeStyle = '#ffffff'; c.stroke();
+    c.font = 'bold 15px "JetBrains Mono", monospace'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.lineWidth = 4; c.strokeStyle = 'rgba(0,0,0,0.75)';
+    var tag = 'TARGET' + (ch.pct > 0 ? ' +' + (ch.pct % 1 ? ch.pct.toFixed(1) : ch.pct) + '%' : '');
+    c.strokeText(tag, pt.x, pt.y - 28); c.fillStyle = '#c4b5fd'; c.fillText(tag, pt.x, pt.y - 28);
+    c.strokeText(ch.text, pt.x, pt.y + 28); c.fillStyle = ch.ahead ? this.COLORS.green : this.COLORS.red; c.fillText(ch.text, pt.x, pt.y + 28);
     c.restore();
   },
 

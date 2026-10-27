@@ -816,6 +816,16 @@ const UI = {
       var wn = WorkoutSegments.getWarning ? WorkoutSegments.getWarning() : null, wnEl = document.getElementById('whWarn');
       if (wnEl) { var wt = wn ? '\u23F1 ' + wn.text : ''; if (wnEl.textContent !== wt) wnEl.textContent = wt; wnEl.style.display = wn ? 'block' : 'none'; }
       var nxEl = document.getElementById('whNext'); if (nxEl && nxEl.textContent !== nxTxt) nxEl.textContent = nxTxt;
+      // Run Again: who am I chasing + live gap (display only; textContent)
+      var chEl = document.getElementById('whChase'), ch = null;
+      try { ch = (typeof RunAgain !== 'undefined' && RunAgain.chaseInfo) ? RunAgain.chaseInfo() : null; } catch (e) { ch = null; }
+      if (chEl) {
+        chEl.style.display = ch ? 'flex' : 'none';
+        if (ch) {
+          var rootA = document.getElementById('rootApp'); $$('whChaseLbl', (rootA && rootA.classList.contains('half') && ch.shortLabel) ? ch.shortLabel : ch.label); $$('whChaseGap', ch.gapText);
+          var cg = document.getElementById('whChaseGap'); if (cg) cg.className = ch.cls || '';
+        }
+      }
       var fill = document.getElementById('whProgFill');
       if (fill) { var tp = WorkoutSegments.getTotalProgress(); fill.style.width = tp ? Math.round((tp.fraction || 0) * 100) + '%' : '0'; }
       return;
