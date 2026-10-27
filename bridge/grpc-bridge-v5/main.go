@@ -63,7 +63,8 @@ var (
 	mu            sync.RWMutex
 	currentSpeed  float64
 	currentIncl   float64
-	currentHR     int
+	currentHR     int       // raw last BPM from glassos; publish via hrLocked()
+	lastHRAt      time.Time // last HR message from glassos (zero = never)
 	workoutState  = "IDLE"
 	workoutID     string
 	grpcConnected bool
@@ -178,6 +179,7 @@ func connectGRPC() error {
 	go subscribeElapsedTime()
 	go subscribeElevation()
 	go subscribeHeartRate()
+	go hrStaleWatcher()
 	go fetchConsoleInfo()
 	go subscribeConsoleState()
 
@@ -420,7 +422,9 @@ func subscribeHeartRate() {
 			mu.Lock()
 			prev := currentHR
 			currentHR = bpm
+			lastHRAt = time.Now()
 			mu.Unlock()
+			hrNoteFresh()
 			if bpm != prev && bpm > 0 {
 				log.Printf("[gRPC] HR: %d bpm (max=%d avg=%d)", bpm, int(m.MaxBpm), int(m.AvgBpm))
 			}
@@ -811,7 +815,7 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 	defer mu.RUnlock()
 	j(w, map[string]interface{}{
 		"status": "ok", "version": "4.0-native", "bluetooth": btClient != nil,
-		"speed": currentSpeed, "incline": currentIncl, "hr": currentHR,
+		"speed": currentSpeed, "incline": currentIncl, "hr": hrLocked(),
 		"workoutState": workoutState, "workoutId": workoutID,
 		"grpc": grpcConnected, "mqtt": mqttReady.Load(), "clients": wsCount(),
 		"link": linkStatus(), "deadman": deadmanState,
@@ -959,7 +963,7 @@ func handleAPIState(w http.ResponseWriter, r *http.Request) {
 		"speed_kph":          currentSpeed,
 		"speed_mph":          currentSpeed / 1.60934,
 		"incline_pct":        currentIncl,
-		"heart_rate":         currentHR,
+		"heart_rate":         hrLocked(),
 		"distance_km":        currentDist,
 		"calories":           currentCals,
 		"elapsed_sec":        currentElapsed,
@@ -1237,7 +1241,7 @@ func stateMsg() map[string]interface{} {
 		"values": map[string]string{
 			"KPH":        fmt.Sprintf("%.1f", currentSpeed),
 			"Incline":    fmt.Sprintf("%.1f", currentIncl),
-			"Heart Rate": fmt.Sprintf("%d", currentHR),
+			"Heart Rate": fmt.Sprintf("%d", hrLocked()),
 			"Distance":   fmt.Sprintf("%.3f", currentDist),
 			"Calories":   fmt.Sprintf("%.0f", currentCals),
 			"Elapsed":    fmt.Sprintf("%d", currentElapsed),
@@ -1671,7 +1675,7 @@ func publishMQTTState() {
 	payload := map[string]interface{}{
 		"speed":         currentSpeed,
 		"incline":       currentIncl,
-		"hr":            currentHR,
+		"hr":            hrLocked(),
 		"distance":      currentDist,
 		"calories":      currentCals,
 		"elapsed":       currentElapsed,

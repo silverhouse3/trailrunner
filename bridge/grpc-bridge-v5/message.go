@@ -234,7 +234,7 @@ func handleHA(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	mu.RLock()
 	out := map[string]interface{}{
-		"speed": currentSpeed, "incline": currentIncl, "hr": currentHR, "distance_km": currentDist,
+		"speed": currentSpeed, "incline": currentIncl, "hr": hrLocked(), "distance_km": currentDist,
 		"calories": currentCals, "elapsed_s": currentElapsed, "workout_state": workoutState,
 	}
 	mu.RUnlock()
