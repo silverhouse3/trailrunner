@@ -1,6 +1,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 // CompareRuns — stats-page "COMPARE RUNS" panel (ui-v4). READ-ONLY.
-// Reads saved runs from localStorage 'tr_runs' + settings 'tr_settings', compares run A vs run B
+// Reads saved runs from localStorage 'tr_runs' + settings 'tr_settings' (and, read-only and asynchronously, the Strava deep-import
+// store via js/hrtrain-read.js: past Strava runs WITH their second-by-second HR trace), compares run A vs run B
 // (summary + deltas, HR overlay, speed/incline, per-unit splits, plain-English "what changed").
 // Never touches the treadmill / TM / bridge; does not need treadmill.js or Engine. Works offline.
 // All user/Strava text is rendered via textContent; SVG is built with DOM calls (no innerHTML).
@@ -51,6 +52,11 @@
   }
 
   // ── run normalisation ─────────────────────────────────────────────────────
+  function stravaIdOf(r) {
+    if (r.stravaId != null && String(r.stravaId) !== '') return String(r.stravaId);
+    try { var u = r.synced && r.synced.strava; if (typeof u === 'string') { var m = /activities\/(\d+)/.exec(u); if (m) return m[1]; } else if (u && u.id != null) return String(u.id); } catch (e) {}
+    return null;
+  }
   function trace(tps) {
     if (!Array.isArray(tps) || !tps.length) return [];
     var t0 = null, i, p;
@@ -73,9 +79,11 @@
     var hrPts = tr.filter(function (p) { return p.hr != null; });
     var incs = tr.filter(function (p) { return p.inc != null; });
     var maxHR = pos(r.maxHR) || (hrPts.length ? Math.max.apply(null, hrPts.map(function (p) { return p.hr; })) : null);
+    var isStrava = r.source === 'strava' || !!r.imported;
     return {
-      raw: r, when: isFinite(when) ? when : null, name: String(r.routeName || 'Free Run'),
-      strava: r.source === 'strava' || !!r.imported,
+      raw: r, src: r, when: isFinite(when) ? when : null, name: String(r.routeName || 'Free Run'),
+      strava: isStrava, deep: !!r.deepTrace, hydrated: !r.deepTrace, stravaId: stravaIdOf(r),
+      tag: r.deepTrace ? (r.hasHR ? 'Strava + HR trace' : 'Strava + trace') : isStrava ? 'Strava' : '',
       elapsed: el, km: km,
       pace: (km && el) ? el / km : null,                                       // sec per km
       avgSpeed: pos(r.avgSpeed) || ((km && el) ? km / (el / 3600) : null),   // km/h
@@ -122,6 +130,33 @@
       (list || []).forEach(function (s, i) { var t = pos(s.timeSec); if (t) rows.push({ n: s.km || (i + 1), sec: t, hr: pos(s.avgHR) }); });
     } catch (e) { rows = []; }
     return { word: word, rows: rows };
+  }
+
+  // ── merge own runs + deep-import runs (one entry per real run, the one WITH a trace preferred) ─────────────
+  function sameRun(a, b) {
+    if (a.stravaId && b.stravaId && a.stravaId === b.stravaId) return true;
+    return a.when != null && b.when != null && Math.abs(a.when - b.when) <= 120000;
+  }
+  function mergeRuns(own, deep) {
+    var out = own.slice(), i, j;
+    for (i = 0; i < deep.length; i++) {
+      var d = deep[i], hit = -1;
+      for (j = 0; j < out.length; j++) if (!out[j].deep && sameRun(out[j], d)) { hit = j; break; }
+      if (hit < 0) { for (j = 0; j < out.length; j++) if (out[j].deep && sameRun(out[j], d)) { hit = j; break; } if (hit >= 0) continue; out.push(d); continue; }
+      if (out[hit].trace.length > 0) continue;               // own run with a trace wins
+      out[hit].replacedBy = d; out[hit] = d;                  // summary-only own/imported run: the traced one replaces it
+    }
+    out.sort(function (a, b) { return (b.when || 0) - (a.when || 0); });
+    return out;
+  }
+  function hydrate(r) {                                       // deep runs are built (trackPoints + splits) only when selected
+    if (!r || r.hydrated) return r;
+    r.hydrated = true;
+    try {
+      var full = (typeof HrTrainRead !== 'undefined' && HrTrainRead.build) ? HrTrainRead.build(r.src) : null;
+      if (full) { var n = norm(full); r.trace = n.trace; r.hrTrace = n.hrTrace; r.avgIncline = n.avgIncline; r.raw = full; if (r.maxHR == null) r.maxHR = n.maxHR; }
+    } catch (e) {}
+    return r;
   }
 
   // ── comparison model (also used by tests) ────────────────────────────────
@@ -257,17 +292,49 @@
   }
 
   // ── panel ────────────────────────────────────────────────────────────────
-  var st = { runs: [], ia: 0, ib: 1, xmode: 'time', panel: null, result: null, selA: null, selB: null, bound: false };
+  var st = { runs: [], own: [], ia: 0, ib: 1, xmode: 'time', panel: null, body: null, result: null, selA: null, selB: null, bound: false, loading: false, tok: 0, touched: false, q: '', mode: 'all' };
 
   function runLabel(r, which) { return which + ' · ' + (r.when != null ? new Date(r.when).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '?') + ' · ' + (r.km != null ? Units.distKm(r.km, 1) + ' ' + Units.distLabel() : DASH); }
-  function optionText(r) {
-    return whenText(r) + '  ·  ' + (r.km != null ? Units.distKm(r.km, 2) + ' ' + Units.distLabel() : DASH) + '  ·  ' + dur(r.elapsed) +
-      (r.strava ? '  ·  Strava' : '') + '  ·  ' + r.name.slice(0, 40);
+  function optionText(r) {       // useful part first (tag, date, distance, duration); the name goes last so a truncated label loses only the name
+    return (r.tag ? r.tag + ' · ' : '') + whenText(r) + ' · ' + (r.km != null ? Units.distKm(r.km, 2) + ' ' + Units.distLabel() : DASH) + ' · ' + dur(r.elapsed) + ' · ' + r.name.slice(0, 40);
+  }
+  function monthOf(r) { if (r.when == null) return 'Undated'; try { return new Date(r.when).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }); } catch (e) { return 'Undated'; } }
+  // which runs the dropdowns list: search text over date/distance/name/tag, else the newest 20 ("last 20") or all; the picked A/B are always kept
+  function visibleIdx() {
+    var q = (st.q || '').trim().toLowerCase(), out = [], i, r;
+    for (i = 0; i < st.runs.length; i++) {
+      r = st.runs[i];
+      if (q) { if ((optionText(r) + ' ' + monthOf(r)).toLowerCase().indexOf(q) < 0 && i !== st.ia && i !== st.ib) continue; }
+      else if (st.mode === 'last20' && i >= 20 && i !== st.ia && i !== st.ib) continue;
+      out.push(i);
+    }
+    return out;
   }
   function fillSelect(sel, idx) {
     while (sel.firstChild) sel.removeChild(sel.firstChild);
-    st.runs.forEach(function (r, i) { var o = h('option', null, optionText(r)); o.value = String(i); sel.appendChild(o); });
+    var vis = visibleIdx(), grouped = vis.length > 30, grp = null, lastM = null;
+    vis.forEach(function (i) {
+      var r = st.runs[i], o = h('option', null, optionText(r)); o.value = String(i);
+      if (grouped) {
+        var m = monthOf(r);
+        if (m !== lastM) { grp = h('optgroup', null, null, { label: m }); sel.appendChild(grp); lastM = m; }
+        grp.appendChild(o);
+      } else sel.appendChild(o);
+    });
     sel.value = String(idx);
+  }
+  function refillSelects() {
+    if (st.selA) fillSelect(st.selA, st.ia);
+    if (st.selB) fillSelect(st.selB, st.ib);
+    var c = document.getElementById('crCount');
+    if (c) c.textContent = 'Showing ' + visibleIdx().length + ' of ' + st.runs.length + ' runs';
+    var bl = document.getElementById('crLast20'), ba = document.getElementById('crAllRuns');
+    if (bl) bl.classList.toggle('on', st.mode === 'last20'); if (ba) ba.classList.toggle('on', st.mode === 'all');
+  }
+  function defaults() {
+    st.ia = 0; st.ib = Math.min(1, Math.max(0, st.runs.length - 1));
+    // "A" = older of the two latest runs, "B" = newest, so deltas read as "newer minus older"
+    if (st.runs.length >= 2) { st.ia = 1; st.ib = 0; }
   }
 
   function buildPanel() {
@@ -280,31 +347,59 @@
     close.addEventListener('click', closePanel);
     top.appendChild(close);
     p.appendChild(top);
-    st.result = h('div', 'cr-result', null, { id: 'crResult' });
+    st.body = h('div', 'cr-body', null, { id: 'crBody' });
+    p.appendChild(st.body);
+    document.body.appendChild(p); st.panel = p;
+    fillBody();
+  }
+
+  // (re)builds everything under the title: loading note, filter row, A/B pickers, result.  Called on open and when the deep-import runs arrive.
+  function fillBody() {
+    var b = st.body; if (!b) return;
+    while (b.firstChild) b.removeChild(b.firstChild);
+    st.selA = st.selB = null; st.result = null;
+    if (st.loading) b.appendChild(h('div', 'cr-note cr-loading', 'Loading past runs...', { id: 'crLoading' }));
     if (st.runs.length < 2) {
-      p.appendChild(h('div', 'cr-empty', st.runs.length === 0
+      if (st.loading) return;
+      b.appendChild(h('div', 'cr-empty', st.runs.length === 0
         ? 'No runs saved yet. Complete a run (or import from Strava) and come back to compare two runs.'
         : 'You need at least two saved runs to compare. Complete another run (or import from Strava) and come back.', { id: 'crEmpty' }));
-      document.body.appendChild(p); st.panel = p; return;
+      return;
     }
+    if (st.runs.length > 12) {
+      var f = h('div', 'cr-filter', null, { id: 'crFilter' });
+      var inp = h('input', 'cr-search', null, { id: 'crSearch', type: 'search', placeholder: 'Search ' + st.runs.length + ' runs: name, month, km...', autocomplete: 'off', 'aria-label': 'Search runs' });
+      inp.value = st.q || '';
+      var qT = null;
+      inp.addEventListener('input', function () { clearTimeout(qT); qT = setTimeout(function () { st.q = inp.value; refillSelects(); }, 150); });   // debounce: typing never rebuilds 200+ options per keystroke
+      f.appendChild(inp);
+      var b20 = h('button', 'cr-btn cr-tg' + (st.mode === 'last20' ? ' on' : ''), 'LAST 20', { id: 'crLast20', type: 'button' });
+      var ball = h('button', 'cr-btn cr-tg' + (st.mode === 'all' ? ' on' : ''), 'ALL RUNS', { id: 'crAllRuns', type: 'button' });
+      b20.addEventListener('click', function () { st.mode = 'last20'; refillSelects(); });
+      ball.addEventListener('click', function () { st.mode = 'all'; refillSelects(); });
+      f.appendChild(b20); f.appendChild(ball);
+      f.appendChild(h('span', 'cr-count', '', { id: 'crCount' }));
+      b.appendChild(f);
+    }
+    st.result = h('div', 'cr-result', null, { id: 'crResult' });
     var pick = h('div', 'cr-pick');
     function box(letter, color) {
-      var b = h('label', 'cr-picker'); b.style.borderColor = color;
-      var tag = h('span', 'cr-pk', letter); tag.style.background = color; b.appendChild(tag);
-      var sel = h('select', 'cr-select', null, { id: 'crSel' + letter, 'aria-label': 'Run ' + letter }); b.appendChild(sel);
-      return { box: b, sel: sel };
+      var bx = h('label', 'cr-picker'); bx.style.borderColor = color;
+      var tag = h('span', 'cr-pk', letter); tag.style.background = color; bx.appendChild(tag);
+      var sel = h('select', 'cr-select', null, { id: 'crSel' + letter, 'aria-label': 'Run ' + letter }); bx.appendChild(sel);
+      return { box: bx, sel: sel };
     }
     var A = box('A', COL_A), B = box('B', COL_B);
     st.selA = A.sel; st.selB = B.sel;
-    fillSelect(A.sel, st.ia); fillSelect(B.sel, st.ib);
-    A.sel.addEventListener('change', function () { st.ia = +A.sel.value; render(); });
-    B.sel.addEventListener('change', function () { st.ib = +B.sel.value; render(); });
+    refillSelects();
+    A.sel.addEventListener('change', function () { st.ia = +A.sel.value; st.touched = true; refillSelects(); render(); });
+    B.sel.addEventListener('change', function () { st.ib = +B.sel.value; st.touched = true; refillSelects(); render(); });
     var swap = h('button', 'cr-btn cr-swap', '⇄ SWAP', { id: 'crSwap', type: 'button' });
-    swap.addEventListener('click', function () { var t = st.ia; st.ia = st.ib; st.ib = t; A.sel.value = String(st.ia); B.sel.value = String(st.ib); render(); });
+    swap.addEventListener('click', function () { var t = st.ia; st.ia = st.ib; st.ib = t; st.touched = true; refillSelects(); render(); });
     pick.appendChild(A.box); pick.appendChild(swap); pick.appendChild(B.box);
-    p.appendChild(pick);
-    p.appendChild(st.result);
-    document.body.appendChild(p); st.panel = p;
+    b.appendChild(pick);
+    b.appendChild(st.result);
+    render();
   }
 
   function table(model, a, b) {
@@ -406,7 +501,7 @@
   function render() {
     var res = st.result; if (!res) return;
     while (res.firstChild) res.removeChild(res.firstChild);
-    var a = st.runs[st.ia], b = st.runs[st.ib];
+    var a = hydrate(st.runs[st.ia]), b = hydrate(st.runs[st.ib]);
     if (!a || !b) return;
     var maxHR = maxHRSetting();
     var model = buildRows(a, b, maxHR);
@@ -419,7 +514,7 @@
       var d = h('div', 'cr-name'); d.style.borderColor = x[2];
       d.appendChild(h('b', null, x[1] + '  '));
       d.appendChild(h('span', null, x[0].name));
-      if (x[0].strava) d.appendChild(h('em', 'cr-sv', 'Strava'));
+      if (x[0].tag) d.appendChild(h('em', 'cr-sv', x[0].tag));
       names.appendChild(d);
     });
     res.appendChild(names);
@@ -435,29 +530,51 @@
   }
 
   function openPanel() {
-    st.runs = readRuns();
-    st.ia = 0; st.ib = Math.min(1, Math.max(0, st.runs.length - 1));
-    // "A" = older of the two latest runs, "B" = newest, so deltas read as "newer minus older"
-    if (st.runs.length >= 2) { st.ia = 1; st.ib = 0; }
-    st.xmode = 'time';
+    st.own = readRuns(); st.runs = st.own.slice();
+    defaults();
+    st.xmode = 'time'; st.touched = false; st.q = ''; st.mode = st.runs.length > 40 ? 'last20' : 'all';
+    st.loading = typeof HrTrainRead !== 'undefined' && !!HrTrainRead.list;
+    var tok = ++st.tok;
     buildPanel();
     st.panel.classList.add('show');
     st.panel.scrollTop = 0;
     document.body.classList.add('cr-open');
-    if (st.runs.length >= 2) render();
     var c = document.getElementById('crClose'); if (c) try { c.focus({ preventScroll: true }); } catch (e) {}
+    if (st.loading) {                                 // async + read-only: never blocks opening the panel
+      var fin = function (list) { if (tok === st.tok) applyDeep(list || []); };
+      try { HrTrainRead.list().then(fin, function () { fin([]); }); } catch (e) { fin([]); }
+    }
+  }
+  function applyDeep(list) {
+    var refA = st.runs[st.ia], refB = st.runs[st.ib], wasTouched = st.touched;
+    st.loading = false;
+    st.deepCount = list.length;
+    var deep = list.map(function (r) { return norm(r); });
+    st.runs = mergeRuns(st.own, deep);
+    function idxOf(ref) { if (!ref) return -1; var i = st.runs.indexOf(ref); if (i < 0 && ref.replacedBy) i = st.runs.indexOf(ref.replacedBy); return i; }
+    var ia = idxOf(refA), ib = idxOf(refB);
+    if (!wasTouched || ia < 0 || ib < 0 || st.runs.length < 2) defaults(); else { st.ia = ia; st.ib = ib; }
+    if (st.runs.length > 40) st.mode = 'last20';
+    fillBody();
   }
   function closePanel() {
     if (st.panel) st.panel.classList.remove('show');
     document.body.classList.remove('cr-open');
+    try { if (/^#compare/.test(location.hash) && history.replaceState) history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
   }
 
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && st.panel && st.panel.classList.contains('show')) closePanel(); });
   var btn = document.getElementById('crOpenBtn');
   if (btn) btn.addEventListener('click', openPanel);
+  // stats.html#compare (e.g. the shortcut on insights.html) opens the panel on load
+  // (judged on the URL, not location.hash: stats.html's own popstate handler clears the hash before 'hashchange' fires)
+  function wantsCompare(url) { return /#compare\b/.test(url || ''); }
+  function openFromHash() { openPanel(); }
+  if (wantsCompare(location.href)) { if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', openFromHash); else openFromHash(); }
+  window.addEventListener('hashchange', function (e) { if (wantsCompare(e && e.newURL)) openPanel(); });
 
   window.CompareRuns = {
     open: openPanel, close: closePanel,
-    _t: { norm: norm, hrDrift: hrDrift, zoneTimes: zoneTimes, buildRows: buildRows, whatChanged: whatChanged, readRuns: readRuns, bands: BANDS }
+    _t: { norm: norm, mergeRuns: mergeRuns, sameRun: sameRun, hrDrift: hrDrift, zoneTimes: zoneTimes, buildRows: buildRows, whatChanged: whatChanged, readRuns: readRuns, bands: BANDS }
   };
 })();

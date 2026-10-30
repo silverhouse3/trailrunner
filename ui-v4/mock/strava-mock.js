@@ -15,8 +15,9 @@
 //   GET  /api/v3/routes/:id/streams      (array form, as Strava returns for routes)
 //   POST /api/v3/uploads  (multipart)    GET /api/v3/uploads/:id  (processing for ~2.5 s, then activity_id)
 // Mock control (not Strava):
+//   POST /mock/deep {count,names,forbid,missing,scope403,hang:[idx],hangMs}  synthetic 'deep' history with rich 1 Hz streams (HR training import)
 //   POST /mock/fault {kind:'429'|'401'|'upload500'|'upload_error', count:n}
-//   POST /mock/config {processingMs, tokenTtl}     POST /mock/expire     POST /mock/reset
+//   POST /mock/config {processingMs, tokenTtl, skewMs}     POST /mock/expire     POST /mock/reset
 //   GET  /mock/uploads   GET /mock/stats
 // Data is deterministic (seeded PRNG). Course "Cleeve Hill Loop" (14.2 km, ~700 m gain, pitches >20 %)
 // has 4 matching activities with different pace profiles + 2 decoys (diverging variation, reversed).
@@ -188,11 +189,73 @@ ROUTES.forEach(function (r) {
   r.map = { id: 'r' + r.id, summary_polyline: encodePolyline(sm), resource_state: 2 };
 });
 
+
+// ── "deep" history for the HR-training deep import (POST /mock/deep) ─────────
+// Synthetic but realistic runs: warm-up ramp (HR lags speed, first-order), steady section with slow upward drift
+// after minute 10, optional standing stop, optional distance jump (GPS spike), runs with no heartrate stream,
+// fitness improving over time (older runs have higher HR at the same speed).  1 Hz streams, deterministic per index.
+var DEEP_ID0 = 8000000000;
+function deepSpec(i, o) {
+  var rnd = mulberry32(DEEP_ID0 + i * 7919 + (o.seed || 0)), NOW = o.now || Date.now();
+  var dur = 1500 + (i * 137) % 1800;
+  return {
+    i: i, id: DEEP_ID0 + i + 1, dur: dur, v0: 2.6 + 0.4 * ((i % 5) / 4), noHR: i % 9 === 4, stop: i % 6 === 2, spike: i % 25 === 7,
+    sprint: i % 4 === 0, hrOffset: i * 0.06, drift: 0.25, rnd: rnd,
+    date: new Date(NOW - Math.round((i * 2.4 + 0.3) * 86400000)).toISOString().replace(/\.\d+Z$/, 'Z'),
+    sport: i % 10 === 9 ? 'TrailRun' : (i % 17 === 5 ? 'VirtualRun' : 'Run'),
+    name: (o.names && o.names[i]) || ('Deep run ' + (i + 1))
+  };
+}
+function deepBuild(sp) {
+  var rnd = mulberry32(sp.id), n = sp.dur, time = [], hr = [], vel = [], grade = [], dist = [], alt = [], cad = [], t, d = 0, h = 92, a = 100, gain = 0, hrSum = 0, hrMax = 0, mv = 0, vmax = 0;
+  for (t = 0; t < n; t++) {
+    var ramp = smooth(t / 300), v = 1.2 + (sp.v0 - 1.2) * ramp;
+    var stopped = sp.stop && t >= 1000 && t < 1090;
+    if (sp.sprint && t > n - 60) v = sp.v0 * 1.25;
+    v = stopped ? 0 : v * (1 + 0.02 * gauss(rnd));
+    var g = 1.2 * Math.sin(2 * Math.PI * t / 600);
+    var target = 95 + 18 * (stopped ? 0.4 : v) + sp.hrOffset + (t > 600 ? sp.drift * (t - 600) / 60 : 0);
+    h += (target - h) * (1 - Math.exp(-1 / 40));
+    d += v; a += v * g / 100; if (t > 0 && v > 0) gain += Math.max(0, v * g / 100);
+    if (sp.spike && t === 900) d += 600;                       // GPS jump
+    time.push(t); vel.push(+v.toFixed(2)); grade.push(+(g + 0.1 * gauss(rnd)).toFixed(1)); dist.push(+d.toFixed(1)); alt.push(+a.toFixed(1));
+    var hv = Math.round(h + 0.8 * gauss(rnd)); hr.push(hv); cad.push(stopped ? 0 : Math.round(82 + 2 * gauss(rnd)));
+    hrSum += hv; if (hv > hrMax) hrMax = hv; if (v > 0.5) mv++; if (v > vmax) vmax = v;
+  }
+  var streams = { time: time, velocity_smooth: vel, grade_smooth: grade, distance: dist, altitude: alt, cadence: cad };
+  if (!sp.noHR) streams.heartrate = hr;
+  var summary = {
+    id: sp.id, name: sp.name, type: sp.sport === 'TrailRun' ? 'Run' : sp.sport, sport_type: sp.sport, start_date: sp.date, start_date_local: sp.date.replace('Z', ''),
+    distance: +d.toFixed(1), moving_time: mv, elapsed_time: n, total_elevation_gain: Math.round(gain), average_speed: +(d / mv).toFixed(3), max_speed: +vmax.toFixed(2),
+    average_cadence: 82, trainer: false, device_watts: false, manual: false, has_heartrate: !sp.noHR, map: { id: 'd' + sp.id, summary_polyline: '', resource_state: 2 }, athlete: { id: 4242 }
+  };
+  if (!sp.noHR) { summary.average_heartrate = +(hrSum / n).toFixed(1); summary.max_heartrate = hrMax; }
+  return { streams: streams, summary: summary };
+}
+function deepInit(o) {
+  var count = o.count != null ? o.count : 200, acts = [], DEEP = { byId: {}, behav: {}, opts: o }, i, now = Date.now();
+  o.now = now;
+  for (i = 0; i < count; i++) {
+    var sp = deepSpec(i, o), r = deepBuild(sp);
+    DEEP.byId[sp.id] = r; acts.push(r.summary);
+    if (i % 11 === 3) {            // interleaved non-run activities (must be ignored)
+      var rd = JSON.parse(JSON.stringify(r.summary)); rd.id = sp.id + 500000000; rd.type = 'Ride'; rd.sport_type = 'Ride'; rd.name = 'Ride ' + i;
+      rd.start_date = new Date(Date.parse(sp.date) + 3600000).toISOString().replace(/\.\d+Z$/, 'Z'); rd.start_date_local = rd.start_date.replace('Z', '');
+      acts.push(rd);
+    }
+  }
+  (o.forbid || []).forEach(function (ix) { DEEP.behav[DEEP_ID0 + ix + 1] = '403'; });
+  (o.missing || []).forEach(function (ix) { DEEP.behav[DEEP_ID0 + ix + 1] = '404'; });
+  (o.hang || []).forEach(function (ix) { DEEP.behav[DEEP_ID0 + ix + 1] = 'hang'; });   // streams request never answers (or answers after o.hangMs = a LATE response)
+  (o.scope403 || []).forEach(function (ix) { DEEP.behav[DEEP_ID0 + ix + 1] = 'scope'; });
+  return { deep: DEEP, acts: acts };
+}
+
 // ── state ──────────────────────────────────────────────────────────────────
 var S;
 function reset() {
   S = { access: { 'mock_access_0': Date.now() / 1000 + 21600 }, currentAccess: 'mock_access_0', refresh: 'mock_refresh_0', n: 0,
-    ttl: 21600, processingMs: 2500, faults: [], uploads: {}, uploadSeq: 7000000, stats: {}, readCalls: [], activitySeq: 9100000000, seenHashes: {}, seenExt: {} };
+    ttl: 21600, processingMs: 2500, faults: [], uploads: {}, uploadSeq: 7000000, stats: {}, readCalls: [], activitySeq: 9100000000, seenHashes: {}, seenExt: {}, deep: null, skewMs: 0, deepHits: {} };
 }
 reset();
 
@@ -232,7 +295,7 @@ function parseMultipart(buf, ctype) {
 }
 
 function usageHeaders() {
-  var now = Date.now(), win = Math.floor(now / 900000) * 900000;
+  var now = Date.now() + (S.skewMs || 0), win = Math.floor(now / 900000) * 900000;
   S.readCalls = S.readCalls.filter(function (t) { return t >= win; });
   return { 'X-RateLimit-Limit': '200,2000', 'X-RateLimit-Usage': S.readCalls.length + ',' + (S.stats.total || 0),
     'X-ReadRateLimit-Limit': '100,1000', 'X-ReadRateLimit-Usage': S.readCalls.length + ',' + (S.stats.total || 0) };
@@ -247,6 +310,8 @@ function handle(req, res) {
   // ── control
   if (path === '/mock/reset') { reset(); return send(res, 200, { ok: true }); }
   if (path === '/mock/stats') return send(res, 200, S.stats);
+  if (path === '/mock/deephits') return send(res, 200, S.deepHits || {});
+  if (path === '/mock/deeplate') return send(res, 200, { late: (S.deep && S.deep.late) || 0 });
   if (path === '/mock/uploads') return send(res, 200, Object.keys(S.uploads).map(function (k) { return S.uploads[k]; }));
   if (path === '/mock/expire') { Object.keys(S.access).forEach(function (k) { S.access[k] = Math.floor(Date.now() / 1000) - 10; }); return send(res, 200, { ok: true }); }
   if (path === '/mock/info') return send(res, 200, { activities: ACTS.map(function (a) { return { id: a.id, name: a.name, sport_type: a.sport_type, distance: a.distance, gain: a.total_elevation_gain, moving: a.moving_time }; }), baseLoopM: Math.round(BASE_LOOP.L), decoyLoopM: Math.round(DECOY_LOOP.L), reverseLoopM: Math.round(REV_LOOP.L) });
@@ -257,11 +322,18 @@ function handle(req, res) {
       send(res, 200, { ok: true, extra: S.extraActs.length });
     });
   }
+  if (path === '/mock/deep' && req.method === 'POST') {   // synthetic deep history: {count, names:{idx:name}, forbid:[idx], missing:[idx], scope403:[idx]}
+    return readBody(req).then(function (b) {
+      var j = {}; try { j = JSON.parse(b.toString() || '{}'); } catch (e) {}
+      var r = deepInit(j); S.deep = r.deep; S.deepHits = {}; S.extraActs = r.acts; S.only = true;
+      send(res, 200, { ok: true, activities: r.acts.length, firstRunId: DEEP_ID0 + 1 });
+    });
+  }
   if (path === '/mock/fault' || path === '/mock/config') {
     return readBody(req).then(function (b) {
       var j = {}; try { j = JSON.parse(b.toString() || '{}'); } catch (e) {}
       if (path === '/mock/fault') S.faults.push({ kind: j.kind, count: j.count || 1 });
-      else { if (j.processingMs != null) S.processingMs = j.processingMs; if (j.tokenTtl != null) S.ttl = j.tokenTtl; }
+      else { if (j.processingMs != null) S.processingMs = j.processingMs; if (j.tokenTtl != null) S.ttl = j.tokenTtl; if (j.skewMs != null) S.skewMs = j.skewMs; }
       send(res, 200, { ok: true, faults: S.faults });
     });
   }
@@ -295,7 +367,7 @@ function handle(req, res) {
     }
   }
   var isUploadPost = req.method === 'POST' && path === '/api/v3/uploads';
-  if (!isUploadPost) S.readCalls.push(Date.now());
+  if (!isUploadPost) S.readCalls.push(Date.now() + (S.skewMs || 0));
   var uh = usageHeaders();
   var p = path.replace('/api/v3', ''), m;
 
@@ -316,6 +388,22 @@ function handle(req, res) {
     if (det.distance - km * 1000 > 50) sp.push({ distance: Math.round(det.distance - km * 1000), elapsed_time: 100, moving_time: 100, split: km + 1, average_speed: det.average_speed });
     o.calories = Math.round(det.distance / 1000 * 62); o.splits_metric = sp; o.resource_state = 3;
     return send(res, 200, o, uh);
+  }
+  if (S.deep && (m = /^\/activities\/(\d+)\/streams$/.exec(p)) && S.deep.byId[m[1]]) {
+    var bh = S.deep.behav[m[1]];
+    S.deepHits = S.deepHits || {}; S.deepHits[m[1]] = (S.deepHits[m[1]] || 0) + 1;
+    if (bh === 'hang' && !(S.deep.opts && S.deep.opts.hangMs)) return;   // never answer: the socket just stays open
+    if (bh === '404') return send(res, 404, { message: 'Record Not Found', errors: [{ resource: 'Activity', field: 'id', code: 'not found' }] }, uh);
+    if (bh === '403') return send(res, 403, { message: 'Authorization Error', errors: [{ resource: 'Activity', field: 'activity', code: 'unauthorized' }] }, uh);
+    if (bh === 'scope') return send(res, 403, { message: 'Authorization Error', errors: [{ resource: 'AccessToken', field: 'activity:read_permission', code: 'missing' }] }, uh);
+    if (bh === 'hang') { var lateMs = S.deep.opts.hangMs, hid = m[1]; S.deep.behav[hid] = null; return setTimeout(function () { try { S.deep.late = (S.deep.late || 0) + 1; var rr = S.deep.byId[hid], oo = {}; ['time', 'heartrate'].forEach(function (k) { oo[k] = { data: rr.streams[k] }; }); send(res, 200, oo, uh); } catch (e) {} }, lateMs); }
+    var dr = S.deep.byId[m[1]], dkeys = (q.get('keys') || 'time').split(','), dkeyed = q.get('key_by_type') === 'true', dout = dkeyed ? {} : [];
+    dkeys.forEach(function (k) {
+      if (!dr.streams[k]) return;
+      var o = { data: dr.streams[k], series_type: 'time', original_size: dr.streams[k].length, resolution: 'high' };
+      if (dkeyed) dout[k] = o; else { o.type = k; dout.push(o); }
+    });
+    return send(res, 200, dout, uh);
   }
   if ((m = /^\/activities\/(\d+)\/streams$/.exec(p))) {
     var sim = SIMS[m[1]]; if (!sim) return send(res, 404, { message: 'Record Not Found' }, uh);

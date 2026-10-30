@@ -62,3 +62,15 @@ body.cr-open { overflow: hidden; }
 @media (min-width: 1500px) { .cr-panel { padding-left: 24px; } .cr-title { padding-left: 80px; /* ROM back-arrow safe zone (110px / 1.55) */ }
   .cr-btn, .cr-select { height: 44px; } .cr-open { height: 48px; } .cr-pk { width: 36px; height: 36px; line-height: 36px; } .cr-select { font-size: 14px; } .cr-panel { padding-bottom: 100px; } }
 .cr-table tr.cr-secrow th { text-align: left; font-size: 12px; letter-spacing: .12em; color: var(--dim, #9aa6bb); padding-top: 12px; border-bottom: 2px solid var(--border, #2a3345); }
+
+/* Part 2: link to insights.html next to COMPARE RUNS (Strava orange), picker filter for 200+ runs, loading note */
+.cr-insights { display: inline-flex; align-items: center; margin-left: 16px; border-color: #FC5200; color: #FC5200; text-decoration: none; }
+.cr-insights:active { background: rgba(252,82,0,.2); }
+.cr-filter { display: flex; align-items: center; margin-bottom: 14px; }
+.cr-search { flex: 1; min-width: 0; height: 64px; padding: 0 16px; margin-right: 12px; border-radius: 14px; background: var(--card2, #1d2433); color: var(--text, #f3f6fb); border: 2px solid var(--border, #2a3345); font-size: 18px; font-family: inherit; }
+.cr-search:focus { border-color: var(--cyan, #37d0ff); outline: none; }
+.cr-count { margin-left: 8px; color: var(--dim, #9aa6bb); font-size: 15px; font-weight: 600; white-space: nowrap; }
+.cr-loading { margin: 0 0 14px; }
+@media (min-width: 1500px) { .cr-search { height: 44px; font-size: 15px; } .cr-insights { height: 48px; } }
+.cr-entry .cr-open { white-space: nowrap; flex: none; }
+.cr-entry-hint { min-width: 0; }

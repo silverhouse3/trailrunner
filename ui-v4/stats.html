@@ -241,7 +241,7 @@ details.section[open] > summary::after { content: '▴'; }
   <div class="sv-line" id="svImportLine" role="status" aria-live="polite"></div>
 </div>
 
-<div class="cr-entry"><button class="cr-open" id="crOpenBtn" type="button">COMPARE RUNS</button><span class="cr-entry-hint">pick any two saved runs: summary deltas, heart-rate overlay, splits</span></div>
+<div class="cr-entry"><button class="cr-open" id="crOpenBtn" type="button">COMPARE RUNS</button><a class="cr-open cr-insights" id="crInsightsBtn" href="insights.html">PAST RUNS &amp; INSIGHTS</a><span class="cr-entry-hint">pick any two saved runs (your own and imported Strava runs): summary deltas, heart-rate overlay, splits</span></div>
 
 <div class="period-grid" id="periodGrid"></div>
 
@@ -352,6 +352,7 @@ if(v>0){document.body.className+=' rom-bottom';document.documentElement.style.se
 <script src="js/strava-racers.js"></script>
 <script src="js/strava-upload.js"></script>
 <script src="js/strava-import.js"></script>
+<script src="js/hrtrain-read.js"></script>
 <script src="js/compare-runs.js"></script>
 <script>
 // ui-v4: demo seeding must happen BEFORE the stats code below reads localStorage
