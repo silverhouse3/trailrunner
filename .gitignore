@@ -57,3 +57,14 @@ design/ifit-reference/
 tools/*.bak-*
 trlink2/test/vec/test.pk8
 *.pk8
+
+# Personal health data: never in the public repo (Strava downloader)
+private/
+tools/strava_cache/
+*.strava.json
+
+tools/__pycache__/
+__pycache__/
+
+# iFit shared client credential files (certs + private key): keep local, never publish
+bridge/keys/
